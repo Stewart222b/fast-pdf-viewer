@@ -349,15 +349,17 @@ export class PdfViewer {
     if (!this.pdf || dest == null) return;
     const pdf = this.pdf;
     const generation = this.generation;
+    const navigation = ++this.navigationGeneration;
+    const current = () => generation === this.generation && navigation === this.navigationGeneration;
     try {
       let explicit = dest;
       if (typeof dest === "string") explicit = await pdf.getDestination(dest);
-      if (!explicit || generation !== this.generation) return;
+      if (!explicit || !current()) return;
       const ref = explicit[0];
       const pageIndex = typeof ref === "object" ? await pdf.getPageIndex(ref) : Number(ref);
-      if (generation === this.generation) this.goToPage(pageIndex + 1, { push });
+      if (current()) this.goToPage(pageIndex + 1, { push });
     } catch (error) {
-      if (generation === this.generation) console.error("PDF destination failed", error);
+      if (current()) console.error("PDF destination failed", error);
     }
   }
 
@@ -367,10 +369,12 @@ export class PdfViewer {
 
   goToPage(pageNumber, { push = false, instant = false } = {}) {
     if (!this.pageCount || !Number.isFinite(pageNumber)) return;
+    this.navigationGeneration += 1;
     const n = Math.min(this.pageCount, Math.max(1, Math.trunc(pageNumber)));
     if (push) this.history.commit(this.getState());
     this.currentPage = n;
-    this.scrollToPage(n, { instant });
+    // History must capture the completed destination, not a smooth-scroll frame.
+    this.scrollToPage(n, { instant: instant || push });
     if (push) this.history.push(this.getState());
     this.notify();
   }
@@ -403,12 +407,14 @@ export class PdfViewer {
   }
 
   back() {
+    this.navigationGeneration += 1;
     if (!this.history.canBack()) return;
     this.history.commit(this.getState());
     this.restore(this.history.back());
   }
 
   forward() {
+    this.navigationGeneration += 1;
     if (!this.history.canForward()) return;
     this.history.commit(this.getState());
     this.restore(this.history.forward());

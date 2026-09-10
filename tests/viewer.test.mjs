@@ -144,3 +144,47 @@ test('obsolete load failure does not close the new document', async () => {
   a.reject(new Error('cancelled old load')); assert.equal(await old, null);
   assert.equal(viewer.name, 'B');
 });
+
+test('page navigation records the destination before immediate back/forward', async () => {
+  const { viewer, history, wrapEl } = await setup();
+  viewer.pageCount = 2;
+  viewer.pageEls = [pageElement(), pageElement()];
+  viewer.pageEls[1].offsetTop = 1000;
+  wrapEl.scrollTop = 120;
+  history.reset(viewer.getState());
+  const scrollTo = wrapEl.scrollTo.bind(wrapEl);
+  wrapEl.scrollTo = position => {
+    // Browsers do not update scrollTop to the destination synchronously for smooth scrolling.
+    if (position.behavior !== 'smooth') scrollTo(position);
+  };
+  viewer.goToPage(2, { push: true });
+  assert.equal(history.current().scrollTop, 984);
+  viewer.back(); assert.equal(wrapEl.scrollTop, 120);
+  viewer.forward(); assert.equal(wrapEl.scrollTop, 984);
+  assert.equal(viewer.currentPage, 2);
+});
+
+test('a late link destination cannot override a newer page navigation', async () => {
+  const { viewer } = await setup();
+  const waiting = deferred();
+  viewer.pdf = { getDestination: () => waiting.promise };
+  viewer.pageCount = 3; viewer.pageEls = [pageElement(), pageElement(), pageElement()];
+  const old = viewer.goToDest('old-link', true);
+  viewer.goToPage(3, { push: true });
+  waiting.resolve([0]); await old;
+  assert.equal(viewer.currentPage, 3);
+});
+
+test('back navigation cancels a pending search jump', async () => {
+  const { viewer, history, wrapEl } = await setup();
+  viewer.pdf = pdf('A'); viewer.pageCount = 2; viewer.pageEls = [pageElement(), pageElement()];
+  wrapEl.scrollTop = 20; history.reset(viewer.getState());
+  viewer.pageEls[1].offsetTop = 1000;
+  viewer.goToPage(2, { push: true, instant: true });
+  viewer.hits = [{ pageNumber: 1, offset: 0, length: 1 }];
+  const waiting = deferred(); viewer.renderPage = () => waiting.promise;
+  const jumping = viewer.jumpToHit(0, { push: true });
+  viewer.back(); waiting.resolve(); await jumping;
+  assert.equal(wrapEl.scrollTop, 20);
+  assert.equal(history.index, 0);
+});

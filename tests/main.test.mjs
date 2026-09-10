@@ -87,3 +87,29 @@ test('late outline response cannot overwrite a newer document outline', async ()
   waiting.resolve([{ title: 'A outline', dest: 1 }]); await a;
   assert.equal(app.get('outline-pane').children[0].textContent, 'B outline');
 });
+
+
+test('one physical side-button release navigates exactly once', async () => {
+  const app = await setup();
+  const calls = [];
+  app.viewer.back = () => calls.push('back');
+  app.viewer.forward = () => calls.push('forward');
+  for (const button of [3, 4, 3]) {
+    for (const type of ['mousedown', 'pointerup', 'mouseup', 'auxclick']) {
+      let prevented = false;
+      app.dispatch(type, { button, preventDefault() { prevented = true; } });
+      assert.equal(prevented, true);
+    }
+  }
+  assert.deepEqual(calls, ['back', 'forward', 'back']);
+});
+
+test('primary and middle clicks keep their default behavior', async () => {
+  const app = await setup();
+  app.viewer.back = app.viewer.forward = () => assert.fail('unexpected navigation');
+  for (const button of [0, 1, 2]) {
+    for (const type of ['mousedown', 'pointerup', 'mouseup', 'auxclick']) {
+      app.dispatch(type, { button, preventDefault() { assert.fail('unexpected prevention'); } });
+    }
+  }
+});

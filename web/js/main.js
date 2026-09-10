@@ -273,7 +273,8 @@ for (const type of ["mousedown", "mouseup", "auxclick", "pointerup"]) {
     (event) => {
       if (event.button !== 3 && event.button !== 4) return;
       event.preventDefault();
-      if (type === "mousedown") return;
+      // Suppress browser navigation for every side-button event, but act once.
+      if (type !== "mouseup") return;
       if (event.button === 3) viewer.back();
       else viewer.forward();
     },
