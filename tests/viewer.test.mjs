@@ -79,7 +79,7 @@ test('stale index cannot write text into the next document', async () => {
   viewer.close(); viewer.pdf = pdf('B');
   await viewer.indexText(); waiting.resolve(content('A')); await indexing;
   assert.equal(viewer.pageTexts[0].text, 'B');
-  assert.equal(viewer.textContents.get(1).items[0].str, 'B');
+  assert.equal(viewer.textContents.has(1), false);
 });
 
 test('close resets document state and releases loading resources', async () => {
@@ -187,4 +187,39 @@ test('back navigation cancels a pending search jump', async () => {
   viewer.back(); waiting.resolve(); await jumping;
   assert.equal(wrapEl.scrollTop, 20);
   assert.equal(history.index, 0);
+});
+
+
+test('page cache evicts offscreen canvases and retains visible pages', async () => {
+  const { viewer, wrapEl } = await setup();
+  viewer.pageEls = Array.from({ length: 12 }, (_, i) => {
+    const el = pageElement(); el.offsetTop = i * 900; el.offsetHeight = 800;
+    el.querySelector('canvas').width = 600; el.querySelector('canvas').height = 800;
+    el.dataset.renderedZoom = '1.500'; return el;
+  });
+  let cleaned = 0;
+  for (let i = 1; i <= 12; i++) {
+    viewer.renderedPages.set(i, { cleanup() { cleaned++; } });
+    viewer.textContents.set(i, content('test'));
+  }
+  wrapEl.scrollTop = 10 * 900;
+  viewer.trimCache();
+  assert.equal(viewer.renderedPages.size, 8);
+  assert.equal(cleaned, 4);
+  assert.equal(viewer.pageEls[0].querySelector('canvas').width, 0);
+  assert.equal(viewer.renderedPages.has(11), true);
+  assert.equal(viewer.textContents.has(1), false);
+});
+
+test('index exposes early page results while a later page is still pending', async () => {
+  const { viewer } = await setup();
+  const slow = deferred(), indexed = deferred();
+  viewer.pdf = { numPages: 2, getPage: async n => ({ getTextContent: () => n === 1 ? Promise.resolve(content('early')) : slow.promise }) };
+  viewer.onIndex = () => { if (viewer.indexedPages === 1) indexed.resolve(); };
+  const job = viewer.indexText();
+  await indexed.promise;
+  assert.equal(viewer.pageTexts[0].text, 'early');
+  assert.equal(viewer.indexedPages, 1);
+  slow.resolve(content('late')); await job;
+  assert.equal(viewer.indexedPages, 2);
 });

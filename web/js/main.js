@@ -12,6 +12,7 @@ const viewer = new PdfViewer({
   wrapEl: $("viewer-wrap"),
   history,
   onState: syncToolbar,
+  onIndex: refreshIndexedSearch,
 });
 
 const fileInput = document.createElement("input");
@@ -24,6 +25,8 @@ let settings = loadSettings();
 let searchHits = [];
 let openGeneration = 0;
 let searchGeneration = 0;
+let indexRefreshTimer = 0;
+let objectUrl = null;
 
 history.onChange(() => {
   $("btn-back").disabled = !history.canBack();
@@ -55,8 +58,12 @@ function syncToolbar(state) {
 async function openSource(getSource) {
   const request = ++openGeneration;
   searchGeneration += 1;
+  clearTimeout(indexRefreshTimer);
+  indexRefreshTimer = 0;
   clearTimeout(searchTimer);
   viewer.close();
+  if (objectUrl) URL.revokeObjectURL(objectUrl);
+  objectUrl = null;
   $("search-input").value = "";
   renderSearchList([], "");
   $("outline-pane").replaceChildren();
@@ -78,13 +85,14 @@ async function openSource(getSource) {
 }
 
 async function openFile(file) {
-  return openSource(async () => ({
-    data: new Uint8Array(await file.arrayBuffer()), name: file.name,
-  }));
+  return openSource(() => {
+    objectUrl = URL.createObjectURL(file);
+    return { url: objectUrl, name: file.name };
+  });
 }
 
-async function openUrl(name) {
-  return openSource(() => ({ url: `/opened.pdf?t=${Date.now()}`, name }));
+async function openUrl(name, id) {
+  return openSource(() => ({ url: `/opened.pdf?${id ? `id=${encodeURIComponent(id)}` : `t=${Date.now()}`}`, name }));
 }
 
 async function renderOutline(request) {
@@ -110,7 +118,7 @@ async function renderOutline(request) {
   walk(outline, 0);
 }
 
-function renderSearchList(hits, query) {
+function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)) {
   searchHits = hits;
   const pane = $("search-pane");
   const count = $("search-count");
@@ -129,7 +137,17 @@ function renderSearchList(hits, query) {
     return;
   }
   count.textContent = `${viewer.hitIndex + 1} / ${hits.length}`;
-  hits.forEach((hit, index) => {
+  const end = Math.min(hits.length, start + 200);
+  const moreButton = (label, nextStart) => {
+    const button = document.createElement("button");
+    button.className = "btn";
+    button.textContent = label;
+    button.addEventListener("click", () => renderSearchList(hits, query, nextStart));
+    pane.appendChild(button);
+  };
+  if (start > 0) moreButton("上一组结果", Math.max(0, start - 200));
+  hits.slice(start, end).forEach((hit, localIndex) => {
+    const index = start + localIndex;
     const btn = document.createElement("button");
     btn.className = `search-hit${index === viewer.hitIndex ? " active" : ""}`;
     btn.innerHTML = `<div class="meta">第 ${hit.pageNumber} 页 · ${index + 1}/${hits.length}</div>
@@ -144,19 +162,37 @@ function renderSearchList(hits, query) {
     });
     pane.appendChild(btn);
   });
+  if (end < hits.length) moreButton("下一组结果", end);
 }
 
-async function runSearch(query, request = searchGeneration) {
+function refreshIndexedSearch() {
+  if (indexRefreshTimer) return;
+  if ($("search-input").value.trim()) indexRefreshTimer = setTimeout(() => {
+    indexRefreshTimer = 0;
+    runSearch($("search-input").value, searchGeneration, false);
+  }, 100);
+}
+
+async function runSearch(query, request = searchGeneration, jump = true) {
   const generation = viewer.generation;
   const current = () => request === searchGeneration && generation === viewer.generation;
   try {
-    await viewer.indexPromise;
     if (!current()) return;
     const hits = searchDocument(viewer.pageTexts, query);
-    await viewer.showHits(hits, query, 0);
+    const unchanged = !jump && hits.length === searchHits.length && viewer.query === query;
+    if (!unchanged) await viewer.showHits(hits, query, jump ? 0 : Math.max(0, viewer.hitIndex), { jump });
     if (!current()) return;
-    renderSearchList(hits, query);
-    if (query) selectSidebar("search");
+    renderSearchList(unchanged ? searchHits : hits, query);
+    if (query) {
+      selectSidebar("search");
+      if (viewer.indexError) {
+        const warning = document.createElement("div");
+        warning.textContent = "部分页面索引失败，当前仅显示已读取结果。";
+        $("search-pane").appendChild(warning);
+      } else if (viewer.indexedPages < viewer.pageCount) {
+        $("search-count").textContent += ` · 索引 ${viewer.indexedPages}/${viewer.pageCount}`;
+      }
+    }
   } catch (error) {
     if (current()) $("search-pane").textContent = `搜索失败：${error.message || error}`;
   }
@@ -175,7 +211,7 @@ async function pickFile() {
     if (window.pywebview?.api?.pick) {
       const result = await window.pywebview.api.pick();
       if (result?.name) {
-        await openUrl(result.name);
+        await openUrl(result.name, result.id);
         return;
       }
     }
@@ -392,7 +428,7 @@ async function boot() {
     const res = await fetch("/api/startup");
     if (res.ok) {
       const data = await res.json();
-      if (data.hasFile && request === openGeneration) await openUrl(data.name);
+      if (data.hasFile && request === openGeneration) await openUrl(data.name, data.id);
     }
   } catch {
     /* opened as a static file */

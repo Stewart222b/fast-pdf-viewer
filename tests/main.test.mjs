@@ -12,6 +12,8 @@ async function setup() {
   const elements = new Map(), timers = new Map();
   let timerId = 0, viewer, fileInput;
   const windowListeners = {};
+  const revoked = [];
+  let nextBlob = 0;
   function element() {
     return { value: '', children: [], options: [], listeners: {}, style: {}, classList: { toggle() {}, add() {}, remove() {} },
       addEventListener(name, fn) { this.listeners[name] = fn; }, replaceChildren() { this.children = []; },
@@ -24,9 +26,10 @@ async function setup() {
     close() { this.generation++; this.indexPromise = null; this.pageTexts = []; }
     async open(source) { this.close(); this.source = source; this.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }]; return this; }
     async getOutline() { return this.outlinePromise || null; }
-    async showHits(hits, query) { this.shown.push(query); this.hitIndex = hits.length ? 0 : -1; }
+    async showHits(hits, query, index = 0, _options) { this.shown.push(query); this.hitIndex = hits.length ? index : -1; this.query = query; }
   }
   const context = vm.createContext({
+    URL: { createObjectURL: () => `blob:test-${++nextBlob}`, revokeObjectURL: url => revoked.push(url) },
     console, fetch: async () => ({ ok: false }),
     document: { getElementById: get, createElement: tag => { const el = element(); if (tag === 'input') fileInput = el; return el; }, body: element(), querySelectorAll: () => [], addEventListener() {} },
     window: { addEventListener(type, fn) { (windowListeners[type] ||= []).push(fn); } },
@@ -46,25 +49,25 @@ async function setup() {
     }, { context });
   });
   await main.evaluate();
-  return { viewer, get, fileInput,
+  return { viewer, get, fileInput, revoked,
     dispatch(type, event) { for (const fn of windowListeners[type] || []) fn(event); },
     input(value) { const el = get('search-input'); el.value = value; el.listeners.input({ target: el }); },
     runTimer() { const [id, fn] = [...timers].at(-1); timers.delete(id); return fn(); },
   };
 }
 
-test('queued queries waiting on indexing only display the newest query', async () => {
+test('queries show available results without waiting for full indexing', async () => {
   const app = await setup(), waiting = deferred();
   app.viewer.indexPromise = waiting.promise;
   app.viewer.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }];
   app.input('Alpha'); const a = app.runTimer();
   app.input('Beta'); const b = app.runTimer();
   waiting.resolve(); await Promise.all([a, b]);
-  assert.deepEqual(app.viewer.shown, ['', '', 'Beta']);
+  assert.deepEqual(app.viewer.shown, ['', 'Alpha', '', 'Beta']);
   assert.equal(app.get('search-count').textContent, '1 / 1');
 });
 
-test('slow file reading cannot replace a newer selected document', async () => {
+test('file loading uses revocable blob URLs without reading entire files', async () => {
   const app = await setup(), waiting = deferred();
   app.fileInput.files = [{ name: 'A', arrayBuffer: () => waiting.promise }];
   const a = app.fileInput.listeners.change();
@@ -72,6 +75,8 @@ test('slow file reading cannot replace a newer selected document', async () => {
   await app.fileInput.listeners.change();
   waiting.resolve(new ArrayBuffer(0)); await a;
   assert.equal(app.viewer.source.name, 'B');
+  assert.equal(app.viewer.source.url, 'blob:test-2');
+  assert.deepEqual(app.revoked, ['blob:test-1']);
 });
 
 test('late outline response cannot overwrite a newer document outline', async () => {

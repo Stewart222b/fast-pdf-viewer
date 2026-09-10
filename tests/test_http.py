@@ -38,5 +38,49 @@ class PdfResponseTests(unittest.TestCase):
             app.set_opened(None)
 
 
+class PdfRangeTests(unittest.TestCase):
+    def test_ranges_head_and_document_identity(self):
+        server = app.start_server(0)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                file = Path(directory) / 'range.pdf'
+                data = b'%PDF-' + bytes(range(256)) * 4096
+                file.write_bytes(data)
+                app.set_opened(file)
+                old_id = app.opened['id']
+                for header, status, expected in [
+                    ('bytes=0-4', 206, data[:5]), ('bytes=5-', 206, data[5:]),
+                    ('bytes=-8', 206, data[-8:]), ('bytes=9999999-', 416, b''),
+                    ('bytes=-0', 416, b''), ('bytes=8-2', 416, b''),
+                    ('bytes=0-1,4-5', 200, data),
+                ]:
+                    with self.subTest(range=header):
+                        c = HTTPConnection(*server.server_address, timeout=3)
+                        c.request('GET', '/opened.pdf', headers={'Range': header})
+                        r = c.getresponse()
+                        self.assertEqual(r.status, status)
+                        self.assertEqual(r.read(), expected)
+                        if status == 206:
+                            self.assertTrue(r.getheader('Content-Range').startswith('bytes '))
+                        c.close()
+                c = HTTPConnection(*server.server_address, timeout=3)
+                c.request('HEAD', '/opened.pdf')
+                r = c.getresponse()
+                self.assertEqual(r.status, 200)
+                self.assertEqual(int(r.getheader('Content-Length')), len(data))
+                self.assertEqual(r.getheader('Accept-Ranges'), 'bytes')
+                self.assertEqual(r.read(), b'')
+                c.close()
+                app.set_opened(file)
+                c = HTTPConnection(*server.server_address, timeout=3)
+                c.request('GET', '/opened.pdf?id=' + old_id)
+                self.assertEqual(c.getresponse().status, 409)
+                c.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            app.set_opened(None)
+
+
 if __name__ == '__main__':
     unittest.main()
