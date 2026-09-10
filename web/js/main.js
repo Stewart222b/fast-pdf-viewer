@@ -1,0 +1,368 @@
+import { ViewHistory } from "./history.js";
+import { highlightSnippet, searchDocument } from "./search.js";
+import { loadSettings, saveSettings } from "./settings.js";
+import { translateText } from "./translate.js";
+import { PdfViewer } from "./viewer.js";
+
+const $ = (id) => document.getElementById(id);
+
+const history = new ViewHistory();
+const viewer = new PdfViewer({
+  pagesEl: $("pages"),
+  wrapEl: $("viewer-wrap"),
+  history,
+  onState: syncToolbar,
+});
+
+const fileInput = document.createElement("input");
+fileInput.type = "file";
+fileInput.accept = "application/pdf,.pdf";
+fileInput.hidden = true;
+document.body.appendChild(fileInput);
+
+let settings = loadSettings();
+let searchHits = [];
+
+history.onChange(() => {
+  $("btn-back").disabled = !history.canBack();
+  $("btn-forward").disabled = !history.canForward();
+});
+
+function syncToolbar(state) {
+  $("page-input").value = String(state.page || 1);
+  $("page-count").textContent = String(viewer.pageCount || 0);
+  $("doc-title").textContent = viewer.name || "未打开文件";
+  $("drop-hint").classList.toggle("hidden", Boolean(viewer.pdf));
+  if (!["page-width", "page-fit"].includes(String(state.zoom))) {
+    const value = String(state.zoom);
+    const select = $("zoom-select");
+    if (![...select.options].some((opt) => opt.value === value)) {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = `${value}%`;
+      select.appendChild(opt);
+    }
+    select.value = value;
+  } else {
+    $("zoom-select").value = String(state.zoom);
+  }
+  $("btn-back").disabled = !history.canBack();
+  $("btn-forward").disabled = !history.canForward();
+}
+
+async function openFile(file) {
+  const data = new Uint8Array(await file.arrayBuffer());
+  await viewer.open({ data, name: file.name });
+  await afterOpen();
+}
+
+async function openUrl(name) {
+  await viewer.open({ url: `/opened.pdf?t=${Date.now()}`, name });
+  await afterOpen();
+}
+
+async function afterOpen() {
+  await renderOutline();
+  $("search-input").value = "";
+  renderSearchList([], "");
+  viewer.indexPromise?.then(() => {
+    const q = $("search-input").value.trim();
+    if (q) runSearch(q, false);
+  });
+}
+
+async function renderOutline() {
+  const pane = $("outline-pane");
+  const outline = await viewer.getOutline();
+  pane.replaceChildren();
+  if (!outline?.length) {
+    pane.innerHTML = '<div class="empty-side">这份 PDF 没有目录。</div>';
+    return;
+  }
+  const walk = (items, depth) => {
+    for (const item of items) {
+      const btn = document.createElement("button");
+      btn.className = "outline-item";
+      btn.style.paddingLeft = `${10 + depth * 14}px`;
+      btn.textContent = item.title || "未命名";
+      btn.addEventListener("click", () => viewer.goToDest(item.dest, true));
+      pane.appendChild(btn);
+      if (item.items?.length) walk(item.items, depth + 1);
+    }
+  };
+  walk(outline, 0);
+}
+
+function renderSearchList(hits, query) {
+  searchHits = hits;
+  const pane = $("search-pane");
+  const count = $("search-count");
+  pane.replaceChildren();
+  $("search-prev").disabled = hits.length === 0;
+  $("search-next").disabled = hits.length === 0;
+  if (!query) {
+    count.hidden = true;
+    pane.innerHTML = '<div class="empty-side">输入关键词后，这里会列出全部命中。</div>';
+    return;
+  }
+  count.hidden = false;
+  if (!hits.length) {
+    count.textContent = "0 条";
+    pane.innerHTML = '<div class="empty-side">没有找到匹配。</div>';
+    return;
+  }
+  count.textContent = `${viewer.hitIndex + 1} / ${hits.length}`;
+  hits.forEach((hit, index) => {
+    const btn = document.createElement("button");
+    btn.className = `search-hit${index === viewer.hitIndex ? " active" : ""}`;
+    btn.innerHTML = `<div class="meta">第 ${hit.pageNumber} 页 · ${index + 1}/${hits.length}</div>
+      <div class="snippet">${highlightSnippet(hit.snippet, query)}</div>`;
+    btn.addEventListener("click", async () => {
+      await viewer.jumpToHit(index, { push: true });
+      renderSearchList(hits, query);
+    });
+    pane.appendChild(btn);
+  });
+}
+
+async function runSearch(query, jump = true) {
+  await viewer.indexPromise;
+  const hits = searchDocument(viewer.pageTexts, query);
+  if (jump) await viewer.showHits(hits, query, 0);
+  else {
+    viewer.hits = hits;
+    viewer.query = query;
+    viewer.hitIndex = hits.length ? 0 : -1;
+  }
+  renderSearchList(hits, query);
+  if (query) selectSidebar("search");
+}
+
+function selectSidebar(name) {
+  document.querySelectorAll(".tab").forEach((tab) => {
+    tab.classList.toggle("active", tab.dataset.tab === name);
+  });
+  $("outline-pane").classList.toggle("active", name === "outline");
+  $("search-pane").classList.toggle("active", name === "search");
+}
+
+async function pickFile() {
+  try {
+    if (window.pywebview?.api?.pick) {
+      const result = await window.pywebview.api.pick();
+      if (result?.name) {
+        await openUrl(result.name);
+        return;
+      }
+    }
+  } catch {
+    /* fall through to file input */
+  }
+  fileInput.click();
+}
+
+fileInput.addEventListener("change", async () => {
+  const file = fileInput.files?.[0];
+  fileInput.value = "";
+  if (file) await openFile(file);
+});
+
+$("btn-open").addEventListener("click", pickFile);
+$("btn-back").addEventListener("click", () => viewer.back());
+$("btn-forward").addEventListener("click", () => viewer.forward());
+$("btn-zoom-in").addEventListener("click", () => {
+  $("zoom-select").value = viewer.bumpZoom(1);
+});
+$("btn-zoom-out").addEventListener("click", () => {
+  $("zoom-select").value = viewer.bumpZoom(-1);
+});
+$("zoom-select").addEventListener("change", (event) => {
+  viewer.setZoom(event.target.value);
+});
+$("page-input").addEventListener("change", (event) => {
+  viewer.goToPage(Number(event.target.value), { push: true });
+});
+
+document.querySelectorAll(".tab").forEach((tab) => {
+  tab.addEventListener("click", () => selectSidebar(tab.dataset.tab));
+});
+
+let searchTimer = 0;
+$("search-input").addEventListener("input", (event) => {
+  const query = event.target.value;
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => runSearch(query), 180);
+});
+$("search-input").addEventListener("keydown", async (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    if (event.shiftKey) await moveHit(-1);
+    else await moveHit(1);
+  }
+});
+$("search-prev").addEventListener("click", () => moveHit(-1));
+$("search-next").addEventListener("click", () => moveHit(1));
+
+async function moveHit(step) {
+  if (!searchHits.length) return;
+  const next = (viewer.hitIndex + step + searchHits.length) % searchHits.length;
+  await viewer.jumpToHit(next, { push: true });
+  renderSearchList(searchHits, $("search-input").value);
+}
+
+const wrap = $("viewer-wrap");
+wrap.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  wrap.classList.add("dragover");
+});
+wrap.addEventListener("dragleave", () => wrap.classList.remove("dragover"));
+wrap.addEventListener("drop", async (event) => {
+  event.preventDefault();
+  wrap.classList.remove("dragover");
+  const file = [...(event.dataTransfer?.files || [])].find((item) =>
+    item.name.toLowerCase().endsWith(".pdf"),
+  );
+  if (file) await openFile(file);
+});
+
+wrap.addEventListener(
+  "wheel",
+  (event) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    $("zoom-select").value = viewer.bumpZoom(event.deltaY < 0 ? 1 : -1);
+  },
+  { passive: false },
+);
+
+for (const type of ["mousedown", "mouseup", "auxclick", "pointerup"]) {
+  window.addEventListener(
+    type,
+    (event) => {
+      if (event.button !== 3 && event.button !== 4) return;
+      event.preventDefault();
+      if (type === "mousedown") return;
+      if (event.button === 3) viewer.back();
+      else viewer.forward();
+    },
+    true,
+  );
+}
+
+window.addEventListener("keydown", (event) => {
+  const typing = event.target.matches("input, textarea, select");
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o") {
+    event.preventDefault();
+    pickFile();
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
+    event.preventDefault();
+    $("search-input").focus();
+    $("search-input").select();
+  }
+  if ((event.ctrlKey || event.metaKey) && (event.key === "=" || event.key === "+")) {
+    event.preventDefault();
+    $("zoom-select").value = viewer.bumpZoom(1);
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key === "-") {
+    event.preventDefault();
+    $("zoom-select").value = viewer.bumpZoom(-1);
+  }
+  if (event.altKey && event.key === "ArrowLeft") {
+    event.preventDefault();
+    viewer.back();
+  }
+  if (event.altKey && event.key === "ArrowRight") {
+    event.preventDefault();
+    viewer.forward();
+  }
+  if (event.key === "Backspace" && !typing) {
+    event.preventDefault();
+    viewer.back();
+  }
+});
+
+const bubble = $("translate-bubble");
+let selectedText = "";
+
+function hideBubble() {
+  bubble.hidden = true;
+  $("translate-result").hidden = true;
+  $("translate-result").textContent = "";
+}
+
+function showBubble(x, y, text) {
+  selectedText = text;
+  $("translate-source").textContent = text;
+  $("translate-result").hidden = true;
+  bubble.hidden = false;
+  const left = Math.min(x, window.innerWidth - bubble.offsetWidth - 12);
+  const top = Math.min(y, window.innerHeight - 12);
+  bubble.style.left = `${Math.max(12, left)}px`;
+  bubble.style.top = `${Math.max(12, top)}px`;
+}
+
+document.addEventListener("mouseup", (event) => {
+  if (bubble.contains(event.target)) return;
+  const selection = window.getSelection();
+  const text = selection?.toString().trim() || "";
+  if (!text || !selection.rangeCount) {
+    if (!event.target.closest("#translate-bubble")) hideBubble();
+    return;
+  }
+  const range = selection.getRangeAt(0);
+  if (!range.startContainer.parentElement?.closest(".textLayer")) {
+    hideBubble();
+    return;
+  }
+  const rect = range.getBoundingClientRect();
+  showBubble(rect.left, rect.bottom + 8, text);
+});
+
+$("btn-bubble-close").addEventListener("click", hideBubble);
+$("btn-copy").addEventListener("click", async () => {
+  if (selectedText) await navigator.clipboard.writeText(selectedText);
+});
+$("btn-translate").addEventListener("click", async () => {
+  const result = $("translate-result");
+  result.hidden = false;
+  result.textContent = "翻译中…";
+  try {
+    result.textContent = await translateText(selectedText, loadSettings());
+  } catch (error) {
+    result.textContent = error.message || String(error);
+  }
+});
+
+$("btn-settings").addEventListener("click", () => {
+  settings = loadSettings();
+  $("setting-key").value = settings.apiKey;
+  $("setting-model").value = settings.model;
+  $("setting-lang").value = settings.targetLang;
+  $("settings-modal").hidden = false;
+});
+$("btn-settings-cancel").addEventListener("click", () => {
+  $("settings-modal").hidden = true;
+});
+$("btn-settings-save").addEventListener("click", () => {
+  settings = saveSettings({
+    apiKey: $("setting-key").value.trim(),
+    model: $("setting-model").value.trim() || "openai/gpt-4o-mini",
+    targetLang: $("setting-lang").value,
+  });
+  $("settings-modal").hidden = true;
+});
+
+async function boot() {
+  try {
+    const res = await fetch("/api/startup");
+    if (res.ok) {
+      const data = await res.json();
+      if (data.hasFile) await openUrl(data.name);
+    }
+  } catch {
+    /* opened as a static file */
+  }
+}
+
+boot();

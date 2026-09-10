@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>速览</title>
+    <link rel="stylesheet" href="./vendor/pdfjs/web/pdf_viewer.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="toolbar">
+        <div class="toolbar-left">
+          <button id="btn-open" class="btn primary" title="打开 PDF (Ctrl+O)">打开</button>
+          <button id="btn-back" class="btn icon" title="返回（鼠标侧键 / Alt+← / Backspace）" disabled>←</button>
+          <button id="btn-forward" class="btn icon" title="前进（鼠标侧键 / Alt+→）" disabled>→</button>
+          <div class="divider"></div>
+          <label class="page-box">
+            <input id="page-input" type="number" min="1" value="1" />
+            <span>/ <b id="page-count">0</b></span>
+          </label>
+        </div>
+        <div class="toolbar-center">
+          <span id="doc-title" class="doc-title">未打开文件</span>
+        </div>
+        <div class="toolbar-right">
+          <button id="btn-zoom-out" class="btn icon" title="缩小 (Ctrl+-)">−</button>
+          <select id="zoom-select" title="缩放">
+            <option value="page-width">适合宽度</option>
+            <option value="page-fit">适合页面</option>
+            <option value="100">100%</option>
+            <option value="125">125%</option>
+            <option value="150" selected>150%</option>
+            <option value="200">200%</option>
+            <option value="250">250%</option>
+          </select>
+          <button id="btn-zoom-in" class="btn icon" title="放大 (Ctrl+=)">+</button>
+          <div class="divider"></div>
+          <div class="search-box">
+            <input id="search-input" type="search" placeholder="搜索文档 (Ctrl+F)" />
+            <span id="search-count" class="search-count" hidden></span>
+            <button id="search-prev" class="btn icon tiny" title="上一个 (Shift+Enter)" disabled>↑</button>
+            <button id="search-next" class="btn icon tiny" title="下一个 (Enter)" disabled>↓</button>
+          </div>
+          <button id="btn-settings" class="btn icon" title="设置">⚙</button>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <aside id="sidebar" class="sidebar">
+          <div class="sidebar-tabs">
+            <button data-tab="outline" class="tab active">目录</button>
+            <button data-tab="search" class="tab">搜索结果</button>
+          </div>
+          <div id="outline-pane" class="sidebar-pane active"></div>
+          <div id="search-pane" class="sidebar-pane"></div>
+        </aside>
+        <main id="viewer-wrap" class="viewer-wrap">
+          <div id="drop-hint" class="drop-hint">
+            <div>
+              <h1>速览</h1>
+              <p>把 PDF 拖到这里，或点击左上角打开。</p>
+              <ul>
+                <li>鼠标侧键 / Alt+← 返回刚才的位置</li>
+                <li>搜索会列出全部结果，并显示第几条</li>
+                <li>划词后可一键翻译（OpenRouter）</li>
+              </ul>
+            </div>
+          </div>
+          <div id="pages" class="pages pdfViewer"></div>
+        </main>
+      </div>
+    </div>
+
+    <div id="translate-bubble" class="translate-bubble" hidden>
+      <div class="bubble-actions">
+        <button id="btn-translate" class="btn primary tiny">翻译</button>
+        <button id="btn-copy" class="btn tiny">复制</button>
+        <button id="btn-bubble-close" class="btn icon tiny">×</button>
+      </div>
+      <div id="translate-source" class="bubble-source"></div>
+      <div id="translate-result" class="bubble-result" hidden></div>
+    </div>
+
+    <div id="settings-modal" class="modal" hidden>
+      <div class="modal-card">
+        <h2>翻译设置</h2>
+        <p class="hint">Key 只存在本机浏览器存储，不会上传到除 OpenRouter 以外的地方。</p>
+        <label>
+          OpenRouter API Key
+          <input id="setting-key" type="password" autocomplete="off" placeholder="sk-or-v1-..." />
+        </label>
+        <label>
+          模型
+          <input id="setting-model" type="text" placeholder="openai/gpt-4o-mini" />
+        </label>
+        <label>
+          目标语言
+          <select id="setting-lang">
+            <option value="zh-CN">简体中文</option>
+            <option value="zh-TW">繁体中文</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+          </select>
+        </label>
+        <div class="modal-actions">
+          <button id="btn-settings-cancel" class="btn">取消</button>
+          <button id="btn-settings-save" class="btn primary">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="./js/main.js"></script>
+  </body>
+</html>

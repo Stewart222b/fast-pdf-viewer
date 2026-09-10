@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.python-files
+web/vendor/pdfjs/
+*.pdf
+!samples/demo.pdf
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

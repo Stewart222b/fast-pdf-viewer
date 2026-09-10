@@ -1,0 +1,76 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R 6 0 R 7 0 R] /Count 5 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 8 0 R /Resources << /Font << /F1 13 0 R >> >> >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 9 0 R /Resources << /Font << /F1 13 0 R >> >> >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 10 0 R /Resources << /Font << /F1 13 0 R >> >> >>
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 11 0 R /Resources << /Font << /F1 13 0 R >> >> >>
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 12 0 R /Resources << /Font << /F1 13 0 R >> >> >>
+endobj
+8 0 obj
+<< /Length 96 >>
+stream
+BT /F1 18 Tf 72 720 Td (Fast PDF Viewer Demo Page 1. Search for translation and history.) Tj ET
+endstream
+endobj
+9 0 obj
+<< /Length 98 >>
+stream
+BT /F1 18 Tf 72 720 Td (Page 2 mentions OpenRouter, zoom 150 percent, and back navigation.) Tj ET
+endstream
+endobj
+10 0 obj
+<< /Length 92 >>
+stream
+BT /F1 18 Tf 72 720 Td (Page 3 repeats translation so search can show multiple hits.) Tj ET
+endstream
+endobj
+11 0 obj
+<< /Length 87 >>
+stream
+BT /F1 18 Tf 72 720 Td (Page 4 is for scrolling smoothness at 150 percent zoom.) Tj ET
+endstream
+endobj
+12 0 obj
+<< /Length 88 >>
+stream
+BT /F1 18 Tf 72 720 Td (Page 5 last page. Use Back to return after jumping here.) Tj ET
+endstream
+endobj
+13 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 14
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000139 00000 n 
+0000000266 00000 n 
+0000000393 00000 n 
+0000000521 00000 n 
+0000000649 00000 n 
+0000000777 00000 n 
+0000000922 00000 n 
+0000001069 00000 n 
+0000001211 00000 n 
+0000001348 00000 n 
+0000001486 00000 n 
+trailer
+<< /Size 14 /Root 1 0 R >>
+startxref
+1557
+%%EOF
