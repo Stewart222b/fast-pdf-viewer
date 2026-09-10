@@ -1,0 +1,17 @@
+{
+  "name": "速览 Fast PDF Viewer",
+  "install": "./.cursor/install.sh",
+  "terminals": [
+    {
+      "name": "pdf-viewer",
+      "command": "python3 desktop/app.py --browser samples/demo.pdf",
+      "description": "Serves the PDF viewer web app at http://127.0.0.1:17831/ (browser mode; the headless VM has no GUI toolkit for the native pywebview window). Loads samples/demo.pdf on start."
+    }
+  ],
+  "ports": [
+    {
+      "name": "pdf-viewer web",
+      "port": 17831
+    }
+  ]
+}
