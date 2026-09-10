@@ -22,6 +22,8 @@ document.body.appendChild(fileInput);
 
 let settings = loadSettings();
 let searchHits = [];
+let openGeneration = 0;
+let searchGeneration = 0;
 
 history.onChange(() => {
   $("btn-back").disabled = !history.canBack();
@@ -50,30 +52,45 @@ function syncToolbar(state) {
   $("btn-forward").disabled = !history.canForward();
 }
 
+async function openSource(getSource) {
+  const request = ++openGeneration;
+  searchGeneration += 1;
+  clearTimeout(searchTimer);
+  viewer.close();
+  $("search-input").value = "";
+  renderSearchList([], "");
+  $("outline-pane").replaceChildren();
+  hideBubble();
+  try {
+    const source = await getSource();
+    if (request !== openGeneration) return;
+    const opened = await viewer.open(source);
+    if (!opened || request !== openGeneration) return;
+    await renderOutline(request);
+    if (request === openGeneration && $("search-input").value.trim()) {
+      await runSearch($("search-input").value);
+    }
+  } catch (error) {
+    if (request === openGeneration) {
+      $("outline-pane").textContent = `打开失败：${error.message || error}`;
+    }
+  }
+}
+
 async function openFile(file) {
-  const data = new Uint8Array(await file.arrayBuffer());
-  await viewer.open({ data, name: file.name });
-  await afterOpen();
+  return openSource(async () => ({
+    data: new Uint8Array(await file.arrayBuffer()), name: file.name,
+  }));
 }
 
 async function openUrl(name) {
-  await viewer.open({ url: `/opened.pdf?t=${Date.now()}`, name });
-  await afterOpen();
+  return openSource(() => ({ url: `/opened.pdf?t=${Date.now()}`, name }));
 }
 
-async function afterOpen() {
-  await renderOutline();
-  $("search-input").value = "";
-  renderSearchList([], "");
-  viewer.indexPromise?.then(() => {
-    const q = $("search-input").value.trim();
-    if (q) runSearch(q, false);
-  });
-}
-
-async function renderOutline() {
+async function renderOutline(request) {
   const pane = $("outline-pane");
   const outline = await viewer.getOutline();
+  if (request !== openGeneration) return;
   pane.replaceChildren();
   if (!outline?.length) {
     pane.innerHTML = '<div class="empty-side">这份 PDF 没有目录。</div>';
@@ -118,24 +135,31 @@ function renderSearchList(hits, query) {
     btn.innerHTML = `<div class="meta">第 ${hit.pageNumber} 页 · ${index + 1}/${hits.length}</div>
       <div class="snippet">${highlightSnippet(hit.snippet, query)}</div>`;
     btn.addEventListener("click", async () => {
-      await viewer.jumpToHit(index, { push: true });
-      renderSearchList(hits, query);
+      try {
+        await viewer.jumpToHit(index, { push: true });
+        if (searchHits === hits && $("search-input").value === query) renderSearchList(hits, query);
+      } catch (error) {
+        if (searchHits === hits) pane.textContent = `定位失败：${error.message || error}`;
+      }
     });
     pane.appendChild(btn);
   });
 }
 
-async function runSearch(query, jump = true) {
-  await viewer.indexPromise;
-  const hits = searchDocument(viewer.pageTexts, query);
-  if (jump) await viewer.showHits(hits, query, 0);
-  else {
-    viewer.hits = hits;
-    viewer.query = query;
-    viewer.hitIndex = hits.length ? 0 : -1;
+async function runSearch(query, request = searchGeneration) {
+  const generation = viewer.generation;
+  const current = () => request === searchGeneration && generation === viewer.generation;
+  try {
+    await viewer.indexPromise;
+    if (!current()) return;
+    const hits = searchDocument(viewer.pageTexts, query);
+    await viewer.showHits(hits, query, 0);
+    if (!current()) return;
+    renderSearchList(hits, query);
+    if (query) selectSidebar("search");
+  } catch (error) {
+    if (current()) $("search-pane").textContent = `搜索失败：${error.message || error}`;
   }
-  renderSearchList(hits, query);
-  if (query) selectSidebar("search");
 }
 
 function selectSidebar(name) {
@@ -190,8 +214,11 @@ document.querySelectorAll(".tab").forEach((tab) => {
 let searchTimer = 0;
 $("search-input").addEventListener("input", (event) => {
   const query = event.target.value;
+  const request = ++searchGeneration;
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => runSearch(query), 180);
+  viewer.showHits([], "").catch(console.error);
+  renderSearchList([], "");
+  searchTimer = setTimeout(() => runSearch(query, request), 180);
 });
 $("search-input").addEventListener("keydown", async (event) => {
   if (event.key === "Enter") {
@@ -205,9 +232,14 @@ $("search-next").addEventListener("click", () => moveHit(1));
 
 async function moveHit(step) {
   if (!searchHits.length) return;
-  const next = (viewer.hitIndex + step + searchHits.length) % searchHits.length;
-  await viewer.jumpToHit(next, { push: true });
-  renderSearchList(searchHits, $("search-input").value);
+  const hits = searchHits;
+  const next = (viewer.hitIndex + step + hits.length) % hits.length;
+  try {
+    await viewer.jumpToHit(next, { push: true });
+    if (searchHits === hits) renderSearchList(hits, $("search-input").value);
+  } catch (error) {
+    if (searchHits === hits) $("search-pane").textContent = `定位失败：${error.message || error}`;
+  }
 }
 
 const wrap = $("viewer-wrap");
@@ -354,11 +386,12 @@ $("btn-settings-save").addEventListener("click", () => {
 });
 
 async function boot() {
+  const request = openGeneration;
   try {
     const res = await fetch("/api/startup");
     if (res.ok) {
       const data = await res.json();
-      if (data.hasFile) await openUrl(data.name);
+      if (data.hasFile && request === openGeneration) await openUrl(data.name);
     }
   } catch {
     /* opened as a static file */
