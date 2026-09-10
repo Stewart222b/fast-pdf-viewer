@@ -4,7 +4,7 @@ import {
   TextLayer,
   setLayerDimensions,
 } from "../vendor/pdfjs/build/pdf.mjs";
-import { matchRects } from "./search.js";
+import { buildTextIndex, matchRects } from "./search.js";
 
 GlobalWorkerOptions.workerSrc = new URL(
   "../vendor/pdfjs/build/pdf.worker.mjs",
@@ -435,7 +435,7 @@ export class PdfViewer {
         this.textContents.set(i, textContent);
         pages.push({
           pageNumber: i,
-          text: textContent.items.map((item) => item.str || "").join(""),
+          ...buildTextIndex(textContent),
           textContent,
         });
       }
