@@ -9,7 +9,7 @@ import threading
 import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
@@ -79,7 +79,10 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/pdf")
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Content-Disposition", f'inline; filename="{file_path.name}"')
+        self.send_header(
+            "Content-Disposition",
+            f"inline; filename=\"document.pdf\"; filename*=UTF-8''{quote(file_path.name, safe='')}",
+        )
         self.end_headers()
         self.wfile.write(data)
 
