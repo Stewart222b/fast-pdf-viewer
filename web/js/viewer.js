@@ -472,19 +472,25 @@ export class PdfViewer {
 
   restore(state) {
     if (!state) return;
-    this.applyingHistory = true;
+    this.applyReadingPosition(state, { fromHistory: true });
+  }
+
+  applyReadingPosition(state, { fromHistory = false } = {}) {
+    if (!state) return;
+    if (fromHistory) this.applyingHistory = true;
     if (String(state.zoom) !== String(this.zoomMode)) {
       this.setZoom(state.zoom, { keepPage: false });
     }
-    this.currentPage = state.page;
+    if (state.page) this.currentPage = state.page;
     this.wrapEl.scrollTo({
-      top: state.scrollTop,
-      left: state.scrollLeft,
+      top: state.scrollTop ?? 0,
+      left: state.scrollLeft ?? 0,
       behavior: "auto",
     });
     this.notify();
     requestAnimationFrame(() => {
-      this.applyingHistory = false;
+      if (fromHistory) this.applyingHistory = false;
+      this.renderVisible(true).catch((error) => console.error("PDF rendering failed", error));
     });
   }
 

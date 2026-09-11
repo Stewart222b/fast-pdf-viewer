@@ -54,7 +54,19 @@ async function setup() {
     './viewer.js': { PdfViewer: Viewer },
     './history.js': { ViewHistory: class { onChange() {} } },
     './settings.js': { loadSettings: () => ({}), saveSettings: () => ({}) },
-    './translate.js': { translateText() {} },
+    './translate.js': { translateText() {}, MAX_TRANSLATE_CHARS: 4000 },
+    './reading-position.js': {
+      readingFingerprint: () => '',
+      loadReadingPosition: () => null,
+      saveReadingPosition: () => {},
+    },
+    './platform/index.js': {
+      createPlatform: () => ({
+        id: 'test',
+        async startupOpen() { return null; },
+        async pickFile() { return null; },
+      }),
+    },
   };
   const main = new vm.SourceTextModule(await readFile(new URL('../web/js/main.js', import.meta.url), 'utf8'), { context });
   await main.link(async spec => {
