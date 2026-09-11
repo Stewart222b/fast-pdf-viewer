@@ -12,6 +12,7 @@ const viewer = new PdfViewer({
   wrapEl: $("viewer-wrap"),
   history,
   onState: syncToolbar,
+  onIndex: refreshIndexedSearch,
 });
 
 const fileInput = document.createElement("input");
@@ -22,6 +23,10 @@ document.body.appendChild(fileInput);
 
 let settings = loadSettings();
 let searchHits = [];
+let openGeneration = 0;
+let searchGeneration = 0;
+let indexRefreshTimer = 0;
+let objectUrl = null;
 
 history.onChange(() => {
   $("btn-back").disabled = !history.canBack();
@@ -50,30 +55,50 @@ function syncToolbar(state) {
   $("btn-forward").disabled = !history.canForward();
 }
 
-async function openFile(file) {
-  const data = new Uint8Array(await file.arrayBuffer());
-  await viewer.open({ data, name: file.name });
-  await afterOpen();
-}
-
-async function openUrl(name) {
-  await viewer.open({ url: `/opened.pdf?t=${Date.now()}`, name });
-  await afterOpen();
-}
-
-async function afterOpen() {
-  await renderOutline();
+async function openSource(getSource) {
+  const request = ++openGeneration;
+  searchGeneration += 1;
+  clearTimeout(indexRefreshTimer);
+  indexRefreshTimer = 0;
+  clearTimeout(searchTimer);
+  viewer.close();
+  if (objectUrl) URL.revokeObjectURL(objectUrl);
+  objectUrl = null;
   $("search-input").value = "";
   renderSearchList([], "");
-  viewer.indexPromise?.then(() => {
-    const q = $("search-input").value.trim();
-    if (q) runSearch(q, false);
+  $("outline-pane").replaceChildren();
+  hideBubble();
+  try {
+    const source = await getSource();
+    if (request !== openGeneration) return;
+    const opened = await viewer.open(source);
+    if (!opened || request !== openGeneration) return;
+    await renderOutline(request);
+    if (request === openGeneration && $("search-input").value.trim()) {
+      await runSearch($("search-input").value);
+    }
+  } catch (error) {
+    if (request === openGeneration) {
+      $("outline-pane").textContent = `打开失败：${error.message || error}`;
+    }
+  }
+}
+
+async function openFile(file) {
+  return openSource(() => {
+    objectUrl = URL.createObjectURL(file);
+    return { url: objectUrl, name: file.name };
   });
 }
 
-async function renderOutline() {
+async function openUrl(name, id) {
+  return openSource(() => ({ url: `/opened.pdf?${id ? `id=${encodeURIComponent(id)}` : `t=${Date.now()}`}`, name }));
+}
+
+async function renderOutline(request) {
   const pane = $("outline-pane");
   const outline = await viewer.getOutline();
+  if (request !== openGeneration) return;
   pane.replaceChildren();
   if (!outline?.length) {
     pane.innerHTML = '<div class="empty-side">这份 PDF 没有目录。</div>';
@@ -93,7 +118,7 @@ async function renderOutline() {
   walk(outline, 0);
 }
 
-function renderSearchList(hits, query) {
+function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)) {
   searchHits = hits;
   const pane = $("search-pane");
   const count = $("search-count");
@@ -112,30 +137,65 @@ function renderSearchList(hits, query) {
     return;
   }
   count.textContent = `${viewer.hitIndex + 1} / ${hits.length}`;
-  hits.forEach((hit, index) => {
+  const end = Math.min(hits.length, start + 200);
+  const moreButton = (label, nextStart) => {
+    const button = document.createElement("button");
+    button.className = "btn";
+    button.textContent = label;
+    button.addEventListener("click", () => renderSearchList(hits, query, nextStart));
+    pane.appendChild(button);
+  };
+  if (start > 0) moreButton("上一组结果", Math.max(0, start - 200));
+  hits.slice(start, end).forEach((hit, localIndex) => {
+    const index = start + localIndex;
     const btn = document.createElement("button");
     btn.className = `search-hit${index === viewer.hitIndex ? " active" : ""}`;
     btn.innerHTML = `<div class="meta">第 ${hit.pageNumber} 页 · ${index + 1}/${hits.length}</div>
       <div class="snippet">${highlightSnippet(hit.snippet, query)}</div>`;
     btn.addEventListener("click", async () => {
-      await viewer.jumpToHit(index, { push: true });
-      renderSearchList(hits, query);
+      try {
+        await viewer.jumpToHit(index, { push: true });
+        if (searchHits === hits && $("search-input").value === query) renderSearchList(hits, query);
+      } catch (error) {
+        if (searchHits === hits) pane.textContent = `定位失败：${error.message || error}`;
+      }
     });
     pane.appendChild(btn);
   });
+  if (end < hits.length) moreButton("下一组结果", end);
 }
 
-async function runSearch(query, jump = true) {
-  await viewer.indexPromise;
-  const hits = searchDocument(viewer.pageTexts, query);
-  if (jump) await viewer.showHits(hits, query, 0);
-  else {
-    viewer.hits = hits;
-    viewer.query = query;
-    viewer.hitIndex = hits.length ? 0 : -1;
+function refreshIndexedSearch() {
+  if (indexRefreshTimer) return;
+  if ($("search-input").value.trim()) indexRefreshTimer = setTimeout(() => {
+    indexRefreshTimer = 0;
+    runSearch($("search-input").value, searchGeneration, false);
+  }, 100);
+}
+
+async function runSearch(query, request = searchGeneration, jump = true) {
+  const generation = viewer.generation;
+  const current = () => request === searchGeneration && generation === viewer.generation;
+  try {
+    if (!current()) return;
+    const hits = searchDocument(viewer.pageTexts, query);
+    const unchanged = !jump && hits.length === searchHits.length && viewer.query === query;
+    if (!unchanged) await viewer.showHits(hits, query, jump ? 0 : Math.max(0, viewer.hitIndex), { jump });
+    if (!current()) return;
+    renderSearchList(unchanged ? searchHits : hits, query);
+    if (query) {
+      if (jump) selectSidebar("search");
+      if (viewer.indexError) {
+        const warning = document.createElement("div");
+        warning.textContent = "部分页面索引失败，当前仅显示已读取结果。";
+        $("search-pane").appendChild(warning);
+      } else if (viewer.indexedPages < viewer.pageCount) {
+        $("search-count").textContent += ` · 索引 ${viewer.indexedPages}/${viewer.pageCount}`;
+      }
+    }
+  } catch (error) {
+    if (current()) $("search-pane").textContent = `搜索失败：${error.message || error}`;
   }
-  renderSearchList(hits, query);
-  if (query) selectSidebar("search");
 }
 
 function selectSidebar(name) {
@@ -151,7 +211,7 @@ async function pickFile() {
     if (window.pywebview?.api?.pick) {
       const result = await window.pywebview.api.pick();
       if (result?.name) {
-        await openUrl(result.name);
+        await openUrl(result.name, result.id);
         return;
       }
     }
@@ -190,8 +250,11 @@ document.querySelectorAll(".tab").forEach((tab) => {
 let searchTimer = 0;
 $("search-input").addEventListener("input", (event) => {
   const query = event.target.value;
+  const request = ++searchGeneration;
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => runSearch(query), 180);
+  viewer.showHits([], "").catch(console.error);
+  renderSearchList([], "");
+  searchTimer = setTimeout(() => runSearch(query, request), 180);
 });
 $("search-input").addEventListener("keydown", async (event) => {
   if (event.key === "Enter") {
@@ -205,9 +268,14 @@ $("search-next").addEventListener("click", () => moveHit(1));
 
 async function moveHit(step) {
   if (!searchHits.length) return;
-  const next = (viewer.hitIndex + step + searchHits.length) % searchHits.length;
-  await viewer.jumpToHit(next, { push: true });
-  renderSearchList(searchHits, $("search-input").value);
+  const hits = searchHits;
+  const next = (viewer.hitIndex + step + hits.length) % hits.length;
+  try {
+    await viewer.jumpToHit(next, { push: true });
+    if (searchHits === hits) renderSearchList(hits, $("search-input").value);
+  } catch (error) {
+    if (searchHits === hits) $("search-pane").textContent = `定位失败：${error.message || error}`;
+  }
 }
 
 const wrap = $("viewer-wrap");
@@ -241,7 +309,8 @@ for (const type of ["mousedown", "mouseup", "auxclick", "pointerup"]) {
     (event) => {
       if (event.button !== 3 && event.button !== 4) return;
       event.preventDefault();
-      if (type === "mousedown") return;
+      // Suppress browser navigation for every side-button event, but act once.
+      if (type !== "mouseup") return;
       if (event.button === 3) viewer.back();
       else viewer.forward();
     },
@@ -354,11 +423,12 @@ $("btn-settings-save").addEventListener("click", () => {
 });
 
 async function boot() {
+  const request = openGeneration;
   try {
     const res = await fetch("/api/startup");
     if (res.ok) {
       const data = await res.json();
-      if (data.hasFile) await openUrl(data.name);
+      if (data.hasFile && request === openGeneration) await openUrl(data.name, data.id);
     }
   } catch {
     /* opened as a static file */

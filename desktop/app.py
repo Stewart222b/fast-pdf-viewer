@@ -4,19 +4,20 @@ import argparse
 import json
 import mimetypes
 import os
+import re
+import uuid
 import sys
 import threading
 import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
-VENDOR = WEB / "vendor" / "pdfjs"
 
 opened_lock = threading.Lock()
-opened: dict[str, object] = {"path": None, "name": None}
+opened: dict[str, object] = {"path": None, "name": None, "id": None}
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -37,6 +38,7 @@ class Handler(SimpleHTTPRequestHandler):
                 {
                     "path": opened.get("path"),
                     "name": opened.get("name"),
+                    "id": opened.get("id"),
                     "hasFile": bool(opened.get("path")),
                 }
             )
@@ -61,27 +63,79 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json({"ok": False, "error": "file not found"}, 400)
                 return
             set_opened(path)
-            self._json({"ok": True, "name": opened["name"]})
+            self._json({"ok": True, "name": opened["name"], "id": opened["id"]})
             return
         self.send_error(404)
 
-    def _serve_opened(self) -> None:
+    def do_HEAD(self) -> None:  # noqa: N802
+        if urlparse(self.path).path == "/opened.pdf":
+            self._serve_opened(head_only=True)
+        else:
+            super().do_HEAD()
+
+    def _serve_opened(self, head_only: bool = False) -> None:
+        requested_id = parse_qs(urlparse(self.path).query).get("id", [None])[0]
         with opened_lock:
             path = opened.get("path")
+            if requested_id is not None and requested_id != opened.get("id"):
+                self.send_error(409, "Document changed; reopen the PDF")
+                return
         if not path:
             self.send_error(404, "No PDF opened")
             return
         file_path = Path(str(path))
-        if not file_path.is_file():
-            self.send_error(404, "PDF missing")
+        try:
+            source = file_path.open("rb")
+        except OSError:
+            self.send_error(404, "PDF missing or unreadable")
             return
-        data = file_path.read_bytes()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/pdf")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Content-Disposition", f'inline; filename="{file_path.name}"')
-        self.end_headers()
-        self.wfile.write(data)
+        with source:
+            stat = os.fstat(source.fileno())
+            size = stat.st_size
+            etag = f'"{stat.st_mtime_ns:x}-{size:x}"'
+            start, end, status = 0, size - 1, 200
+            header = self.headers.get("Range", "")
+            if self.headers.get("If-Range", etag) == etag:
+                match = re.fullmatch(r"bytes=(\d*)-(\d*)", header)
+                if match and any(match.groups()):
+                    first, last = match.groups()
+                    if first:
+                        start = int(first)
+                        end = min(int(last), size - 1) if last else size - 1
+                    else:
+                        start = max(0, size - int(last))
+                    if start >= size or start > end or (not first and int(last) == 0):
+                        self.send_response(416)
+                        self.send_header("Content-Range", f"bytes */{size}")
+                        self.send_header("Content-Length", "0")
+                        self.end_headers()
+                        return
+                    status = 206
+            self.send_response(status)
+            self.send_header("Content-Type", "application/pdf")
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("ETag", etag)
+            self.send_header("Content-Length", str(max(0, end - start + 1)))
+            if status == 206:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+            self.send_header(
+                "Content-Disposition",
+                f"inline; filename=\"document.pdf\"; filename*=UTF-8''{quote(file_path.name, safe='')}",
+            )
+            self.end_headers()
+            if head_only:
+                return
+            source.seek(start)
+            remaining = end - start + 1
+            try:
+                while remaining > 0:
+                    chunk = source.read(min(256 * 1024, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # Expected when pdf.js cancels an obsolete range request.
 
     def _json(self, payload: dict, status: int = 200) -> None:
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -97,19 +151,22 @@ def set_opened(path: str | os.PathLike[str] | None) -> None:
         if not path:
             opened["path"] = None
             opened["name"] = None
+            opened["id"] = None
             return
         p = Path(path).resolve()
         opened["path"] = str(p)
         opened["name"] = p.name
+        opened["id"] = uuid.uuid4().hex
 
 
 def ensure_pdfjs() -> None:
-    marker = VENDOR / "VERSION"
-    if marker.exists() and (VENDOR / "build" / "pdf.mjs").exists():
-        return
-    from bootstrap_pdfjs import main as bootstrap
+    desktop = Path(__file__).resolve().parent
+    if str(desktop) not in sys.path:
+        sys.path.insert(0, str(desktop))
+    from bootstrap_pdfjs import installed_valid, main as bootstrap
 
-    bootstrap()
+    if not installed_valid():
+        bootstrap()
 
 
 def start_server(port: int = 17831) -> ThreadingHTTPServer:
@@ -145,7 +202,7 @@ class Bridge:
             return None
         path = result[0]
         set_opened(path)
-        return {"name": Path(path).name}
+        return {"name": Path(path).name, "id": opened["id"]}
 
 
 def open_window(url: str, title: str) -> bool:
