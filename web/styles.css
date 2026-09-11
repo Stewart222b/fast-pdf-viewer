@@ -259,6 +259,8 @@ select {
   position: relative;
   flex: 1;
   overflow: auto;
+  /* Prefetch resizes placeholders manually; disable browser scroll anchoring to avoid double compensation. */
+  overflow-anchor: none;
   background:
     radial-gradient(1200px 500px at 50% -10%, #1c2333 0%, transparent 55%),
     var(--bg);
@@ -415,6 +417,10 @@ select {
 
 .modal-card h2 {
   margin: 0 0 8px;
+}
+
+.modal-card .hint.error {
+  color: #f87171;
 }
 
 .modal-card .hint {

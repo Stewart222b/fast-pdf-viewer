@@ -49,22 +49,6 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self) -> None:  # noqa: N802
-        parsed = urlparse(self.path)
-        if parsed.path == "/api/open-path":
-            length = int(self.headers.get("Content-Length", "0"))
-            body = self.rfile.read(length)
-            try:
-                payload = json.loads(body.decode("utf-8") or "{}")
-            except json.JSONDecodeError:
-                self._json({"ok": False, "error": "invalid json"}, 400)
-                return
-            path = payload.get("path")
-            if not path or not Path(path).is_file():
-                self._json({"ok": False, "error": "file not found"}, 400)
-                return
-            set_opened(path)
-            self._json({"ok": True, "name": opened["name"], "id": opened["id"]})
-            return
         self.send_error(404)
 
     def do_HEAD(self) -> None:  # noqa: N802
@@ -169,10 +153,34 @@ def ensure_pdfjs() -> None:
         bootstrap()
 
 
-def start_server(port: int = 17831) -> ThreadingHTTPServer:
+DEFAULT_PORT = 17831
+
+
+def start_server(port: int = DEFAULT_PORT, *, quiet: bool = False) -> ThreadingHTTPServer:
     mimetypes.add_type("application/javascript", ".mjs")
     mimetypes.add_type("application/wasm", ".wasm")
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    preferred = port
+    last_error: OSError | None = None
+    for attempt in range(10):
+        try:
+            httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+            break
+        except OSError as error:
+            if error.errno not in {48, 98, 10048}:  # address already in use
+                raise
+            last_error = error
+            port += 1
+    else:
+        raise SystemExit(
+            f"无法在 127.0.0.1:{preferred}–{port - 1} 上启动本地服务（端口被占用）。"
+            f"请关闭占用进程后重试。{last_error}"
+        ) from last_error
+
+    if not quiet and port != preferred:
+        print(
+            f"警告：端口 {preferred} 已被占用，已改用 {port}。",
+            file=sys.stderr,
+        )
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     return httpd
@@ -185,6 +193,12 @@ def parse_args() -> argparse.Namespace:
         "--browser",
         action="store_true",
         help="强制使用系统浏览器而不是桌面窗口",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"本地 HTTP 端口（默认 {DEFAULT_PORT}，被占用时自动尝试后续端口）",
     )
     return parser.parse_args()
 
@@ -231,10 +245,10 @@ def main() -> None:
     if args.pdf:
         set_opened(args.pdf)
 
-    httpd = start_server()
+    httpd = start_server(args.port)
     host, port = httpd.server_address
     url = f"http://{host}:{port}/"
-    print(f"速览 running at {url}")
+    print(f"速览 running at {url}", flush=True)
 
     if not args.browser:
         if open_window(url, "速览"):
