@@ -15,14 +15,17 @@ async function setup() {
   const revoked = [];
   let nextBlob = 0;
   function element() {
-    const el = { value: '', children: [], options: [], listeners: {}, style: {}, toggles: [],
-      classList: { toggle(name, on) { el.toggles.push([name, on]); }, add() {}, remove() {} },
+    const el = { value: '', children: [], options: [], listeners: {}, style: {}, toggles: {}, attrs: {},
+      classList: { toggle(name, on) { el.toggles[name] = on; }, add() {}, remove() {} },
       addEventListener(name, fn) { this.listeners[name] = fn; }, replaceChildren() { this.children = []; },
       appendChild(child) { this.children.push(child); }, contains() { return false; }, focus() {}, select() {},
+      setAttribute(name, value) { this.attrs[name] = value; },
     };
     return el;
   }
   function get(id) { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); }
+  const workspace = element();
+  get('btn-sidebar');
   class Viewer {
     constructor(options = {}) {
       viewer = this; this.generation = 0; this.pageTexts = []; this.hitIndex = -1; this.shown = []; this.query = '';
@@ -36,7 +39,14 @@ async function setup() {
   const context = vm.createContext({
     URL: { createObjectURL: () => `blob:test-${++nextBlob}`, revokeObjectURL: url => revoked.push(url) },
     console, fetch: async () => ({ ok: false }),
-    document: { getElementById: get, createElement: tag => { const el = element(); if (tag === 'input') fileInput = el; return el; }, body: element(), querySelectorAll: () => [], addEventListener() {} },
+    document: {
+      getElementById: get,
+      createElement: tag => { const el = element(); if (tag === 'input') fileInput = el; return el; },
+      body: element(),
+      querySelector: sel => (sel === '.workspace' ? workspace : null),
+      querySelectorAll: () => [],
+      addEventListener() {},
+    },
     window: { addEventListener(type, fn) { (windowListeners[type] ||= []).push(fn); } },
     setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
   });
@@ -134,8 +144,8 @@ test('indexing refresh does not switch the sidebar to search', async () => {
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(app.viewer.shown, ['Alpha']);
   assert.equal(app.get('search-count').textContent, '1 / 1');
-  assert.equal(app.get('search-pane').toggles.some(([name, on]) => name === 'active' && on), false);
-  assert.equal(app.get('outline-pane').toggles.length, 0);
+  assert.equal(app.get('search-pane').toggles.active, undefined);
+  assert.equal(app.get('outline-pane').toggles.active, undefined);
 });
 
 test('user search still selects the search sidebar tab', async () => {
@@ -143,6 +153,6 @@ test('user search still selects the search sidebar tab', async () => {
   app.viewer.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }];
   app.input('Alpha');
   await app.runTimer();
-  assert.deepEqual(app.get('search-pane').toggles.at(-1), ['active', true]);
-  assert.deepEqual(app.get('outline-pane').toggles.at(-1), ['active', false]);
+  assert.equal(app.get('search-pane').toggles.active, true);
+  assert.equal(app.get('outline-pane').toggles.active, false);
 });

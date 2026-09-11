@@ -16,6 +16,13 @@ const FONT_URL = new URL("../vendor/pdfjs/standard_fonts/", import.meta.url).toS
 const WASM_URL = new URL("../vendor/pdfjs/wasm/", import.meta.url).toString();
 const ICC_URL = new URL("../vendor/pdfjs/iccs/", import.meta.url).toString();
 
+function viewportRect(viewport, pdfRect) {
+  const [x1, y1, x2, y2] = pdfRect;
+  const [vx1, vy1] = viewport.convertToViewportPoint(x1, y1);
+  const [vx2, vy2] = viewport.convertToViewportPoint(x2, y2);
+  return [vx1, vy1, vx2, vy2];
+}
+
 export class PdfViewer {
   constructor({ pagesEl, wrapEl, history, onState, onIndex }) {
     this.pagesEl = pagesEl;
@@ -370,7 +377,7 @@ export class PdfViewer {
     layer.replaceChildren();
     for (const annotation of annotations) {
       if (annotation.subtype !== "Link") continue;
-      const rect = viewport.convertToViewportRectangle(annotation.rect);
+      const rect = viewportRect(viewport, annotation.rect);
       const left = Math.min(rect[0], rect[2]);
       const top = Math.min(rect[1], rect[3]);
       const width = Math.abs(rect[2] - rect[0]);

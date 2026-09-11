@@ -20,7 +20,7 @@ async function setup(load = () => { throw new Error('unexpected load'); }) {
   const context = vm.createContext({
     URL, console, setTimeout, clearTimeout,
     window: { devicePixelRatio: 1 },
-    document: { createElement: () => ({ style: {} }) },
+    document: { createElement: () => ({ style: {}, addEventListener() {}, href: '' }) },
     requestAnimationFrame: f => f(),
   });
   const mock = new vm.SyntheticModule(['getDocument', 'GlobalWorkerOptions', 'TextLayer', 'setLayerDimensions'], function () {
@@ -271,4 +271,19 @@ test('getDocument receives the ICC profile URL with other pdf.js asset URLs', as
   assert.match(options.standardFontDataUrl, /standard_fonts\/$/);
   assert.match(options.wasmUrl, /wasm\/$/);
   assert.match(options.iccUrl, /iccs\/$/);
+});
+
+test('link annotations render without convertToViewportRectangle', async () => {
+  const { viewer } = await setup();
+  const linkLayer = layer();
+  const page = {
+    getAnnotations: async () => [{
+      subtype: 'Link',
+      rect: [72, 720, 200, 740],
+      dest: [0, { name: 'XYZ' }, 0, 700],
+    }],
+  };
+  await viewer.renderLinks(page, viewport, linkLayer);
+  assert.equal(linkLayer.children.length, 1);
+  assert.match(linkLayer.children[0].style.left, /^\d/);
 });

@@ -210,6 +210,12 @@ function selectSidebar(name) {
   $("search-pane").classList.toggle("active", name === "search");
 }
 
+function setSidebarCollapsed(collapsed) {
+  document.querySelector(".workspace").classList.toggle("sidebar-collapsed", collapsed);
+  $("btn-sidebar").classList.toggle("active", !collapsed);
+  $("btn-sidebar").setAttribute("aria-pressed", collapsed ? "false" : "true");
+}
+
 async function pickFile() {
   try {
     if (window.pywebview?.api?.pick) {
@@ -232,6 +238,10 @@ fileInput.addEventListener("change", async () => {
 });
 
 $("btn-open").addEventListener("click", pickFile);
+$("btn-sidebar").addEventListener("click", () => {
+  setSidebarCollapsed(!document.querySelector(".workspace").classList.contains("sidebar-collapsed"));
+});
+setSidebarCollapsed(false);
 $("btn-back").addEventListener("click", () => viewer.back());
 $("btn-forward").addEventListener("click", () => viewer.forward());
 $("btn-zoom-in").addEventListener("click", () => {

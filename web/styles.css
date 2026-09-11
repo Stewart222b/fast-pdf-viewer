@@ -113,6 +113,11 @@ select {
   filter: brightness(1.08);
 }
 
+.btn.active:not(.primary) {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
 .btn.icon {
   width: 36px;
   padding: 0;
@@ -206,6 +211,16 @@ select {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  transition: width 0.15s ease, flex-basis 0.15s ease, opacity 0.15s ease;
+}
+
+.workspace.sidebar-collapsed .sidebar {
+  width: 0;
+  flex-basis: 0;
+  opacity: 0;
+  overflow: hidden;
+  border-right-width: 0;
+  pointer-events: none;
 }
 
 .sidebar-tabs {
@@ -323,6 +338,15 @@ select {
 
 .page .textLayer {
   opacity: 1;
+  z-index: 2;
+  pointer-events: auto;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.page .linkLayer {
+  z-index: 3;
+  pointer-events: none;
 }
 
 .page .textLayer span {
@@ -336,12 +360,14 @@ select {
 .page .linkLayer a {
   position: absolute;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .page .hlLayer {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  z-index: 4;
 }
 
 .page .hl {
