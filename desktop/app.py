@@ -13,8 +13,17 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
-ROOT = Path(__file__).resolve().parents[1]
-WEB = ROOT / "web"
+def _web_dir() -> Path:
+    here = Path(__file__).resolve().parent
+    for root in (here.parent, here):
+        web = root / "web"
+        if web.is_dir():
+            return web
+    raise FileNotFoundError("找不到 web/ 资源目录，请在仓库根目录运行或 pip install -e .")
+
+
+WEB = _web_dir()
+ROOT = WEB.parent
 
 opened_lock = threading.Lock()
 opened: dict[str, object] = {"path": None, "name": None, "id": None}
