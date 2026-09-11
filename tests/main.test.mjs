@@ -130,10 +130,12 @@ test('indexing refresh does not switch the sidebar to search', async () => {
   app.viewer.query = 'Alpha';
   app.get('search-input').value = 'Alpha';
   app.viewer.onIndex();
-  await app.runTimer();
+  app.runTimer();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(app.viewer.shown, ['Alpha']);
+  assert.equal(app.get('search-count').textContent, '1 / 1');
   assert.equal(app.get('search-pane').toggles.some(([name, on]) => name === 'active' && on), false);
   assert.equal(app.get('outline-pane').toggles.length, 0);
-  assert.equal(app.get('search-count').textContent, '1 / 1');
 });
 
 test('user search still selects the search sidebar tab', async () => {
