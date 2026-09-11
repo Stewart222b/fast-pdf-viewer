@@ -260,6 +260,39 @@ test('highlight refresh without jump does not cancel an outline destination', as
   assert.equal(viewer.currentPage, 3);
 });
 
+test('outline XYZ destination scrolls to the requested position', async () => {
+  const { viewer, wrapEl } = await setup();
+  viewer.pageCount = 1;
+  viewer.zoom = 1;
+  viewer.pageSizes = [{ width: 600, height: 800 }];
+  viewer.pageEls = [pageElement()];
+  wrapEl.scrollTop = 0;
+  viewer.pdf = {
+    getDestination: async () => [0, 'XYZ', 100, 500, null],
+    getPage: async () => ({
+      getViewport: () => ({
+        convertToViewportPoint: (x, y) => [x, 800 - y],
+      }),
+      cleanup() {},
+    }),
+  };
+  await viewer.goToDest('chapter', true);
+  assert.equal(wrapEl.scrollTop, 336);
+});
+
+test('each page placeholder uses its own viewport size', async () => {
+  const { viewer } = await setup();
+  viewer.pageCount = 2;
+  viewer.zoom = 1;
+  viewer.pageSizes = [{ width: 400, height: 600 }, { width: 800, height: 400 }];
+  viewer.pageEls = [pageElement(), pageElement()];
+  viewer.applyPageLayout();
+  assert.equal(viewer.pageEls[0].style.width, '400px');
+  assert.equal(viewer.pageEls[0].style.height, '600px');
+  assert.equal(viewer.pageEls[1].style.width, '800px');
+  assert.equal(viewer.pageEls[1].style.height, '400px');
+});
+
 test('getDocument receives the ICC profile URL with other pdf.js asset URLs', async () => {
   let options;
   const { viewer } = await setup(src => {

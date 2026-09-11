@@ -16,13 +16,20 @@ const FONT_URL = new URL("../vendor/pdfjs/standard_fonts/", import.meta.url).toS
 const WASM_URL = new URL("../vendor/pdfjs/wasm/", import.meta.url).toString();
 const ICC_URL = new URL("../vendor/pdfjs/iccs/", import.meta.url).toString();
 
+function destTypeName(type) {
+  if (type == null) return "";
+  if (typeof type === "string") return type;
+  return type.name || "";
+}
+
 export class PdfViewer {
-  constructor({ pagesEl, wrapEl, history, onState, onIndex }) {
+  constructor({ pagesEl, wrapEl, history, onState, onIndex, onPassword }) {
     this.pagesEl = pagesEl;
     this.wrapEl = wrapEl;
     this.history = history;
     this.onState = onState;
     this.onIndex = onIndex;
+    this.onPassword = onPassword;
     this.renderedPages = new Map();
     this.maxCachedPages = 8;
     this.indexedPages = 0;
@@ -34,6 +41,7 @@ export class PdfViewer {
     this.zoom = 1.5;
     this.baseWidth = 612;
     this.baseHeight = 792;
+    this.pageSizes = [];
     this.pageEls = [];
     this.tasks = new Map();
     this.pageTexts = [];
@@ -81,17 +89,15 @@ export class PdfViewer {
         disableAutoFetch: true,
         disableStream: true,
       });
+      loading.onPassword = (updatePassword, reason) => this.promptPassword(updatePassword, reason);
       this.loadingTask = loading;
       const pdf = await loading.promise;
       if (generation !== this.generation) return null;
       this.pdf = pdf;
-      const first = await pdf.getPage(1);
-      if (generation !== this.generation) return null;
       this.name = source.name || "文档";
       this.pageCount = pdf.numPages;
-      const base = first.getViewport({ scale: 1 });
-      this.baseWidth = base.width;
-      this.baseHeight = base.height;
+      await this.loadPageSizes(pdf, generation);
+      if (generation !== this.generation) return null;
       this.buildPlaceholders();
       this.setZoom(this.zoomMode, { silent: true });
       this.history.reset(this.getState());
@@ -146,9 +152,43 @@ export class PdfViewer {
     this.currentPage = 1;
     this.pageCount = 0;
     this.name = "";
+    this.pageSizes = [];
     this.wrapEl.scrollTo({ top: 0, left: 0, behavior: "auto" });
     this.history.reset(this.getState());
     this.notify();
+  }
+
+  async loadPageSizes(pdf, generation) {
+    const sizes = [];
+    for (let i = 1; i <= pdf.numPages; i += 1) {
+      if (generation !== this.generation) return;
+      const page = await pdf.getPage(i);
+      if (generation !== this.generation) return;
+      const base = page.getViewport({ scale: 1 });
+      sizes.push({ width: base.width, height: base.height });
+      if (!this.renderJobs.has(i) && !this.renderedPages.has(i)) page.cleanup?.();
+      if (i % 20 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    this.pageSizes = sizes;
+    if (sizes.length) {
+      this.baseWidth = sizes[0].width;
+      this.baseHeight = sizes[0].height;
+    }
+  }
+
+  pageLayout(pageNumber) {
+    const size = this.pageSizes[pageNumber - 1];
+    return size || { width: this.baseWidth, height: this.baseHeight };
+  }
+
+  applyPageLayout() {
+    for (let i = 0; i < this.pageEls.length; i += 1) {
+      const el = this.pageEls[i];
+      const { width, height } = this.pageLayout(i + 1);
+      el.style.width = `${width * this.zoom}px`;
+      el.style.height = `${height * this.zoom}px`;
+      el.style.setProperty("--scale-factor", String(this.zoom));
+    }
   }
 
   buildPlaceholders() {
@@ -163,16 +203,31 @@ export class PdfViewer {
       this.pagesEl.appendChild(el);
       this.pageEls.push(el);
     }
+    this.applyPageLayout();
+  }
+
+  async promptPassword(updatePassword, reason) {
+    if (!this.onPassword) {
+      updatePassword(new Error("需要 PDF 密码"));
+      return;
+    }
+    try {
+      const password = await this.onPassword(reason);
+      updatePassword(password);
+    } catch (error) {
+      updatePassword(error instanceof Error ? error : new Error(String(error)));
+    }
   }
 
   computeZoom() {
     const pad = 48;
+    const { width, height } = this.pageLayout(this.currentPage);
     if (this.zoomMode === "page-width") {
-      return Math.max(0.25, (this.wrapEl.clientWidth - pad) / this.baseWidth);
+      return Math.max(0.25, (this.wrapEl.clientWidth - pad) / width);
     }
     if (this.zoomMode === "page-fit") {
-      const sx = (this.wrapEl.clientWidth - pad) / this.baseWidth;
-      const sy = (this.wrapEl.clientHeight - pad) / this.baseHeight;
+      const sx = (this.wrapEl.clientWidth - pad) / width;
+      const sy = (this.wrapEl.clientHeight - pad) / height;
       return Math.max(0.25, Math.min(sx, sy));
     }
     const n = Number(this.zoomMode);
@@ -183,14 +238,8 @@ export class PdfViewer {
     const page = this.currentPage;
     this.zoomMode = String(mode);
     this.zoom = this.computeZoom();
-    const cssW = this.baseWidth * this.zoom;
-    const cssH = this.baseHeight * this.zoom;
-    for (const el of this.pageEls) {
-      el.style.width = `${cssW}px`;
-      el.style.height = `${cssH}px`;
-      el.style.setProperty("--scale-factor", String(this.zoom));
-      delete el.dataset.renderedZoom;
-    }
+    for (const el of this.pageEls) delete el.dataset.renderedZoom;
+    this.applyPageLayout();
     if (keepPage) this.scrollToPage(page, { instant: true });
     if (!silent) {
       clearTimeout(this.zoomTimer);
@@ -406,7 +455,48 @@ export class PdfViewer {
       if (!explicit || !current()) return;
       const ref = explicit[0];
       const pageIndex = typeof ref === "object" ? await pdf.getPageIndex(ref) : Number(ref);
-      if (current()) this.goToPage(pageIndex + 1, { push });
+      if (!current()) return;
+      const pageNumber = pageIndex + 1;
+      const type = destTypeName(explicit[1]);
+      let left = null;
+      let top = null;
+      if (type === "XYZ") {
+        const [, , rawLeft, rawTop, rawZoom] = explicit;
+        if (rawZoom != null && Number.isFinite(rawZoom) && rawZoom > 0) {
+          this.setZoom(String(Math.min(500, Math.max(25, Math.round(rawZoom * 100)))), {
+            keepPage: false,
+            silent: true,
+          });
+        }
+        if (!current()) return;
+        const page = await pdf.getPage(pageNumber);
+        if (!current()) return;
+        const viewport = page.getViewport({ scale: this.zoom });
+        if (rawLeft != null && Number.isFinite(rawLeft)) {
+          [, left] = viewport.convertToViewportPoint(rawLeft, rawTop ?? 0);
+        }
+        if (rawTop != null && Number.isFinite(rawTop)) {
+          [, top] = viewport.convertToViewportPoint(rawLeft ?? 0, rawTop);
+        }
+        if (!this.renderJobs.has(pageNumber) && !this.renderedPages.has(pageNumber)) page.cleanup?.();
+      } else if (type === "FitH" || type === "FitBH") {
+        const y = explicit[2];
+        if (y != null && Number.isFinite(y)) {
+          const page = await pdf.getPage(pageNumber);
+          if (!current()) return;
+          [, top] = page.getViewport({ scale: this.zoom }).convertToViewportPoint(0, y);
+          if (!this.renderJobs.has(pageNumber) && !this.renderedPages.has(pageNumber)) page.cleanup?.();
+        }
+      } else if (type === "FitV" || type === "FitBV") {
+        const x = explicit[2];
+        if (x != null && Number.isFinite(x)) {
+          const page = await pdf.getPage(pageNumber);
+          if (!current()) return;
+          [left] = page.getViewport({ scale: this.zoom }).convertToViewportPoint(x, 0);
+          if (!this.renderJobs.has(pageNumber) && !this.renderedPages.has(pageNumber)) page.cleanup?.();
+        }
+      }
+      if (current()) this.goToPage(pageNumber, { push, instant: true, left, top });
     } catch (error) {
       if (current()) console.error("PDF destination failed", error);
     }
@@ -416,23 +506,32 @@ export class PdfViewer {
     return this.pdf ? this.pdf.getOutline() : null;
   }
 
-  goToPage(pageNumber, { push = false, instant = false } = {}) {
+  goToPage(pageNumber, { push = false, instant = false, left = null, top = null } = {}) {
     if (!this.pageCount || !Number.isFinite(pageNumber)) return;
     this.navigationGeneration += 1;
     const n = Math.min(this.pageCount, Math.max(1, Math.trunc(pageNumber)));
     if (push) this.history.commit(this.getState());
     this.currentPage = n;
     // History must capture the completed destination, not a smooth-scroll frame.
-    this.scrollToPage(n, { instant: instant || push });
+    this.scrollToPage(n, { instant: instant || push, left, top });
     if (push) this.history.push(this.getState());
     this.notify();
   }
 
-  scrollToPage(pageNumber, { instant = false } = {}) {
+  scrollToPage(pageNumber, { instant = false, left = null, top = null } = {}) {
     const el = this.pageEls[pageNumber - 1];
     if (!el) return;
+    let scrollTop = el.offsetTop - 16;
+    let scrollLeft = this.wrapEl.scrollLeft;
+    if (top != null && Number.isFinite(top)) {
+      scrollTop = Math.max(0, el.offsetTop + top - 64);
+    }
+    if (left != null && Number.isFinite(left)) {
+      scrollLeft = Math.max(0, el.offsetLeft + left - 32);
+    }
     this.wrapEl.scrollTo({
-      top: el.offsetTop - 16,
+      top: scrollTop,
+      left: scrollLeft,
       behavior: instant ? "auto" : "smooth",
     });
   }

@@ -49,6 +49,11 @@ async function setup() {
   const main = new vm.SourceTextModule(await readFile(new URL('../web/js/main.js', import.meta.url), 'utf8'), { context });
   await main.link(async spec => {
     if (spec === './search.js') return new vm.SourceTextModule(await readFile(new URL('../web/js/search.js', import.meta.url), 'utf8'), { context });
+    if (spec.includes('vendor/pdfjs')) {
+      return new vm.SyntheticModule(['PasswordResponses'], function () {
+        this.setExport('PasswordResponses', { NEED_PASSWORD: 1, INCORRECT_PASSWORD: 2 });
+      }, { context });
+    }
     return new vm.SyntheticModule(Object.keys(exports[spec]), function () {
       for (const [key, value] of Object.entries(exports[spec])) this.setExport(key, value);
     }, { context });

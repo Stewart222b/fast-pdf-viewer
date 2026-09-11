@@ -417,6 +417,10 @@ select {
   margin: 0 0 8px;
 }
 
+.modal-card .hint.error {
+  color: #f87171;
+}
+
 .modal-card .hint {
   color: var(--muted);
   font-size: 13px;

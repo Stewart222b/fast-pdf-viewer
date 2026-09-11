@@ -82,5 +82,44 @@ class PdfRangeTests(unittest.TestCase):
             app.set_opened(None)
 
 
+class OpenPathRemovedTests(unittest.TestCase):
+    def test_open_path_endpoint_is_disabled(self):
+        server = app.start_server(0, quiet=True)
+        try:
+            connection = HTTPConnection(*server.server_address, timeout=3)
+            try:
+                payload = b'{"path":"/etc/passwd"}'
+                connection.request(
+                    'POST',
+                    '/api/open-path',
+                    body=payload,
+                    headers={'Content-Type': 'application/json', 'Content-Length': str(len(payload))},
+                )
+                response = connection.getresponse()
+                self.assertEqual(response.status, 404)
+                response.read()
+            finally:
+                connection.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+
+class PortBindingTests(unittest.TestCase):
+    def test_start_server_uses_next_port_when_busy(self):
+        first = app.start_server(0, quiet=True)
+        try:
+            port = first.server_address[1]
+            second = app.start_server(port, quiet=True)
+            try:
+                self.assertEqual(second.server_address[1], port + 1)
+            finally:
+                second.shutdown()
+                second.server_close()
+        finally:
+            first.shutdown()
+            first.server_close()
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -2,17 +2,66 @@ import { ViewHistory } from "./history.js";
 import { highlightSnippet, searchDocument } from "./search.js";
 import { loadSettings, saveSettings } from "./settings.js";
 import { translateText } from "./translate.js";
+import { PasswordResponses } from "../vendor/pdfjs/build/pdf.mjs";
 import { PdfViewer } from "./viewer.js";
 
 const $ = (id) => document.getElementById(id);
 
 const history = new ViewHistory();
+let passwordDialog = null;
+
+function requestPdfPassword(reason) {
+  if (passwordDialog) return passwordDialog;
+  const modal = $("pdf-password-modal");
+  const input = $("pdf-password-input");
+  const error = $("pdf-password-error");
+  const submit = $("pdf-password-submit");
+  const cancel = $("pdf-password-cancel");
+  passwordDialog = new Promise((resolve, reject) => {
+    const cleanup = () => {
+      modal.hidden = true;
+      submit.removeEventListener("click", onSubmit);
+      cancel.removeEventListener("click", onCancel);
+      input.removeEventListener("keydown", onKey);
+      passwordDialog = null;
+    };
+    const onSubmit = () => {
+      cleanup();
+      resolve(input.value);
+    };
+    const onCancel = () => {
+      cleanup();
+      reject(new Error("已取消输入密码"));
+    };
+    const onKey = (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        onSubmit();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCancel();
+      }
+    };
+    error.hidden = reason !== PasswordResponses.INCORRECT_PASSWORD;
+    error.textContent = reason === PasswordResponses.INCORRECT_PASSWORD ? "密码错误，请重试。" : "";
+    input.value = "";
+    modal.hidden = false;
+    input.focus();
+    submit.addEventListener("click", onSubmit);
+    cancel.addEventListener("click", onCancel);
+    input.addEventListener("keydown", onKey);
+  });
+  return passwordDialog;
+}
+
 const viewer = new PdfViewer({
   pagesEl: $("pages"),
   wrapEl: $("viewer-wrap"),
   history,
   onState: syncToolbar,
   onIndex: refreshIndexedSearch,
+  onPassword: requestPdfPassword,
 });
 
 const fileInput = document.createElement("input");
