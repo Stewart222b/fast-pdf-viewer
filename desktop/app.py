@@ -18,6 +18,12 @@ WEB = ROOT / "web"
 
 opened_lock = threading.Lock()
 opened: dict[str, object] = {"path": None, "name": None, "id": None}
+OPENED_PATH = re.compile(r"^/opened(?:/([0-9a-f]{32})\.pdf|\.pdf)$")
+
+
+class ViewerHTTPServer(ThreadingHTTPServer):
+    allow_reuse_address = False
+    daemon_threads = True
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -34,17 +40,18 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         if parsed.path == "/api/startup":
-            self._json(
-                {
+            with opened_lock:
+                payload = {
                     "path": opened.get("path"),
                     "name": opened.get("name"),
                     "id": opened.get("id"),
                     "hasFile": bool(opened.get("path")),
                 }
-            )
+            self._json(payload)
             return
-        if parsed.path == "/opened.pdf":
-            self._serve_opened()
+        opened_match = OPENED_PATH.match(parsed.path)
+        if opened_match:
+            self._serve_opened(opened_match.group(1))
             return
         super().do_GET()
 
@@ -63,21 +70,24 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json({"ok": False, "error": "file not found"}, 400)
                 return
             set_opened(path)
-            self._json({"ok": True, "name": opened["name"], "id": opened["id"]})
+            with opened_lock:
+                self._json({"ok": True, "name": opened["name"], "id": opened["id"]})
             return
         self.send_error(404)
 
     def do_HEAD(self) -> None:  # noqa: N802
-        if urlparse(self.path).path == "/opened.pdf":
-            self._serve_opened(head_only=True)
+        opened_match = OPENED_PATH.match(urlparse(self.path).path)
+        if opened_match:
+            self._serve_opened(opened_match.group(1), head_only=True)
         else:
             super().do_HEAD()
 
-    def _serve_opened(self, head_only: bool = False) -> None:
-        requested_id = parse_qs(urlparse(self.path).query).get("id", [None])[0]
+    def _serve_opened(self, path_id: str | None = None, head_only: bool = False) -> None:
+        requested_id = path_id or parse_qs(urlparse(self.path).query).get("id", [None])[0]
         with opened_lock:
             path = opened.get("path")
-            if requested_id is not None and requested_id != opened.get("id"):
+            current_id = opened.get("id")
+            if requested_id is not None and requested_id != current_id:
                 self.send_error(409, "Document changed; reopen the PDF")
                 return
         if not path:
@@ -134,7 +144,7 @@ class Handler(SimpleHTTPRequestHandler):
                         break
                     self.wfile.write(chunk)
                     remaining -= len(chunk)
-            except (BrokenPipeError, ConnectionResetError):
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 pass  # Expected when pdf.js cancels an obsolete range request.
 
     def _json(self, payload: dict, status: int = 200) -> None:
@@ -172,10 +182,22 @@ def ensure_pdfjs() -> None:
 def start_server(port: int = 17831) -> ThreadingHTTPServer:
     mimetypes.add_type("application/javascript", ".mjs")
     mimetypes.add_type("application/wasm", ".wasm")
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    httpd = bind_server(port)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     return httpd
+
+
+def bind_server(port: int) -> ViewerHTTPServer:
+    if port == 0:
+        return ViewerHTTPServer(("127.0.0.1", 0), Handler)
+    errors: list[OSError] = []
+    for candidate in range(port, port + 30):
+        try:
+            return ViewerHTTPServer(("127.0.0.1", candidate), Handler)
+        except OSError as exc:
+            errors.append(exc)
+    raise OSError(f"无法监听 127.0.0.1:{port}-{port + 29}") from errors[-1]
 
 
 def parse_args() -> argparse.Namespace:
@@ -202,7 +224,8 @@ class Bridge:
             return None
         path = result[0]
         set_opened(path)
-        return {"name": Path(path).name, "id": opened["id"]}
+        with opened_lock:
+            return {"name": opened["name"], "id": opened["id"]}
 
 
 def open_window(url: str, title: str) -> bool:

@@ -91,8 +91,12 @@ async function openFile(file) {
   });
 }
 
+function openedUrl(id) {
+  return id ? `/opened/${encodeURIComponent(id)}.pdf` : `/opened.pdf?t=${Date.now()}`;
+}
+
 async function openUrl(name, id) {
-  return openSource(() => ({ url: `/opened.pdf?${id ? `id=${encodeURIComponent(id)}` : `t=${Date.now()}`}`, name }));
+  return openSource(() => ({ url: openedUrl(id), name }));
 }
 
 async function renderOutline(request) {

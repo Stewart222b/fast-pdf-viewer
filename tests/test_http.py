@@ -71,14 +71,50 @@ class PdfRangeTests(unittest.TestCase):
                 self.assertEqual(r.getheader('Accept-Ranges'), 'bytes')
                 self.assertEqual(r.read(), b'')
                 c.close()
+                c = HTTPConnection(*server.server_address, timeout=3)
+                c.request('GET', '/opened/' + old_id + '.pdf')
+                r = c.getresponse()
+                self.assertEqual(r.status, 200)
+                self.assertEqual(r.read(), data)
+                c.close()
+                current = app.opened['id']
+                c = HTTPConnection(*server.server_address, timeout=3)
+                c.request('GET', '/opened.pdf?id=' + current)
+                r = c.getresponse()
+                self.assertEqual(r.status, 200)
+                self.assertEqual(r.read(), data)
+                c.close()
                 app.set_opened(file)
                 c = HTTPConnection(*server.server_address, timeout=3)
                 c.request('GET', '/opened.pdf?id=' + old_id)
                 self.assertEqual(c.getresponse().status, 409)
                 c.close()
+                c = HTTPConnection(*server.server_address, timeout=3)
+                c.request('GET', '/opened/' + old_id + '.pdf')
+                self.assertEqual(c.getresponse().status, 409)
+                c.close()
         finally:
             server.shutdown()
             server.server_close()
+            app.set_opened(None)
+
+
+class ServerBindTests(unittest.TestCase):
+    def test_busy_port_falls_back_instead_of_sharing(self):
+        first = app.start_server(0)
+        try:
+            port = first.server_address[1]
+            second = app.start_server(port)
+            try:
+                self.assertNotEqual(second.server_address[1], port)
+                self.assertFalse(first.allow_reuse_address)
+                self.assertFalse(second.allow_reuse_address)
+            finally:
+                second.shutdown()
+                second.server_close()
+        finally:
+            first.shutdown()
+            first.server_close()
             app.set_opened(None)
 
 
