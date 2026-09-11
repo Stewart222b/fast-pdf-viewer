@@ -1,10 +1,17 @@
 import { ViewHistory } from "./history.js";
+import { createPlatform } from "./platform/index.js";
+import {
+  loadReadingPosition,
+  readingFingerprint,
+  saveReadingPosition,
+} from "./reading-position.js";
 import { highlightSnippet, searchDocument } from "./search.js";
 import { loadSettings, saveSettings } from "./settings.js";
-import { translateText } from "./translate.js";
+import { MAX_TRANSLATE_CHARS, translateText } from "./translate.js";
 import { PdfViewer } from "./viewer.js";
 
 const $ = (id) => document.getElementById(id);
+const platform = createPlatform();
 
 const history = new ViewHistory();
 const viewer = new PdfViewer({
@@ -28,6 +35,11 @@ let openGeneration = 0;
 let searchGeneration = 0;
 let indexRefreshTimer = 0;
 let objectUrl = null;
+let currentFingerprint = "";
+let positionSaveTimer = 0;
+let translateAbort = null;
+let translateRequestId = 0;
+let bubbleSelectionId = 0;
 
 history.onChange(() => {
   $("btn-back").disabled = !history.canBack();
@@ -54,6 +66,27 @@ function syncToolbar(state) {
   }
   $("btn-back").disabled = !history.canBack();
   $("btn-forward").disabled = !history.canForward();
+  updateOutlineActive(state.page);
+  scheduleSaveReadingPosition();
+}
+
+function scheduleSaveReadingPosition() {
+  if (!currentFingerprint || !viewer.pdf) return;
+  clearTimeout(positionSaveTimer);
+  positionSaveTimer = setTimeout(() => {
+    saveReadingPosition(currentFingerprint, viewer.getState());
+  }, 400);
+}
+
+function updateOutlineActive(page) {
+  const pane = $("outline-pane");
+  let found = false;
+  pane.querySelectorAll(".outline-item").forEach((btn) => {
+    const match = Number(btn.dataset.page) === page;
+    btn.classList.toggle("active", match);
+    if (match) found = true;
+  });
+  if (!found) return;
 }
 
 async function openSource(getSource) {
@@ -62,9 +95,11 @@ async function openSource(getSource) {
   clearTimeout(indexRefreshTimer);
   indexRefreshTimer = 0;
   clearTimeout(searchTimer);
+  cancelTranslate();
   viewer.close();
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   objectUrl = null;
+  currentFingerprint = "";
   $("search-input").value = "";
   renderSearchList([], "");
   $("outline-pane").replaceChildren();
@@ -74,6 +109,9 @@ async function openSource(getSource) {
     if (request !== openGeneration) return;
     const opened = await viewer.open(source);
     if (!opened || request !== openGeneration) return;
+    currentFingerprint = readingFingerprint(source);
+    const saved = loadReadingPosition(currentFingerprint);
+    if (saved) viewer.applyReadingPosition(saved);
     await renderOutline(request);
     if (request === openGeneration && $("search-input").value.trim()) {
       await runSearch($("search-input").value);
@@ -92,12 +130,8 @@ async function openFile(file) {
   });
 }
 
-function openedUrl(id) {
-  return id ? `/opened/${encodeURIComponent(id)}.pdf` : `/opened.pdf?t=${Date.now()}`;
-}
-
-async function openUrl(name, id) {
-  return openSource(() => ({ url: openedUrl(id), name }));
+async function openFromPlatform(meta) {
+  return openSource(() => ({ url: meta.url, name: meta.name, id: meta.id }));
 }
 
 async function renderOutline(request) {
@@ -115,12 +149,35 @@ async function renderOutline(request) {
       btn.className = "outline-item";
       btn.style.paddingLeft = `${10 + depth * 14}px`;
       btn.textContent = item.title || "未命名";
+      if (item.pageNumber) btn.dataset.page = String(item.pageNumber);
       btn.addEventListener("click", () => viewer.goToDest(item.dest, true));
       pane.appendChild(btn);
       if (item.items?.length) walk(item.items, depth + 1);
     }
   };
+  await attachOutlinePages(outline);
   walk(outline, 0);
+  updateOutlineActive(viewer.currentPage);
+}
+
+async function attachOutlinePages(items) {
+  if (!viewer.pdf) return;
+  for (const item of items) {
+    try {
+      if (item.dest != null) {
+        let explicit = item.dest;
+        if (typeof explicit === "string") explicit = await viewer.pdf.getDestination(explicit);
+        const ref = explicit?.[0];
+        if (ref) {
+          const pageIndex = typeof ref === "object" ? await viewer.pdf.getPageIndex(ref) : Number(ref);
+          item.pageNumber = pageIndex + 1;
+        }
+      }
+    } catch {
+      /* skip */
+    }
+    if (item.items?.length) await attachOutlinePages(item.items);
+  }
 }
 
 function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)) {
@@ -192,6 +249,7 @@ async function runSearch(query, request = searchGeneration, jump = true) {
       if (jump) selectSidebar("search");
       if (viewer.indexError) {
         const warning = document.createElement("div");
+        warning.className = "empty-side";
         warning.textContent = "部分页面索引失败，当前仅显示已读取结果。";
         $("search-pane").appendChild(warning);
       } else if (viewer.indexedPages < viewer.pageCount) {
@@ -218,16 +276,10 @@ function setSidebarCollapsed(collapsed) {
 }
 
 async function pickFile() {
-  try {
-    if (window.pywebview?.api?.pick) {
-      const result = await window.pywebview.api.pick();
-      if (result?.name) {
-        await openUrl(result.name, result.id);
-        return;
-      }
-    }
-  } catch {
-    /* fall through to file input */
+  const picked = await platform.pickFile();
+  if (picked) {
+    await openFromPlatform(picked);
+    return;
   }
   fileInput.click();
 }
@@ -257,6 +309,12 @@ $("zoom-select").addEventListener("change", (event) => {
 $("page-input").addEventListener("change", (event) => {
   viewer.goToPage(Number(event.target.value), { push: true });
 });
+$("page-input").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    viewer.goToPage(Number(event.target.value), { push: true });
+  }
+});
 
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => selectSidebar(tab.dataset.tab));
@@ -276,6 +334,9 @@ $("search-input").addEventListener("keydown", async (event) => {
     event.preventDefault();
     if (event.shiftKey) await moveHit(-1);
     else await moveHit(1);
+  }
+  if (event.key === "Escape") {
+    event.target.blur();
   }
 });
 $("search-prev").addEventListener("click", () => moveHit(-1));
@@ -324,7 +385,6 @@ for (const type of ["mousedown", "mouseup", "auxclick", "pointerup"]) {
     (event) => {
       if (event.button !== 3 && event.button !== 4) return;
       event.preventDefault();
-      // Suppress browser navigation for every side-button event, but act once.
       if (type !== "mouseup") return;
       if (event.button === 3) viewer.back();
       else viewer.forward();
@@ -364,26 +424,99 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     viewer.back();
   }
+  if (event.key === "Escape" && !typing) {
+    hideBubble();
+    $("settings-modal").hidden = true;
+  }
 });
 
 const bubble = $("translate-bubble");
 let selectedText = "";
 
+function cancelTranslate() {
+  translateAbort?.abort();
+  translateAbort = null;
+  $("btn-translate-cancel").hidden = true;
+}
+
 function hideBubble() {
   bubble.hidden = true;
   $("translate-result").hidden = true;
+  $("translate-result").classList.remove("error");
   $("translate-result").textContent = "";
+  $("translate-status").hidden = true;
+  cancelTranslate();
 }
 
-function showBubble(x, y, text) {
-  selectedText = text;
-  $("translate-source").textContent = text;
-  $("translate-result").hidden = true;
-  bubble.hidden = false;
+function positionBubble(x, y) {
   const left = Math.min(x, window.innerWidth - bubble.offsetWidth - 12);
   const top = Math.min(y, window.innerHeight - 12);
   bubble.style.left = `${Math.max(12, left)}px`;
   bubble.style.top = `${Math.max(12, top)}px`;
+}
+
+function showBubble(x, y, text) {
+  const selectionId = ++bubbleSelectionId;
+  selectedText = text;
+  $("translate-source").textContent = text.length > 240 ? `${text.slice(0, 240)}…` : text;
+  $("translate-result").hidden = true;
+  $("translate-result").classList.remove("error");
+  $("translate-result").textContent = "";
+  bubble.hidden = false;
+  positionBubble(x, y);
+  void runTranslate(selectionId);
+  return selectionId;
+}
+
+function setTranslateError(message, selectionId) {
+  if (selectionId !== bubbleSelectionId) return;
+  const result = $("translate-result");
+  result.hidden = false;
+  result.classList.add("error");
+  result.innerHTML = `${message} <button type="button" class="link-btn" id="btn-translate-retry">重试</button>`;
+  $("translate-status").hidden = true;
+  $("btn-translate-cancel").hidden = true;
+  $("btn-translate-retry")?.addEventListener("click", () => runTranslate(selectionId));
+}
+
+async function runTranslate(selectionId = bubbleSelectionId) {
+  if (selectionId !== bubbleSelectionId) return;
+  cancelTranslate();
+  const text = selectedText;
+  if (!text) return;
+  if (text.length > MAX_TRANSLATE_CHARS) {
+    setTranslateError(`选中文本过长（${text.length} 字），请缩短到 ${MAX_TRANSLATE_CHARS} 字以内。`, selectionId);
+    return;
+  }
+  const result = $("translate-result");
+  const status = $("translate-status");
+  result.hidden = true;
+  result.classList.remove("error");
+  status.hidden = false;
+  status.textContent = "翻译中…";
+  $("btn-translate-cancel").hidden = false;
+
+  const controller = new AbortController();
+  translateAbort = controller;
+  const requestId = ++translateRequestId;
+
+  try {
+    const translated = await translateText(text, loadSettings(), { signal: controller.signal });
+    if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
+    status.hidden = true;
+    $("btn-translate-cancel").hidden = true;
+    result.hidden = false;
+    result.textContent = translated;
+    translateAbort = null;
+  } catch (error) {
+    if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
+    if (controller.signal.aborted) {
+      status.hidden = true;
+      $("btn-translate-cancel").hidden = true;
+      return;
+    }
+    setTranslateError(error.message || String(error), selectionId);
+  }
 }
 
 document.addEventListener("mouseup", (event) => {
@@ -404,23 +537,21 @@ document.addEventListener("mouseup", (event) => {
 });
 
 $("btn-bubble-close").addEventListener("click", hideBubble);
+$("btn-translate-cancel").addEventListener("click", () => {
+  translateAbort?.abort();
+  $("translate-status").hidden = true;
+  $("btn-translate-cancel").hidden = true;
+});
 $("btn-copy").addEventListener("click", async () => {
-  if (selectedText) await navigator.clipboard.writeText(selectedText);
+  const copy = $("translate-result").textContent?.trim() || selectedText;
+  if (copy) await navigator.clipboard.writeText(copy);
 });
-$("btn-translate").addEventListener("click", async () => {
-  const result = $("translate-result");
-  result.hidden = false;
-  result.textContent = "翻译中…";
-  try {
-    result.textContent = await translateText(selectedText, loadSettings());
-  } catch (error) {
-    result.textContent = error.message || String(error);
-  }
-});
+$("btn-translate").addEventListener("click", () => runTranslate());
 
 $("btn-settings").addEventListener("click", () => {
   settings = loadSettings();
   $("setting-key").value = settings.apiKey;
+  $("setting-base").value = settings.apiBaseUrl;
   $("setting-model").value = settings.model;
   $("setting-lang").value = settings.targetLang;
   $("settings-modal").hidden = false;
@@ -431,6 +562,7 @@ $("btn-settings-cancel").addEventListener("click", () => {
 $("btn-settings-save").addEventListener("click", () => {
   settings = saveSettings({
     apiKey: $("setting-key").value.trim(),
+    apiBaseUrl: $("setting-base").value.trim(),
     model: $("setting-model").value.trim() || "openai/gpt-4o-mini",
     targetLang: $("setting-lang").value,
   });
@@ -438,16 +570,10 @@ $("btn-settings-save").addEventListener("click", () => {
 });
 
 async function boot() {
+  document.body.dataset.platform = platform.id;
   const request = openGeneration;
-  try {
-    const res = await fetch("/api/startup");
-    if (res.ok) {
-      const data = await res.json();
-      if (data.hasFile && request === openGeneration) await openUrl(data.name, data.id);
-    }
-  } catch {
-    /* opened as a static file */
-  }
+  const startup = await platform.startupOpen();
+  if (startup && request === openGeneration) await openFromPlatform(startup);
 }
 
 boot();

@@ -2,6 +2,7 @@ const KEY = "fast-pdf-viewer-settings";
 
 const defaults = {
   apiKey: "",
+  apiBaseUrl: "https://openrouter.ai/api/v1",
   model: "openai/gpt-4o-mini",
   targetLang: "zh-CN",
 };

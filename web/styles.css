@@ -269,8 +269,13 @@ select {
 
 .outline-item:hover,
 .search-hit:hover,
-.search-hit.active {
+.search-hit.active,
+.outline-item.active {
   background: var(--bg-hover);
+}
+
+.outline-item.active {
+  color: var(--accent);
 }
 
 .outline-item {
@@ -445,6 +450,26 @@ select {
 
 .bubble-source {
   color: var(--muted);
+}
+
+.bubble-status {
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: auto;
+}
+
+.bubble-result.error {
+  color: #f5a8a8;
+}
+
+.link-btn {
+  background: none;
+  border: 0;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
 }
 
 .modal {
