@@ -184,7 +184,7 @@ async function runSearch(query, request = searchGeneration, jump = true) {
     if (!current()) return;
     renderSearchList(unchanged ? searchHits : hits, query);
     if (query) {
-      selectSidebar("search");
+      if (jump) selectSidebar("search");
       if (viewer.indexError) {
         const warning = document.createElement("div");
         warning.textContent = "部分页面索引失败，当前仅显示已读取结果。";

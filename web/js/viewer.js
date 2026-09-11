@@ -14,6 +14,7 @@ GlobalWorkerOptions.workerSrc = new URL(
 const CMAP_URL = new URL("../vendor/pdfjs/cmaps/", import.meta.url).toString();
 const FONT_URL = new URL("../vendor/pdfjs/standard_fonts/", import.meta.url).toString();
 const WASM_URL = new URL("../vendor/pdfjs/wasm/", import.meta.url).toString();
+const ICC_URL = new URL("../vendor/pdfjs/iccs/", import.meta.url).toString();
 
 export class PdfViewer {
   constructor({ pagesEl, wrapEl, history, onState, onIndex }) {
@@ -76,6 +77,7 @@ export class PdfViewer {
         cMapPacked: true,
         standardFontDataUrl: FONT_URL,
         wasmUrl: WASM_URL,
+        iccUrl: ICC_URL,
         disableAutoFetch: true,
         disableStream: true,
       });
@@ -538,8 +540,9 @@ export class PdfViewer {
 
   async showHits(hits, query, index = 0, { jump = true } = {}) {
     const pages = new Set([...this.hits, ...hits].map((hit) => hit.pageNumber));
-    const generation = ++this.hitGeneration;
-    this.navigationGeneration += 1;
+    // Progressive index refreshes must not cancel in-flight search/outline jumps.
+    const generation = jump ? ++this.hitGeneration : this.hitGeneration;
+    if (jump) this.navigationGeneration += 1;
     this.hits = hits;
     this.query = query;
     this.hitIndex = hits.length ? index : -1;

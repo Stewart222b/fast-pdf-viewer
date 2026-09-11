@@ -15,14 +15,19 @@ async function setup() {
   const revoked = [];
   let nextBlob = 0;
   function element() {
-    return { value: '', children: [], options: [], listeners: {}, style: {}, classList: { toggle() {}, add() {}, remove() {} },
+    const el = { value: '', children: [], options: [], listeners: {}, style: {}, toggles: [],
+      classList: { toggle(name, on) { el.toggles.push([name, on]); }, add() {}, remove() {} },
       addEventListener(name, fn) { this.listeners[name] = fn; }, replaceChildren() { this.children = []; },
       appendChild(child) { this.children.push(child); }, contains() { return false; }, focus() {}, select() {},
     };
+    return el;
   }
   function get(id) { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); }
   class Viewer {
-    constructor() { viewer = this; this.generation = 0; this.pageTexts = []; this.hitIndex = -1; this.shown = []; }
+    constructor(options = {}) {
+      viewer = this; this.generation = 0; this.pageTexts = []; this.hitIndex = -1; this.shown = []; this.query = '';
+      this.onIndex = options.onIndex;
+    }
     close() { this.generation++; this.indexPromise = null; this.pageTexts = []; }
     async open(source) { this.close(); this.source = source; this.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }]; return this; }
     async getOutline() { return this.outlinePromise || null; }
@@ -117,4 +122,25 @@ test('primary and middle clicks keep their default behavior', async () => {
       app.dispatch(type, { button, preventDefault() { assert.fail('unexpected prevention'); } });
     }
   }
+});
+
+test('indexing refresh does not switch the sidebar to search', async () => {
+  const app = await setup();
+  app.viewer.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }];
+  app.viewer.query = 'Alpha';
+  app.get('search-input').value = 'Alpha';
+  app.viewer.onIndex();
+  await app.runTimer();
+  assert.equal(app.get('search-pane').toggles.some(([name, on]) => name === 'active' && on), false);
+  assert.equal(app.get('outline-pane').toggles.length, 0);
+  assert.equal(app.get('search-count').textContent, '1 / 1');
+});
+
+test('user search still selects the search sidebar tab', async () => {
+  const app = await setup();
+  app.viewer.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }];
+  app.input('Alpha');
+  await app.runTimer();
+  assert.deepEqual(app.get('search-pane').toggles.at(-1), ['active', true]);
+  assert.deepEqual(app.get('outline-pane').toggles.at(-1), ['active', false]);
 });

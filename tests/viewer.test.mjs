@@ -223,3 +223,52 @@ test('index exposes early page results while a later page is still pending', asy
   slow.resolve(content('late')); await job;
   assert.equal(viewer.indexedPages, 2);
 });
+
+test('highlight refresh without jump does not cancel an in-flight search jump', async () => {
+  const { viewer, wrapEl } = await setup();
+  viewer.pdf = pdf('ABC'); viewer.pageCount = 1; viewer.pageEls = [pageElement()];
+  viewer.textContents.set(1, content('ABC'));
+  wrapEl.scrollTop = 20;
+  viewer.hits = [{ pageNumber: 1, offset: 1, length: 1 }];
+  viewer.query = 'B';
+  viewer.hitGeneration = 3;
+  const waiting = deferred();
+  viewer.renderPage = () => waiting.promise;
+  const jumping = viewer.jumpToHit(0, { push: true });
+  await viewer.showHits(
+    [{ pageNumber: 1, offset: 1, length: 1 }, { pageNumber: 1, offset: 2, length: 1 }],
+    'B',
+    0,
+    { jump: false },
+  );
+  assert.equal(viewer.hitGeneration, 3);
+  waiting.resolve();
+  await jumping;
+  assert.equal(wrapEl.scrollTop, 736);
+});
+
+test('highlight refresh without jump does not cancel an outline destination', async () => {
+  const { viewer } = await setup();
+  const waiting = deferred();
+  viewer.pdf = { getDestination: () => waiting.promise };
+  viewer.pageCount = 3;
+  viewer.pageEls = [pageElement(), pageElement(), pageElement()];
+  const dest = viewer.goToDest('outline', true);
+  await viewer.showHits([{ pageNumber: 1, offset: 0, length: 1 }], 'A', 0, { jump: false });
+  waiting.resolve([2]);
+  await dest;
+  assert.equal(viewer.currentPage, 3);
+});
+
+test('getDocument receives the ICC profile URL with other pdf.js asset URLs', async () => {
+  let options;
+  const { viewer } = await setup(src => {
+    options = src;
+    return { promise: Promise.resolve(pdf('A')), destroy() {} };
+  });
+  await viewer.open({ url: 'file.pdf', name: 'A' });
+  assert.match(options.cMapUrl, /cmaps\/$/);
+  assert.match(options.standardFontDataUrl, /standard_fonts\/$/);
+  assert.match(options.wasmUrl, /wasm\/$/);
+  assert.match(options.iccUrl, /iccs\/$/);
+});
