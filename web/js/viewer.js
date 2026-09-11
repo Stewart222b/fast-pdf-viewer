@@ -193,6 +193,7 @@ export class PdfViewer {
     const zoom = this.zoom;
     const oldHeight = el?.offsetHeight || (previous ? previous.height * zoom : this.baseHeight * zoom);
     const pageTop = el?.offsetTop ?? 0;
+    const scrollTop = this.wrapEl.scrollTop;
     this.pageSizes[pageIndex] = size;
     if (!el) return;
     const newHeight = size.height * zoom;
@@ -200,8 +201,8 @@ export class PdfViewer {
     el.style.height = `${newHeight}px`;
     delete el.dataset.renderedZoom;
     const delta = newHeight - oldHeight;
-    if (delta !== 0 && this.wrapEl.scrollTop > pageTop) {
-      this.wrapEl.scrollTop += delta;
+    if (delta !== 0 && scrollTop > pageTop) {
+      this.wrapEl.scrollTop = scrollTop + delta;
       if (!this.applyingHistory) this.history.commit(this.getState());
     }
   }
