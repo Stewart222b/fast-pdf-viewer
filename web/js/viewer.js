@@ -96,13 +96,14 @@ export class PdfViewer {
       this.pdf = pdf;
       this.name = source.name || "文档";
       this.pageCount = pdf.numPages;
-      await this.loadPageSizes(pdf, generation);
+      await this.loadFirstPageSize(pdf, generation);
       if (generation !== this.generation) return null;
       this.buildPlaceholders();
       this.setZoom(this.zoomMode, { silent: true });
       this.history.reset(this.getState());
       this.observe();
       this.wrapEl.addEventListener("scroll", this.onScroll, { passive: true });
+      this.prefetchPageSizes(pdf, generation);
       this.indexPromise = this.indexText();
       // Search still receives the rejection; background indexing has a handler too.
       this.indexPromise.catch((error) => {
@@ -158,22 +159,41 @@ export class PdfViewer {
     this.notify();
   }
 
-  async loadPageSizes(pdf, generation) {
-    const sizes = [];
-    for (let i = 1; i <= pdf.numPages; i += 1) {
-      if (generation !== this.generation) return;
-      const page = await pdf.getPage(i);
-      if (generation !== this.generation) return;
-      const base = page.getViewport({ scale: 1 });
-      sizes.push({ width: base.width, height: base.height });
-      if (!this.renderJobs.has(i) && !this.renderedPages.has(i)) page.cleanup?.();
-      if (i % 20 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
-    }
-    this.pageSizes = sizes;
-    if (sizes.length) {
-      this.baseWidth = sizes[0].width;
-      this.baseHeight = sizes[0].height;
-    }
+  async loadFirstPageSize(pdf, generation) {
+    this.pageSizes = new Array(pdf.numPages);
+    const page = await pdf.getPage(1);
+    if (generation !== this.generation) return;
+    const base = page.getViewport({ scale: 1 });
+    this.pageSizes[0] = { width: base.width, height: base.height };
+    this.baseWidth = base.width;
+    this.baseHeight = base.height;
+    if (!this.renderJobs.has(1) && !this.renderedPages.has(1)) page.cleanup?.();
+  }
+
+  prefetchPageSizes(pdf, generation) {
+    if (pdf.numPages <= 1) return;
+    (async () => {
+      for (let i = 2; i <= pdf.numPages; i += 1) {
+        if (generation !== this.generation) return;
+        const page = await pdf.getPage(i);
+        if (generation !== this.generation) return;
+        const base = page.getViewport({ scale: 1 });
+        this.setPageSize(i - 1, { width: base.width, height: base.height });
+        if (!this.renderJobs.has(i) && !this.renderedPages.has(i)) page.cleanup?.();
+        if (i % 20 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    })().catch((error) => {
+      if (generation === this.generation) console.error("PDF page layout prefetch failed", error);
+    });
+  }
+
+  setPageSize(pageIndex, size) {
+    this.pageSizes[pageIndex] = size;
+    const el = this.pageEls[pageIndex];
+    if (!el) return;
+    el.style.width = `${size.width * this.zoom}px`;
+    el.style.height = `${size.height * this.zoom}px`;
+    delete el.dataset.renderedZoom;
   }
 
   pageLayout(pageNumber) {
@@ -462,7 +482,9 @@ export class PdfViewer {
       let top = null;
       if (type === "XYZ") {
         const [, , rawLeft, rawTop, rawZoom] = explicit;
-        if (rawZoom != null && Number.isFinite(rawZoom) && rawZoom > 0) {
+        const zoomChange = rawZoom != null && Number.isFinite(rawZoom) && rawZoom > 0;
+        if (push && zoomChange) this.history.commit(this.getState());
+        if (zoomChange) {
           this.setZoom(String(Math.min(500, Math.max(25, Math.round(rawZoom * 100)))), {
             keepPage: false,
             silent: true,
@@ -473,12 +495,17 @@ export class PdfViewer {
         if (!current()) return;
         const viewport = page.getViewport({ scale: this.zoom });
         if (rawLeft != null && Number.isFinite(rawLeft)) {
-          [, left] = viewport.convertToViewportPoint(rawLeft, rawTop ?? 0);
+          [left] = viewport.convertToViewportPoint(rawLeft, rawTop ?? 0);
         }
         if (rawTop != null && Number.isFinite(rawTop)) {
           [, top] = viewport.convertToViewportPoint(rawLeft ?? 0, rawTop);
         }
         if (!this.renderJobs.has(pageNumber) && !this.renderedPages.has(pageNumber)) page.cleanup?.();
+        if (current()) {
+          this.goToPage(pageNumber, { push: push && !zoomChange, instant: true, left, top });
+          if (push && zoomChange) this.history.push(this.getState());
+        }
+        return;
       } else if (type === "FitH" || type === "FitBH") {
         const y = explicit[2];
         if (y != null && Number.isFinite(y)) {

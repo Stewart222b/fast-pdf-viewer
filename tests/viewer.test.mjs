@@ -278,6 +278,64 @@ test('outline XYZ destination scrolls to the requested position', async () => {
   };
   await viewer.goToDest('chapter', true);
   assert.equal(wrapEl.scrollTop, 336);
+  assert.equal(wrapEl.scrollLeft, 68);
+});
+
+test('XYZ zoom records pre-destination state before changing scale', async () => {
+  const { viewer, history, wrapEl } = await setup();
+  viewer.pageCount = 1;
+  viewer.zoom = 1;
+  viewer.zoomMode = '100';
+  viewer.pageSizes = [{ width: 600, height: 800 }];
+  viewer.pageEls = [pageElement()];
+  wrapEl.scrollTop = 42;
+  wrapEl.scrollLeft = 7;
+  history.reset(viewer.getState());
+  viewer.pdf = {
+    getDestination: async () => [0, 'XYZ', null, null, 2],
+    getPage: async () => ({
+      getViewport: () => ({ convertToViewportPoint: () => [0, 0] }),
+      cleanup() {},
+    }),
+  };
+  viewer.setZoom = (mode) => {
+    viewer.zoomMode = mode;
+    viewer.zoom = Number(mode) / 100;
+  };
+  await viewer.goToDest('zoomed', true);
+  assert.equal(history.index, 1);
+  assert.equal(history.stack[0].scrollTop, 42);
+  assert.equal(history.stack[0].scrollLeft, 7);
+  assert.equal(history.stack[0].zoom, '100');
+});
+
+test('open prefetches remaining page sizes after first-page layout', async () => {
+  let layoutPageCalls = 0;
+  const { viewer } = await setup(() => ({
+    promise: Promise.resolve({
+      numPages: 4,
+      destroy() {},
+      getPage: async (n) => {
+        if (n > 1) layoutPageCalls += 1;
+        if (n > 1) await new Promise((resolve) => setTimeout(resolve, 30));
+        return {
+          getViewport: () => ({ width: 500 + n * 10, height: 700 }),
+          getTextContent: async () => ({ items: [{ str: 'x', width: 1, height: 10, transform: [10, 0, 0, 10, 0, 0] }] }),
+          cleanup() {},
+        };
+      },
+    }),
+    destroy() {},
+  }));
+  const opened = await viewer.open({ name: 'multi' });
+  assert.ok(opened);
+  assert.equal(viewer.pageSizes.length, 4);
+  assert.equal(viewer.pageSizes[0].width, 510);
+  assert.equal(viewer.pageSizes[3], undefined);
+  assert.ok(layoutPageCalls < 3);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.ok(layoutPageCalls >= 3);
+  assert.equal(viewer.pageSizes[3].width, 540);
 });
 
 test('each page placeholder uses its own viewport size', async () => {
