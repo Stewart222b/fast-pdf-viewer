@@ -14,6 +14,7 @@ const viewer = new PdfViewer({
   onState: syncToolbar,
   onIndex: refreshIndexedSearch,
 });
+if (globalThis.__PDF_BENCH__) globalThis.__pdfViewer = viewer;
 
 const fileInput = document.createElement("input");
 fileInput.type = "file";

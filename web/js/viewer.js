@@ -58,6 +58,26 @@ export class PdfViewer {
     this.textLayers = new Map();
     this.hitGeneration = 0;
     this.navigationGeneration = 0;
+    if (globalThis.__PDF_BENCH__) {
+      this.bench = {
+        renderPageCalls: 0,
+        renderVisibleCalls: 0,
+        observerRenderCalls: 0,
+        renderTaskCancels: 0,
+        trimEvictions: 0,
+      };
+      const origRenderVisible = this.renderVisible.bind(this);
+      this.renderVisible = async (...args) => {
+        this.bench.renderVisibleCalls += 1;
+        return origRenderVisible(...args);
+      };
+      const origTrim = this.trimCache.bind(this);
+      this.trimCache = () => {
+        const before = this.renderedPages.size;
+        origTrim();
+        this.bench.trimEvictions += Math.max(0, before - this.renderedPages.size);
+      };
+    }
   }
 
   getState() {
@@ -228,6 +248,7 @@ export class PdfViewer {
       (entries) => {
         for (const entry of entries) {
           if (entry.isIntersecting) {
+            if (this.bench) this.bench.observerRenderCalls += 1;
             const n = Number(entry.target.dataset.pageNumber);
             this.renderPage(n).catch((error) => console.error("PDF rendering failed", error));
           }
@@ -273,6 +294,7 @@ export class PdfViewer {
   }
 
   renderPage(pageNumber, force = false) {
+    if (this.bench) this.bench.renderPageCalls += 1;
     const el = this.pageEls[pageNumber - 1];
     const pdf = this.pdf;
     if (!el || !pdf) return Promise.resolve();
@@ -290,7 +312,11 @@ export class PdfViewer {
     const job = { key };
     const current = () => generation === this.generation &&
       this.renderJobs.get(pageNumber) === job && this.zoom === zoom;
-    this.tasks.get(pageNumber)?.cancel();
+    const prevTask = this.tasks.get(pageNumber);
+    if (prevTask) {
+      if (this.bench) this.bench.renderTaskCancels += 1;
+      prevTask.cancel();
+    }
     this.textLayers.get(pageNumber)?.cancel();
     this.renderJobs.set(pageNumber, job);
     job.promise = (async () => {
