@@ -188,12 +188,22 @@ export class PdfViewer {
   }
 
   setPageSize(pageIndex, size) {
-    this.pageSizes[pageIndex] = size;
     const el = this.pageEls[pageIndex];
+    const previous = this.pageSizes[pageIndex];
+    const zoom = this.zoom;
+    const oldHeight = el?.offsetHeight || (previous ? previous.height * zoom : this.baseHeight * zoom);
+    const pageTop = el?.offsetTop ?? 0;
+    this.pageSizes[pageIndex] = size;
     if (!el) return;
-    el.style.width = `${size.width * this.zoom}px`;
-    el.style.height = `${size.height * this.zoom}px`;
+    const newHeight = size.height * zoom;
+    el.style.width = `${size.width * zoom}px`;
+    el.style.height = `${newHeight}px`;
     delete el.dataset.renderedZoom;
+    const delta = newHeight - oldHeight;
+    if (delta !== 0 && this.wrapEl.scrollTop > pageTop) {
+      this.wrapEl.scrollTop += delta;
+      if (!this.applyingHistory) this.history.commit(this.getState());
+    }
   }
 
   pageLayout(pageNumber) {

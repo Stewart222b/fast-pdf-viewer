@@ -338,6 +338,31 @@ test('open prefetches remaining page sizes after first-page layout', async () =>
   assert.equal(viewer.pageSizes[3].width, 540);
 });
 
+test('setPageSize keeps scroll anchored when a page above the viewport grows', async () => {
+  const { viewer, wrapEl } = await setup();
+  viewer.zoom = 1;
+  viewer.pageSizes = [{ width: 600, height: 400 }, { width: 600, height: 400 }];
+  const second = pageElement();
+  second.offsetTop = 400;
+  second.offsetHeight = 400;
+  viewer.pageEls = [pageElement(), second];
+  wrapEl.scrollTop = 500;
+  viewer.setPageSize(0, { width: 600, height: 700 });
+  assert.equal(wrapEl.scrollTop, 800);
+});
+
+test('setPageSize does not shift scroll when the resized page is below the viewport', async () => {
+  const { viewer, wrapEl } = await setup();
+  viewer.zoom = 1;
+  const second = pageElement();
+  second.offsetTop = 400;
+  second.offsetHeight = 400;
+  viewer.pageEls = [pageElement(), second];
+  wrapEl.scrollTop = 50;
+  viewer.setPageSize(1, { width: 600, height: 900 });
+  assert.equal(wrapEl.scrollTop, 50);
+});
+
 test('each page placeholder uses its own viewport size', async () => {
   const { viewer } = await setup();
   viewer.pageCount = 2;
