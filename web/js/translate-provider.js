@@ -19,6 +19,12 @@ export function chatCompletionsUrl(apiBase) {
   return base.endsWith("/chat/completions") ? base : `${base}/chat/completions`;
 }
 
+/** Fetch header values must be ISO-8859-1 (ByteString); Unicode throws in Edge and other browsers. */
+export function latin1HeaderValue(value, fallback = "") {
+  const text = String(value ?? "");
+  return /^[\x00-\xff]*$/.test(text) ? text : fallback;
+}
+
 export function buildTranslationMessages(text, targetLang) {
   const language = LANG_NAME[targetLang] || targetLang;
   return [
@@ -53,15 +59,17 @@ export async function translateWithProvider(text, settings, { signal, timeoutMs 
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    const apiKey = latin1HeaderValue(settings.apiKey);
+    if (!apiKey) throw new Error("还没有填写 API Key，请先打开设置。");
     const headers = {
-      Authorization: `Bearer ${settings.apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     };
     const base = normalizeApiBase(settings.apiBaseUrl);
     if (base.includes("openrouter.ai")) {
-      const origin = globalThis.location?.origin;
+      const origin = latin1HeaderValue(globalThis.location?.origin);
       if (origin) headers["HTTP-Referer"] = origin;
-      headers["X-Title"] = "速览 Fast PDF Viewer";
+      headers["X-Title"] = latin1HeaderValue("速览 Fast PDF Viewer", "Fast PDF Viewer");
     }
     const response = await fetch(url, {
       method: "POST",

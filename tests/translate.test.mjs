@@ -4,6 +4,7 @@ import {
   MAX_TRANSLATE_CHARS,
   buildTranslationMessages,
   chatCompletionsUrl,
+  latin1HeaderValue,
   normalizeApiBase,
   translateWithProvider,
 } from '../web/js/translate-provider.js';
@@ -38,6 +39,33 @@ test('translateWithProvider rejects empty key and long text', async () => {
     () => translateWithProvider('x'.repeat(MAX_TRANSLATE_CHARS + 1), { apiKey: 'k' }),
     /过长/,
   );
+});
+
+test('translateWithProvider uses Latin-1 fetch headers for OpenRouter', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    assert.equal(url, 'https://openrouter.ai/api/v1/chat/completions');
+    for (const value of Object.values(init.headers)) {
+      assert.match(String(value), /^[\x00-\xff]*$/, `header must be Latin-1: ${value}`);
+    }
+    assert.equal(init.headers['X-Title'], 'Fast PDF Viewer');
+    return {
+      ok: true,
+      async json() {
+        return { choices: [{ message: { content: 'ok' } }] };
+      },
+    };
+  };
+  await translateWithProvider('hello', {
+    apiKey: 'secret',
+    apiBaseUrl: 'https://openrouter.ai/api/v1',
+  });
+  globalThis.fetch = original;
+});
+
+test('latin1HeaderValue keeps ASCII and falls back for Unicode', () => {
+  assert.equal(latin1HeaderValue('abc'), 'abc');
+  assert.equal(latin1HeaderValue('速览', 'Fast PDF Viewer'), 'Fast PDF Viewer');
 });
 
 test('translateWithProvider parses success response', async () => {

@@ -1,18 +1,12 @@
 // Keep normalized search positions mapped to the original concatenated PDF text.
 export function buildTextIndex(textContent) {
   let text = "", raw = 0, previous = null;
-  const spans = [];
-  const append = (value, start, end) => {
+  /** normToRaw[i] = raw UTF-16 offset in PDF text for normalized character i */
+  const normToRaw = [];
+  const appendNormalized = (value, rawStart) => {
     if (!value) return;
     if (value === " " && text.endsWith(" ")) return;
-    const last = spans.at(-1);
-    if (last && last.end - last.start === last.rawEnd - last.rawStart &&
-        value.length === end - start && last.rawEnd === start) {
-      last.end += value.length;
-      last.rawEnd = end;
-    } else {
-      spans.push({ start: text.length, end: text.length + value.length, rawStart: start, rawEnd: end });
-    }
+    for (let i = 0; i < value.length; i += 1) normToRaw.push(rawStart);
     text += value;
   };
   for (const item of textContent.items) {
@@ -26,18 +20,18 @@ export function buildTextIndex(textContent) {
         previous.dir !== "rtl" && item.dir !== "rtl";
       const gap = horizontal && Math.abs(a[5] - b[5]) < height * 0.5 &&
         b[4] - (a[4] + previous.width) > height * 0.2;
-      if ((!cjkBoundary && previous.hasEOL) || gap) append(" ", raw, raw);
+      if ((!cjkBoundary && previous.hasEOL) || gap) appendNormalized(" ", raw);
     }
     for (const char of item.str) {
       const normalized = char.normalize("NFKC").replace(/\s+/gu, " ");
-      append(normalized, raw, raw + char.length);
+      appendNormalized(normalized, raw);
       raw += char.length;
     }
     // Empty EOL items must carry their line break to the next text item.
     if (item.str) previous = item;
     else if (item.hasEOL && previous) previous = { ...previous, hasEOL: true };
   }
-  return { text, spans };
+  return { text, normToRaw, rawLength: raw };
 }
 
 function queryPattern(query) {
@@ -45,22 +39,12 @@ function queryPattern(query) {
   return needle ? new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu") : null;
 }
 
-function rawRange(spans, start, end) {
-  if (!spans?.length) return { offset: start, length: end - start };
-  const locate = position => {
-    let lo = 0, hi = spans.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (spans[mid].end <= position) lo = mid + 1;
-      else hi = mid;
-    }
-    return spans[lo];
-  };
-  const first = locate(start), last = locate(end - 1);
-  const linear = span => span.end - span.start === span.rawEnd - span.rawStart;
-  const offset = linear(first) ? first.rawStart + start - first.start : first.rawStart;
-  const rawEnd = linear(last) ? last.rawStart + end - last.start : last.rawEnd;
-  return { offset, length: rawEnd - offset };
+function rawRange(page, start, end) {
+  const { normToRaw, rawLength, text } = page;
+  if (!normToRaw?.length || !text?.length) return { offset: start, length: end - start };
+  const offset = normToRaw[start] ?? 0;
+  const rawEnd = end < text.length ? normToRaw[end] : rawLength;
+  return { offset, length: Math.max(0, rawEnd - offset) };
 }
 
 export function searchDocument(pageTexts, query) {
@@ -74,7 +58,7 @@ export function searchDocument(pageTexts, query) {
       const start = Math.max(0, index - 28), end = Math.min(page.text.length, index + length + 42);
       hits.push({
         pageNumber: page.pageNumber,
-        ...rawRange(page.spans, index, index + length),
+        ...rawRange(page, index, index + length),
         snippet: `${start > 0 ? "…" : ""}${page.text.slice(start, end)}${end < page.text.length ? "…" : ""}`,
       });
     }

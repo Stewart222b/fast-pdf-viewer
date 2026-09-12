@@ -585,7 +585,10 @@ export class PdfViewer {
     this.hits = hits;
     this.query = query;
     this.hitIndex = hits.length ? index : -1;
-    await Promise.all([...pages].map((n) => this.paintHighlights(n)));
+    await Promise.all([...pages].map(async (n) => {
+      if (!this.textContents.get(n)) await this.renderPage(n);
+      await this.paintHighlights(n);
+    }));
     if (jump && generation === this.hitGeneration && hits[index]) await this.jumpToHit(index, { push: true });
   }
 
