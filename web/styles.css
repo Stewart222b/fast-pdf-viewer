@@ -142,6 +142,13 @@ select {
   flex: 0 0 auto;
 }
 
+.page-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
 .page-box {
   display: flex;
   align-items: center;
@@ -278,8 +285,59 @@ select {
   color: var(--accent);
 }
 
+.outline-node {
+  display: block;
+}
+
+.outline-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.outline-toggle {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0;
+}
+
+.outline-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.outline-toggle[hidden] {
+  display: none;
+}
+
+.outline-toggle[aria-expanded="false"]::before {
+  content: "▸";
+}
+
+.outline-toggle[aria-expanded="true"]::before {
+  content: "▾";
+}
+
+.outline-branch {
+  display: none;
+}
+
+.outline-branch.expanded {
+  display: block;
+}
+
 .outline-item {
   display: block;
+  flex: 1;
+  min-width: 0;
 }
 
 .search-hit {
@@ -344,7 +402,7 @@ select {
 .page .textLayer {
   opacity: 1;
   z-index: 2;
-  pointer-events: auto;
+  pointer-events: none;
   -webkit-user-select: text;
   user-select: text;
 }
@@ -360,6 +418,7 @@ select {
   white-space: pre;
   transform-origin: 0% 0%;
   cursor: text;
+  pointer-events: auto;
 }
 
 .page .linkLayer a {
@@ -527,6 +586,65 @@ select {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
+}
+
+.model-picker {
+  position: relative;
+}
+
+.model-picker-status {
+  font-size: 12px;
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.model-picker-status.error {
+  color: #e07a7a;
+}
+
+.model-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  max-height: 220px;
+  overflow: auto;
+  background: var(--bg-elevated, #1a2030);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  z-index: 20;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+}
+
+.model-menu[hidden] {
+  display: none;
+}
+
+.model-menu li button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.model-menu li button:hover,
+.model-menu li button:focus-visible {
+  background: var(--bg-hover);
+}
+
+.model-menu .model-id {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
 }
 
 ::-webkit-scrollbar {

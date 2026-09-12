@@ -19,6 +19,55 @@ export function chatCompletionsUrl(apiBase) {
   return base.endsWith("/chat/completions") ? base : `${base}/chat/completions`;
 }
 
+export function modelsUrl(apiBase) {
+  const base = normalizeApiBase(apiBase);
+  if (base.endsWith("/models")) return base;
+  if (base.endsWith("/chat/completions")) return base.replace(/\/chat\/completions$/, "/models");
+  return `${base}/models`;
+}
+
+export function modelSearchTokens(query) {
+  return String(query || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .filter(Boolean);
+}
+
+export function modelMatchesQuery(model, query) {
+  const tokens = modelSearchTokens(query);
+  if (!tokens.length) return true;
+  const haystack = `${model.id} ${model.name || ""}`.toLowerCase();
+  return tokens.every((token) => haystack.includes(token));
+}
+
+export async function fetchModelList(settings, { signal } = {}) {
+  const apiKey = latin1HeaderValue(settings?.apiKey);
+  const apiBase = settings?.apiBaseUrl?.trim();
+  if (!apiKey || !apiBase) return [];
+  const headers = { Authorization: `Bearer ${apiKey}` };
+  const base = normalizeApiBase(apiBase);
+  if (base.includes("openrouter.ai")) {
+    const origin = latin1HeaderValue(globalThis.location?.origin);
+    if (origin) headers["HTTP-Referer"] = origin;
+    headers["X-Title"] = latin1HeaderValue("速览 Fast PDF Viewer", "Fast PDF Viewer");
+  }
+  const response = await fetch(modelsUrl(apiBase), { headers, signal });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = data?.error?.message || `无法加载模型列表 (${response.status})`;
+    throw new Error(message);
+  }
+  const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+  const models = rows
+    .map((row) => ({
+      id: String(row?.id || row?.name || "").trim(),
+      name: String(row?.name || row?.id || "").trim(),
+    }))
+    .filter((row) => row.id);
+  models.sort((a, b) => a.id.localeCompare(b.id));
+  return models;
+}
+
 /** Fetch header values must be ISO-8859-1 (ByteString); Unicode throws in Edge and other browsers. */
 export function latin1HeaderValue(value, fallback = "") {
   const text = String(value ?? "");

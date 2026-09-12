@@ -18,8 +18,23 @@ async function setup() {
     const el = { value: '', children: [], options: [], listeners: {}, style: {}, toggles: {}, attrs: {}, dataset: {},
       classList: { toggle(name, on) { el.toggles[name] = on; }, add() {}, remove() {} },
       addEventListener(name, fn) { this.listeners[name] = fn; }, replaceChildren() { this.children = []; },
-      appendChild(child) { this.children.push(child); }, contains() { return false; }, focus() {}, select() {},
+      appendChild(child) { this.children.push(child); },
+      append(...kids) { for (const kid of kids) this.appendChild(kid); },
+      contains() { return false; }, focus() {}, select() {},
       setAttribute(name, value) { this.attrs[name] = value; },
+      querySelector(sel) {
+        const walk = (nodes) => {
+          for (const node of nodes) {
+            if (sel === '.outline-item' && node.className === 'outline-item') return node;
+            if (node.children?.length) {
+              const found = walk(node.children);
+              if (found) return found;
+            }
+          }
+          return null;
+        };
+        return walk(this.children);
+      },
     };
     return el;
   }
@@ -66,6 +81,9 @@ async function setup() {
         async startupOpen() { return null; },
         async pickFile() { return null; },
       }),
+    },
+    './model-picker.js': {
+      wireModelPicker: () => ({ refresh() {}, hideMenu() {} }),
     },
   };
   const main = new vm.SourceTextModule(await readFile(new URL('../web/js/main.js', import.meta.url), 'utf8'), { context });
@@ -117,7 +135,7 @@ test('late outline response cannot overwrite a newer document outline', async ()
   app.fileInput.files = [{ name: 'B', arrayBuffer: async () => new ArrayBuffer(0) }];
   await app.fileInput.listeners.change();
   waiting.resolve([{ title: 'A outline', dest: 1 }]); await a;
-  assert.equal(app.get('outline-pane').children[0].textContent, 'B outline');
+  assert.equal(app.get('outline-pane').querySelector('.outline-item')?.textContent, 'B outline');
 });
 
 

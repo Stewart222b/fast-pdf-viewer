@@ -4,13 +4,50 @@ import {
   MAX_TRANSLATE_CHARS,
   buildTranslationMessages,
   chatCompletionsUrl,
+  fetchModelList,
   latin1HeaderValue,
+  modelMatchesQuery,
+  modelsUrl,
   normalizeApiBase,
   translateWithProvider,
 } from '../web/js/translate-provider.js';
 
 test('normalizeApiBase trims trailing slashes', () => {
   assert.equal(normalizeApiBase('https://api.example.com/v1/'), 'https://api.example.com/v1');
+});
+
+test('modelsUrl appends /models for OpenAI-compatible bases', () => {
+  assert.equal(modelsUrl('https://openrouter.ai/api/v1'), 'https://openrouter.ai/api/v1/models');
+  assert.equal(
+    modelsUrl('https://api.openai.com/v1/chat/completions'),
+    'https://api.openai.com/v1/models',
+  );
+});
+
+test('modelMatchesQuery filters by split tokens', () => {
+  const model = { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini' };
+  assert.equal(modelMatchesQuery(model, 'gpt 4o'), true);
+  assert.equal(modelMatchesQuery(model, 'GPT5'), false);
+  assert.equal(modelMatchesQuery(model, 'gpt mini'), true);
+});
+
+test('fetchModelList uses bearer auth without echoing the key', async () => {
+  const originalFetch = globalThis.fetch;
+  let seenAuth = '';
+  globalThis.fetch = async (url, init) => {
+    seenAuth = init.headers.Authorization;
+    return {
+      ok: true,
+      json: async () => ({ data: [{ id: 'vendor/model-a', name: 'Model A' }] }),
+    };
+  };
+  const models = await fetchModelList({
+    apiKey: 'secret-key',
+    apiBaseUrl: 'https://openrouter.ai/api/v1',
+  });
+  globalThis.fetch = originalFetch;
+  assert.equal(seenAuth, 'Bearer secret-key');
+  assert.deepEqual(models, [{ id: 'vendor/model-a', name: 'Model A' }]);
 });
 
 test('chatCompletionsUrl appends path when missing', () => {

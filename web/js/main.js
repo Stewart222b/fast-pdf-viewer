@@ -7,6 +7,7 @@ import {
 } from "./reading-position.js";
 import { highlightSnippet, searchDocument } from "./search.js";
 import { loadSettings, saveSettings } from "./settings.js";
+import { wireModelPicker } from "./model-picker.js";
 import { MAX_TRANSLATE_CHARS, translateText } from "./translate.js";
 import { PdfViewer } from "./viewer.js";
 
@@ -40,6 +41,7 @@ let positionSaveTimer = 0;
 let translateAbort = null;
 let translateRequestId = 0;
 let bubbleSelectionId = 0;
+let selectionDragSpan = null;
 
 history.onChange(() => {
   $("btn-back").disabled = !history.canBack();
@@ -66,8 +68,54 @@ function syncToolbar(state) {
   }
   $("btn-back").disabled = !history.canBack();
   $("btn-forward").disabled = !history.canForward();
-  updateOutlineActive(state.page);
+  const page = state.page || 1;
+  $("btn-page-prev").disabled = !viewer.pdf || page <= 1;
+  $("btn-page-next").disabled = !viewer.pdf || page >= viewer.pageCount;
+  updateOutlineActive(page);
   scheduleSaveReadingPosition();
+}
+
+function stepPage(delta) {
+  if (!viewer.pageCount) return;
+  const next = Math.min(viewer.pageCount, Math.max(1, viewer.currentPage + delta));
+  if (next === viewer.currentPage) return;
+  viewer.goToPage(next, { push: true });
+}
+
+function textLayerSpan(node) {
+  const el = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+  return el?.closest?.(".textLayer span") || null;
+}
+
+function clampSelectionToTextSpans(clientX, clientY) {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount) return;
+  const range = selection.getRangeAt(0);
+  if (range.collapsed) return;
+  const startSpan = textLayerSpan(range.startContainer);
+  if (!startSpan) {
+    selection.removeAllRanges();
+    return;
+  }
+  const pointSpan = document.elementFromPoint(clientX, clientY)?.closest?.(".textLayer span");
+  const endSpan = pointSpan || selectionDragSpan || startSpan;
+  selectionDragSpan = null;
+  const next = document.createRange();
+  next.setStart(range.startContainer, range.startOffset);
+  const endNode = endSpan.firstChild;
+  if (endNode?.nodeType === Node.TEXT_NODE) {
+    let endOffset = endNode.textContent.length;
+    const originalEndSpan = textLayerSpan(range.endContainer);
+    if (originalEndSpan === endSpan && range.endContainer === endNode) {
+      endOffset = Math.min(range.endOffset, endOffset);
+    }
+    next.setEnd(endNode, endOffset);
+  } else {
+    next.setEnd(endSpan, 0);
+  }
+  if (next.compareBoundaryPoints(Range.START_TO_END, next) > 0) next.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(next);
 }
 
 function scheduleSaveReadingPosition() {
@@ -84,7 +132,18 @@ function updateOutlineActive(page) {
   pane.querySelectorAll(".outline-item").forEach((btn) => {
     const match = Number(btn.dataset.page) === page;
     btn.classList.toggle("active", match);
-    if (match) found = true;
+    if (!match) return;
+    found = true;
+    let node = btn.closest(".outline-node");
+    while (node) {
+      const branch = node.querySelector(":scope > .outline-branch");
+      const toggle = node.querySelector(":scope > .outline-row > .outline-toggle");
+      if (branch) {
+        branch.classList.add("expanded");
+        toggle?.setAttribute("aria-expanded", "true");
+      }
+      node = node.parentElement?.closest(".outline-node");
+    }
   });
   if (!found) return;
 }
@@ -153,20 +212,44 @@ async function renderOutline(request) {
     pane.innerHTML = '<div class="empty-side">这份 PDF 没有目录。</div>';
     return;
   }
-  const walk = (items, depth) => {
+  const mount = (items, depth, container) => {
     for (const item of items) {
+      const node = document.createElement("div");
+      node.className = "outline-node";
+      const row = document.createElement("div");
+      row.className = "outline-row";
+      const hasChildren = Boolean(item.items?.length);
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "outline-toggle";
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.hidden = !hasChildren;
+      toggle.title = hasChildren ? "展开/折叠" : "";
       const btn = document.createElement("button");
+      btn.type = "button";
       btn.className = "outline-item";
-      btn.style.paddingLeft = `${10 + depth * 14}px`;
+      btn.style.paddingLeft = `${4 + depth * 12}px`;
       btn.textContent = item.title || "未命名";
       if (item.pageNumber) btn.dataset.page = String(item.pageNumber);
       btn.addEventListener("click", () => viewer.goToDest(item.dest, true));
-      pane.appendChild(btn);
-      if (item.items?.length) walk(item.items, depth + 1);
+      row.append(toggle, btn);
+      node.append(row);
+      if (hasChildren) {
+        const branch = document.createElement("div");
+        branch.className = "outline-branch";
+        toggle.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const expanded = branch.classList.toggle("expanded");
+          toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+        });
+        mount(item.items, depth + 1, branch);
+        node.append(branch);
+      }
+      container.appendChild(node);
     }
   };
   await attachOutlinePages(outline);
-  walk(outline, 0);
+  mount(outline, 0, pane);
   updateOutlineActive(viewer.currentPage);
 }
 
@@ -316,6 +399,8 @@ $("btn-zoom-out").addEventListener("click", () => {
 $("zoom-select").addEventListener("change", (event) => {
   viewer.setZoom(event.target.value);
 });
+$("btn-page-prev").addEventListener("click", () => stepPage(-1));
+$("btn-page-next").addEventListener("click", () => stepPage(1));
 $("page-input").addEventListener("change", (event) => {
   viewer.goToPage(Number(event.target.value), { push: true });
 });
@@ -365,6 +450,14 @@ async function moveHit(step) {
 }
 
 const wrap = $("viewer-wrap");
+wrap.addEventListener("mousedown", (event) => {
+  selectionDragSpan = event.target.closest?.(".textLayer span") || null;
+});
+wrap.addEventListener("mousemove", (event) => {
+  if (!(event.buttons & 1)) return;
+  const span = document.elementFromPoint(event.clientX, event.clientY)?.closest?.(".textLayer span");
+  if (span) selectionDragSpan = span;
+});
 wrap.addEventListener("dragover", (event) => {
   event.preventDefault();
   wrap.classList.add("dragover");
@@ -433,6 +526,14 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "Backspace" && !typing) {
     event.preventDefault();
     viewer.back();
+  }
+  if (!typing && (event.key === "ArrowDown" || event.key === "PageDown")) {
+    event.preventDefault();
+    stepPage(1);
+  }
+  if (!typing && (event.key === "ArrowUp" || event.key === "PageUp")) {
+    event.preventDefault();
+    stepPage(-1);
   }
   if (event.key === "Escape" && !typing) {
     hideBubble();
@@ -538,6 +639,7 @@ async function runTranslate(selectionId = bubbleSelectionId) {
 
 document.addEventListener("mouseup", (event) => {
   if (bubble.contains(event.target)) return;
+  clampSelectionToTextSpans(event.clientX, event.clientY);
   const selection = window.getSelection();
   const text = selection?.toString().trim() || "";
   if (!text || !selection.rangeCount) {
@@ -565,6 +667,23 @@ $("btn-copy").addEventListener("click", async () => {
 });
 $("btn-translate").addEventListener("click", () => runTranslate());
 
+const modelPicker = wireModelPicker({
+  input: $("setting-model"),
+  menu: $("setting-model-menu"),
+  status: $("setting-model-status"),
+  getCredentials: () => ({
+    apiKey: $("setting-key").value.trim(),
+    apiBaseUrl: $("setting-base").value.trim(),
+  }),
+});
+let modelRefreshTimer = 0;
+const scheduleModelRefresh = () => {
+  clearTimeout(modelRefreshTimer);
+  modelRefreshTimer = setTimeout(() => modelPicker.refresh(), 400);
+};
+$("setting-key").addEventListener("input", scheduleModelRefresh);
+$("setting-base").addEventListener("input", scheduleModelRefresh);
+
 $("btn-settings").addEventListener("click", () => {
   settings = loadSettings();
   $("setting-key").value = settings.apiKey;
@@ -572,6 +691,7 @@ $("btn-settings").addEventListener("click", () => {
   $("setting-model").value = settings.model;
   $("setting-lang").value = settings.targetLang;
   $("settings-modal").hidden = false;
+  modelPicker.refresh();
 });
 $("btn-settings-cancel").addEventListener("click", () => {
   $("settings-modal").hidden = true;

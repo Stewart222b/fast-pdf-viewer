@@ -16,10 +16,14 @@
           <button id="btn-back" class="btn icon" title="返回（鼠标侧键 / Alt+← / Backspace）" disabled>←</button>
           <button id="btn-forward" class="btn icon" title="前进（鼠标侧键 / Alt+→）" disabled>→</button>
           <div class="divider"></div>
-          <label class="page-box">
-            <input id="page-input" type="number" min="1" value="1" />
-            <span>/ <b id="page-count">0</b></span>
-          </label>
+          <div class="page-nav">
+            <button id="btn-page-prev" class="btn icon tiny" type="button" title="上一页 (↑ / Page Up)" disabled>↑</button>
+            <label class="page-box">
+              <input id="page-input" type="number" min="1" value="1" />
+              <span>/ <b id="page-count">0</b></span>
+            </label>
+            <button id="btn-page-next" class="btn icon tiny" type="button" title="下一页 (↓ / Page Down)" disabled>↓</button>
+          </div>
         </div>
         <div class="toolbar-center">
           <span id="doc-title" class="doc-title">未打开文件</span>
@@ -102,7 +106,11 @@
         </label>
         <label>
           模型
-          <input id="setting-model" type="text" placeholder="openai/gpt-4o-mini" />
+          <div class="model-picker">
+            <input id="setting-model" type="text" autocomplete="off" placeholder="openai/gpt-4o-mini" />
+            <ul id="setting-model-menu" class="model-menu" hidden></ul>
+            <div id="setting-model-status" class="model-picker-status" hidden></div>
+          </div>
         </label>
         <label>
           目标语言
