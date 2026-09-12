@@ -62,6 +62,22 @@ function pdf(text) {
   }) };
 }
 
+test('onScroll notifies reading-position hook even when page number is unchanged', async () => {
+  const calls = [];
+  const { viewer, wrapEl } = await setup();
+  viewer.pageCount = 3;
+  viewer.pageEls = [
+    { offsetTop: 0, dataset: { pageNumber: '1' } },
+    { offsetTop: 900, dataset: { pageNumber: '2' } },
+    { offsetTop: 1800, dataset: { pageNumber: '3' } },
+  ];
+  viewer.currentPage = 1;
+  viewer.onScrollPosition = () => calls.push(viewer.wrapEl.scrollTop);
+  wrapEl.scrollTop = 120;
+  viewer.onScroll();
+  assert.deepEqual(calls, [120]);
+});
+
 test('latest open wins when an earlier loading task finishes late', async () => {
   const a = deferred(), b = deferred();
   let destroyed = 0, call = 0;

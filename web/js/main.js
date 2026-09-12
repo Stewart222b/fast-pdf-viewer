@@ -68,6 +68,7 @@ const viewer = new PdfViewer({
   wrapEl: $("viewer-wrap"),
   history,
   onState: syncToolbar,
+  onScrollPosition: scheduleSaveReadingPosition,
   onIndex: refreshIndexedSearch,
   onPassword: requestPdfPassword,
 });
@@ -138,6 +139,13 @@ function scheduleSaveReadingPosition() {
   }, 400);
 }
 
+function flushReadingPosition() {
+  if (!currentFingerprint || !viewer.pdf) return;
+  clearTimeout(positionSaveTimer);
+  positionSaveTimer = 0;
+  saveReadingPosition(currentFingerprint, viewer.getState());
+}
+
 function updateOutlineActive(page) {
   const pane = $("outline-pane");
   let found = false;
@@ -163,6 +171,7 @@ function updateOutlineActive(page) {
 async function openSource(getSource) {
   const request = ++openGeneration;
   searchGeneration += 1;
+  flushReadingPosition();
   clearTimeout(indexRefreshTimer);
   indexRefreshTimer = 0;
   clearTimeout(searchTimer);
@@ -219,11 +228,16 @@ async function renderOutline(request) {
   const pane = $("outline-pane");
   const outline = await viewer.getOutline();
   if (request !== openGeneration) return;
-  pane.replaceChildren();
-  if (!outline?.length) {
-    pane.innerHTML = '<div class="empty-side">这份 PDF 没有目录。</div>';
+  const pdf = viewer.pdf;
+  const generation = viewer.generation;
+  if (!pdf || !outline?.length) {
+    pane.replaceChildren();
+    if (!outline?.length) {
+      pane.innerHTML = '<div class="empty-side">这份 PDF 没有目录。</div>';
+    }
     return;
   }
+  pane.replaceChildren();
   const mount = (items, depth, container) => {
     for (const item of items) {
       const node = document.createElement("div");
@@ -260,28 +274,35 @@ async function renderOutline(request) {
       container.appendChild(node);
     }
   };
-  await attachOutlinePages(outline);
+  await attachOutlinePages(outline, { request, pdf, generation });
+  if (request !== openGeneration || viewer.generation !== generation || viewer.pdf !== pdf) return;
   mount(outline, 0, pane);
   updateOutlineActive(viewer.currentPage);
 }
 
-async function attachOutlinePages(items) {
-  if (!viewer.pdf) return;
+async function attachOutlinePages(items, ctx) {
+  const { pdf, request, generation } = ctx;
+  if (!pdf) return;
+  const stillValid = () =>
+    request === openGeneration && viewer.generation === generation && viewer.pdf === pdf;
   for (const item of items) {
+    if (!stillValid()) return;
     try {
       if (item.dest != null) {
         let explicit = item.dest;
-        if (typeof explicit === "string") explicit = await viewer.pdf.getDestination(explicit);
+        if (typeof explicit === "string") explicit = await pdf.getDestination(explicit);
+        if (!stillValid()) return;
         const ref = explicit?.[0];
         if (ref != null) {
-          const pageIndex = typeof ref === "object" ? await viewer.pdf.getPageIndex(ref) : Number(ref);
+          const pageIndex = typeof ref === "object" ? await pdf.getPageIndex(ref) : Number(ref);
+          if (!stillValid()) return;
           item.pageNumber = pageIndex + 1;
         }
       }
     } catch {
       /* skip */
     }
-    if (item.items?.length) await attachOutlinePages(item.items);
+    if (item.items?.length) await attachOutlinePages(item.items, ctx);
   }
 }
 
@@ -707,8 +728,14 @@ const scheduleModelRefresh = () => {
   clearTimeout(modelRefreshTimer);
   modelRefreshTimer = setTimeout(() => modelPicker.refresh(), 400);
 };
-$("setting-key").addEventListener("input", scheduleModelRefresh);
-$("setting-base").addEventListener("input", scheduleModelRefresh);
+const onCredentialInput = () => {
+  if (!$("setting-key").value.trim() || !$("setting-base").value.trim()) {
+    modelPicker.invalidatePending();
+  }
+  scheduleModelRefresh();
+};
+$("setting-key").addEventListener("input", onCredentialInput);
+$("setting-base").addEventListener("input", onCredentialInput);
 
 $("btn-settings").addEventListener("click", () => {
   settings = loadSettings();
@@ -738,5 +765,10 @@ async function boot() {
   const startup = await platform.startupOpen();
   if (startup && request === openGeneration) await openFromPlatform(startup);
 }
+
+window.addEventListener("pagehide", flushReadingPosition);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushReadingPosition();
+});
 
 boot();

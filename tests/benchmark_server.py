@@ -3,12 +3,15 @@ import json
 import sys
 import tempfile
 import threading
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "desktop"))
+sys.path.insert(0, str(ROOT / "tests"))
 import app
 import make_sample
+from browser_handler import BrowserTestHandler
 
 
 def write_pdf(path: Path, page_count: int, repeat: str) -> None:
@@ -30,7 +33,10 @@ with tempfile.TemporaryDirectory(prefix="fast-pdf-bench-") as directory:
     write_pdf(fixtures["p100"], 100, "needle")
     write_pdf(fixtures["p500"], 500, "needle")
     write_pdf(fixtures["p1200"], 1200, "needle")
-    server = app.start_server(0)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), BrowserTestHandler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    server = httpd
     payload = {
         "port": server.server_port,
         "fixtures": {k: str(v) for k, v in fixtures.items()},

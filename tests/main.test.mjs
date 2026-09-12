@@ -47,7 +47,7 @@ async function setup() {
       this.onIndex = options.onIndex;
     }
     close() { this.generation++; this.indexPromise = null; this.pageTexts = []; }
-    async open(source) { this.close(); this.source = source; this.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }]; return this; }
+    async open(source) { this.close(); this.source = source; this.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }]; this.pdf = { async getDestination(d) { return d; }, async getPageIndex() { return 0; } }; return this; }
     async getOutline() { return this.outlinePromise || null; }
     clearHits() { this.shown.push(''); this.hitIndex = -1; this.query = ''; }
     async showHits(hits, query, index = 0, _options) { this.shown.push(query); this.hitIndex = hits.length ? index : -1; this.query = query; }

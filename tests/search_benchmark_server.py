@@ -3,12 +3,15 @@ import json
 import sys
 import tempfile
 import threading
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "desktop"))
+sys.path.insert(0, str(ROOT / "tests"))
 import app
 import make_sample
+from browser_handler import BrowserTestHandler
 
 PAGE_COUNT = 720
 SURF_FIRST = 1
@@ -35,7 +38,10 @@ def write_surf_pdf(path: Path) -> None:
 with tempfile.TemporaryDirectory(prefix="fast-pdf-search-bench-") as directory:
     surf = Path(directory) / "surf-720.pdf"
     write_surf_pdf(surf)
-    server = app.start_server(0)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), BrowserTestHandler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    server = httpd
     payload = {
         "port": server.server_port,
         "fixtures": {"surf720": str(surf)},

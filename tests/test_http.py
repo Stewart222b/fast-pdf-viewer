@@ -1,10 +1,13 @@
 """Run: python3 -m unittest discover -s tests -p 'test_*.py'"""
 import importlib.util
+import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from urllib.parse import quote
 from http.client import HTTPConnection
+from http.server import ThreadingHTTPServer
 
 SPEC = importlib.util.spec_from_file_location('app', Path(__file__).parents[1] / 'desktop/app.py')
 app = importlib.util.module_from_spec(SPEC)
@@ -120,6 +123,38 @@ class OpenPathRemovedTests(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
+
+
+class BrowserSetOpenedTests(unittest.TestCase):
+    def test_set_opened_endpoint_accepts_fixture_path(self):
+        root = Path(__file__).resolve().parents[1]
+        sys.path.insert(0, str(root / 'desktop'))
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from browser_handler import BrowserTestHandler
+
+        with tempfile.TemporaryDirectory() as directory:
+            pdf = Path(directory) / 'bench.pdf'
+            pdf.write_bytes(b'%PDF-1.4\n')
+            server = ThreadingHTTPServer(('127.0.0.1', 0), BrowserTestHandler)
+            try:
+                connection = HTTPConnection(*server.server_address, timeout=3)
+                payload = json.dumps({'path': str(pdf)}).encode()
+                connection.request(
+                    'POST',
+                    '/api/browser/set-opened',
+                    body=payload,
+                    headers={'Content-Type': 'application/json', 'Content-Length': str(len(payload))},
+                )
+                response = connection.getresponse()
+                self.assertEqual(response.status, 200)
+                data = json.loads(response.read().decode())
+                self.assertTrue(data['ok'])
+                self.assertEqual(app.opened['path'], str(pdf))
+                connection.close()
+            finally:
+                server.shutdown()
+                server.server_close()
+                app.set_opened(None)
 
 
 class ServerBindTests(unittest.TestCase):

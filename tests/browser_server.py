@@ -5,12 +5,13 @@ import tempfile
 import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "desktop"))
+sys.path.insert(0, str(ROOT / "tests"))
 import app
 import make_sample
+from browser_handler import BrowserTestHandler
 
 
 def build_multiline_pdf() -> bytes:
@@ -49,27 +50,6 @@ def build_multiline_pdf() -> bytes:
         out += f"{off:010d} 00000 n \n".encode()
     out += f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
     return out
-
-
-class BrowserTestHandler(app.Handler):
-    def do_POST(self) -> None:
-        parsed = urlparse(self.path)
-        if parsed.path == "/api/browser/set-opened":
-            length = int(self.headers.get("Content-Length", "0"))
-            body = self.rfile.read(length)
-            try:
-                payload = json.loads(body.decode("utf-8") or "{}")
-            except json.JSONDecodeError:
-                self._json({"ok": False, "error": "invalid json"}, 400)
-                return
-            path = payload.get("path")
-            if not path or not Path(path).is_file():
-                self._json({"ok": False, "error": "file not found"}, 400)
-                return
-            app.set_opened(path)
-            self._json({"ok": True, "name": app.opened["name"], "id": app.opened["id"]})
-            return
-        super().do_POST()
 
 
 with tempfile.TemporaryDirectory(prefix="fast-pdf-browser-") as directory:

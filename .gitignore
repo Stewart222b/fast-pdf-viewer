@@ -10,3 +10,4 @@ web/vendor/pdfjs/
 Thumbs.db
 .idea/
 .vscode/
+/build/

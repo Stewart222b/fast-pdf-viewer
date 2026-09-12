@@ -50,6 +50,9 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
   const refresh = async () => {
     const credentials = getCredentials();
     if (!credentials.apiKey?.trim() || !credentials.apiBaseUrl?.trim()) {
+      loadToken += 1;
+      activeController?.abort();
+      activeController = null;
       models = [];
       hideMenu();
       setStatus("填写 API Key 与 Base URL 后可加载模型列表。");
@@ -62,6 +65,13 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
     try {
       models = await fetchModelList(credentials, { signal: activeController.signal });
       if (token !== loadToken) return;
+      const latest = getCredentials();
+      if (!latest.apiKey?.trim() || !latest.apiBaseUrl?.trim()) {
+        models = [];
+        hideMenu();
+        setStatus("填写 API Key 与 Base URL 后可加载模型列表。");
+        return;
+      }
       setStatus(models.length ? `已加载 ${models.length} 个模型，输入可筛选。` : "没有返回可用模型。");
       renderMenu(input.value);
     } catch (error) {
@@ -70,6 +80,12 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
       hideMenu();
       setStatus(error.message || "无法加载模型列表。", true);
     }
+  };
+
+  const invalidatePending = () => {
+    loadToken += 1;
+    activeController?.abort();
+    activeController = null;
   };
 
   input.addEventListener("focus", () => {
@@ -83,5 +99,5 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
     if (event.key === "Escape") hideMenu();
   });
 
-  return { refresh, hideMenu };
+  return { refresh, hideMenu, invalidatePending };
 }

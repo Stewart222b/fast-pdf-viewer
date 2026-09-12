@@ -30,11 +30,12 @@ function destTypeName(type) {
 }
 
 export class PdfViewer {
-  constructor({ pagesEl, wrapEl, history, onState, onIndex, onPassword }) {
+  constructor({ pagesEl, wrapEl, history, onState, onScrollPosition, onIndex, onPassword }) {
     this.pagesEl = pagesEl;
     this.wrapEl = wrapEl;
     this.history = history;
     this.onState = onState;
+    this.onScrollPosition = onScrollPosition;
     this.onIndex = onIndex;
     this.onPassword = onPassword;
     this.renderedPages = new Map();
@@ -375,6 +376,7 @@ export class PdfViewer {
       this.currentPage = page;
       this.notify();
     }
+    this.onScrollPosition?.();
   };
 
   async renderVisible(force = false) {
