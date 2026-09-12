@@ -1,4 +1,4 @@
-// Real mouse selection checks (anchor + shift+click / reverse); no Range rewriting in app code.
+// Real held-button drags through text and whitespace; never Shift+click.
 import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
@@ -15,9 +15,9 @@ const fixtures = JSON.parse(await new Promise((resolve, reject) => {
 }));
 
 const appUrl = `http://127.0.0.1:${fixtures.port}/`;
-const chrome = spawn(process.env.CHROME_PATH || '/usr/local/bin/google-chrome', [
-  '--no-first-run', '--remote-debugging-port=0',
-  `--user-data-dir=${profile}`, '--window-size=1280,900', '--window-position=0,0',
+const chrome = spawn(process.env.CHROME_PATH || (process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/usr/local/bin/google-chrome'), [
+  '--headless=new', '--no-first-run', '--remote-debugging-port=0',
+  `--user-data-dir=${profile}`, '--window-size=1800,1000', '--window-position=0,0',
   `--app=${appUrl}`,
 ], {
   stdio: ['ignore', 'pipe', 'pipe'],
@@ -120,109 +120,37 @@ try {
     const numeric = Number(mode);
     if (Number.isFinite(numeric)) {
       const key = (numeric / 100).toFixed(3);
-      await until(`document.querySelector('.page')?.dataset.renderedZoom === ${JSON.stringify(key)}`);
+      await until(`document.querySelector('.page:nth-child(2)')?.dataset.renderedZoom === ${JSON.stringify(key)}`);
     }
     await sleep(Number(mode) >= 200 ? 400 : 200);
   }
 
-  const SHIFT = 8;
-
-  async function clickAt(x, y, { modifiers = 0 } = {}) {
-    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, modifiers });
-    await send('Input.dispatchMouseEvent', {
-      type: 'mousePressed', x, y, button: 'left', clickCount: 1, modifiers,
-    });
-    await send('Input.dispatchMouseEvent', {
-      type: 'mouseReleased', x, y, button: 'left', clickCount: 1, modifiers,
-    });
-    await sleep(40);
-  }
-
-  /** Chromium CDP drag often fails to extend PDF text selection; anchor + Shift+click is real mouse input. */
-  async function mouseExtendSelect(from, to) {
-    await evaluate(`(() => {
-      window.getSelection().removeAllRanges();
-      const bubble = document.getElementById('translate-bubble');
-      if (bubble) bubble.hidden = true;
-      window.__selBeforeHandler = window.__selAfterHandler = null;
-    })()`);
-    await clickAt(from.x, from.y);
-    await clickAt(to.x, to.y, { modifiers: SHIFT });
+  async function drag(points) {
+    // Clear only test setup state; all selection under test comes from the drag.
+    await evaluate(`getSelection().empty(); document.getElementById('translate-bubble').hidden = true`);
+    const first = points[0];
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...first });
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...first, button: 'left', buttons: 1, clickCount: 1 });
+    const samples = [];
+    for (let p = 1; p < points.length; p++) {
+      const a = points[p - 1], b = points[p];
+      for (let i = 1; i <= 8; i++) {
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: a.x + (b.x-a.x)*i/8,
+          y: a.y + (b.y-a.y)*i/8, button: 'left', buttons: 1 });
+        await sleep(25);
+        const selection = await evaluate(`(() => {const s=getSelection();return {text:s.toString(),anchor:(s.anchorNode?.nodeType === 3 ? s.anchorNode.parentElement : s.anchorNode)?.closest?.('.page')?.dataset.pageNumber,focus:(s.focusNode?.nodeType === 3 ? s.focusNode.parentElement : s.focusNode)?.closest?.('.page')?.dataset.pageNumber};})()`);
+        assert.equal(selection.anchor, '2', 'anchor left expected page');
+        assert.equal(selection.focus, '2', `focus left expected page: ${JSON.stringify(selection)} ${JSON.stringify(points)}`);
+        samples.push(selection.text);
+      }
+    }
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...points.at(-1), button: 'left', buttons: 0, clickCount: 1 });
     await sleep(80);
-  }
-
-  async function mouseReverseSelect(from, to) {
-    await evaluate(`(() => {
-      window.getSelection().removeAllRanges();
-      const bubble = document.getElementById('translate-bubble');
-      if (bubble) bubble.hidden = true;
-      window.__selBeforeHandler = window.__selAfterHandler = null;
-    })()`);
-    await clickAt(to.x, to.y);
-    await clickAt(from.x, from.y, { modifiers: SHIFT });
-    await sleep(80);
-  }
-
-  async function pickSameLineRange() {
-    return evaluate(`(() => {
-      const page = document.querySelector('.page');
-      const spans = [...(page?.querySelectorAll('.textLayer span') || [])]
-        .filter(s => (s.textContent || '').trim().length > 0);
-      if (!spans.length) return null;
-      const boxed = spans.map(s => {
-        const r = s.getBoundingClientRect();
-        return { s, r, top: r.top, left: r.left, right: r.right, midY: r.top + r.height / 2 };
-      }).filter(x => x.r.width > 1 && x.r.height > 1);
-      boxed.sort((a, b) => a.top - b.top || a.left - b.left);
-      const lineTop = boxed[0].top;
-      const line = boxed.filter(x => Math.abs(x.top - lineTop) < 4);
-      const left = line[0];
-      const right = line[line.length - 1];
-      const y = left.midY;
-      const width = right.right - left.left;
-      return {
-        from: { x: left.left + width * 0.08, y },
-        to: { x: left.left + width * 0.75, y },
-      };
-    })()`);
-  }
-
-  async function pickMultiLineRange() {
-    return evaluate(`(() => {
-      const page = document.querySelector('.page');
-      const spans = [...(page?.querySelectorAll('.textLayer span') || [])]
-        .filter(s => (s.textContent || '').trim().length > 0);
-      if (spans.length < 2) return null;
-      const keyed = spans.map(s => {
-        const r = s.getBoundingClientRect();
-        return { left: r.left, right: r.right, midY: r.top + r.height / 2, top: r.top };
-      }).sort((a, b) => a.top - b.top || a.left - b.left);
-      const start = keyed[0];
-      const end = keyed.find(x => x.top - start.top > 18) || keyed[keyed.length - 1];
-      return {
-        from: { x: start.left + 4, y: start.midY },
-        to: { x: end.right - 4, y: end.midY },
-      };
-    })()`);
-  }
-
-  async function pickWhitespaceRange() {
-    return evaluate(`(() => {
-      const page = document.querySelector('.page');
-      const spans = [...(page?.querySelectorAll('.textLayer span') || [])]
-        .filter(s => (s.textContent || '').trim().length > 0);
-      if (spans.length < 2) return null;
-      const keyed = spans.map(s => {
-        const r = s.getBoundingClientRect();
-        return { left: r.left, right: r.right, midY: r.top + r.height / 2, top: r.top };
-      }).sort((a, b) => a.top - b.top || a.left - b.left);
-      const a = keyed[0];
-      const b = keyed.find(x => x.top - a.top > 18) || keyed[1];
-      return {
-        from: { x: a.left + 4, y: a.midY },
-        to: { x: (a.right + b.left) / 2, y: (a.midY + b.midY) / 2 },
-      };
-    })()`);
+    assert.equal(await evaluate(`getSelection().toString()`), samples.at(-1), 'release changed selection');
+    for (const text of samples) {
+      assert.ok(text.length < 240, `drag escaped adjacent rows: ${text}`);
+      assert.ok('SectionGdetailsSectionHdetailsSectionIdetails'.includes(text.replace(/[\d.\s]/g, '')), `unexpected row: ${text}`);
+    }
   }
 
   async function assertStableAfterMouseup(label) {
@@ -245,49 +173,107 @@ try {
     return probe.live;
   }
 
-  await evaluate(`window.fetch = async () => ({
-    ok: true,
-    json: async () => ({ choices: [{ message: { content: 'mock translation' } }] }),
-  });`);
-
-  await openPdf(fixtures.small);
-  const textLayerPe = await evaluate(`getComputedStyle(document.querySelector('.textLayer')).pointerEvents`);
-  assert.equal(textLayerPe, 'auto');
-
   const cases = [];
   for (const zoom of ['100', '150', '200']) {
-    await openPdf(fixtures.small);
+    await openPdf(fixtures.multiline);
     await setZoom(zoom);
-    const line = await pickSameLineRange();
-    assert.ok(line, `same-line anchors at ${zoom}%`);
+    await evaluate(`(() => {
+      const layer = document.querySelector('.page:nth-child(2) .textLayer');
+      // Leave a narrow strip of actual page canvas outside the text layer.
+      layer.style.width = (layer.parentElement.clientWidth - 16) + 'px';
+      const spans = [...layer.querySelectorAll('span')];
+      const box = text => spans.find(s => s.textContent === text).getBoundingClientRect();
+      const a = box('Section G details'), b = box('Section H details');
+      document.getElementById('viewer-wrap').scrollTop += a.top - 240;
+      return true;
+    })()`);
+    const points = await evaluate(`(() => {
+      const layer = document.querySelector('.page:nth-child(2) .textLayer');
+      const spans = [...layer.querySelectorAll('span')];
+      const box = text => spans.find(s => s.textContent === text).getBoundingClientRect();
+      const a = box('Section G details'), b = box('Section H details');
+      const page = layer.parentElement.getBoundingClientRect();
+      return [{x:a.left+8,y:a.top+a.height/2},
+        {x:b.right-4,y:(a.bottom+b.top)/2}, {x:b.left+60,y:b.top+b.height/2},
+        {x:page.left+440*${Number(zoom)/100},y:b.top+b.height/2},
+        {x:page.right-8,y:b.top+b.height/2}];
+    })()`);
+    assert.equal(await evaluate(`!!document.querySelector('.page:nth-child(2) .textLayer .endOfContent')`), true);
+    assert.equal(await evaluate(`document.elementFromPoint(${points[4].x},${points[4].y}).closest('.textLayer') === null`), true, 'path exits text layer into page canvas');
+    for (const stop of [2, 3, 4]) {
+      await drag(points.slice(0, stop));
+      const selected = await assertStableAfterMouseup(`toc-${zoom}-stop-${stop}`);
+      assert.ok(selected.text.length < 240 && (stop === 2 || selected.text.length >= 4), `zoom=${zoom} stop=${stop} text=${JSON.stringify(selected.text)}`);
+    }
+    for (const reverse of [false, true]) {
+      // Reverse starts in text on H, traverses page blank and line gap, then G.
+      const route = reverse ? [points[2], points[4], points[3], points[2], points[1], points[0]] : points;
+      await drag(route);
+      const selected = await assertStableAfterMouseup(`toc-${zoom}-${reverse}`);
+      assert.ok(selected.text.length >= 4 && selected.text.length < 240, selected.text);
+      assert.equal(await evaluate(`!document.getElementById('translate-bubble').hidden`), true);
+      const direction = await evaluate(`(() => {const s=getSelection(); const r=document.createRange();
+        r.setStart(s.anchorNode,s.anchorOffset);r.setEnd(s.focusNode,s.focusOffset);return r.collapsed;})()`);
+      assert.equal(direction, reverse, 'anchor/focus direction');
+      cases.push({zoom, reverse, length:selected.text.length});
+    }
+    await evaluate(`(() => { const q=document.getElementById('search-input'); q.value='surf'; q.dispatchEvent(new Event('input',{bubbles:true})); })()`);
+    await until(`document.querySelector('.hl')`);
+    await sleep(500);
+    for (const repaintZoom of [zoom === '100' ? '150' : '100', zoom]) {
+      await setZoom(repaintZoom);
+      await until(`document.querySelector('.hl')`);
+      const geometry = await evaluate(`(() => {
+        const expected=[...document.querySelectorAll('.textLayer span')].filter(s=>s.textContent.includes('SurfRDS')).flatMap(span=>{
+          const r=document.createRange(), start=span.textContent.indexOf('Surf');
+          r.setStart(span.firstChild,start);r.setEnd(span.firstChild,start+4);
+          return [...r.getClientRects()].map(r=>({x:r.x,y:r.y,width:r.width,height:r.height}));
+        });
+        const actual=[...document.querySelectorAll('.hl')].map(e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};});
+        return {expected,actual};
+      })()`);
+      assert.equal(geometry.actual.length, geometry.expected.length);
+      for (const expected of geometry.expected) {
+        assert.ok(geometry.actual.some(actual=>['x','y','width','height'].every(k=>Math.abs(actual[k]-expected[k])<=1.5)), JSON.stringify(geometry));
+      }
+    }
+    // Exercise NFKC, UTF-16, cross-div matching and merging against native DOM
+    // geometry, including a sentinel between the text nodes.
+    const mapped = await evaluate(`(async () => {
+      const {buildTextIndex,buildTextMapping,searchDocument,matchRects}=await import('./js/search.js');
+      const host=document.createElement('div');
+      host.style.cssText='position:absolute;left:20px;top:100px;font:24px Arial';
+      document.body.append(host);
+      const strings=['😀 Ａ ﬃ Sur','fRDS'];
+      const divs=strings.map(str=>{const span=document.createElement('span');span.textContent=str;host.append(span);return span;});
+      const sentinel=document.createElement('div');sentinel.style.cssText='position:absolute;width:600px;height:800px';
+      divs[0].after(sentinel);
+      const mapping=buildTextMapping(divs,strings);
+      const index=buildTextIndex({items:strings.map(str=>({str}))});
+      const results=[];
+      for(const query of ['a','fi','surf']) {
+        const hit=searchDocument([{pageNumber:1,...index}],query)[0];
+        const actual=matchRects(mapping,host,hit.offset,hit.length);
+        const expected=[];let offset=0;const origin=host.getBoundingClientRect();
+        for(const span of divs) {
+          const end=offset+span.textContent.length;
+          if(end>hit.offset && offset<hit.offset+hit.length) {
+            const r=document.createRange();r.setStart(span.firstChild,Math.max(0,hit.offset-offset));
+            r.setEnd(span.firstChild,Math.min(end,hit.offset+hit.length)-offset);
+            for(const b of r.getClientRects())expected.push({left:b.left-origin.left,top:b.top-origin.top,width:b.width,height:b.height});
+          }offset=end;
+        }
+        const left=Math.min(...expected.map(r=>r.left)), right=Math.max(...expected.map(r=>r.left+r.width));
+        results.push({actual,expected:{left,top:expected[0].top,width:right-left,height:expected[0].height}});
+      }
+      host.remove();return results;
+    })()`);
+    for (const {actual,expected} of mapped) {
+      assert.equal(actual.length,1);
+      for(const key of ['left','top','width','height']) assert.ok(Math.abs(actual[0][key]-expected[key])<=1.5);
+    }
 
-    await mouseReverseSelect(line.from, line.to);
-    const reverse = await assertStableAfterMouseup(`reverse-${zoom}`);
-    assert.ok(reverse.text.trim().length >= 4, `reverse text at ${zoom}%`);
-
-    const lineForward = await pickSameLineRange();
-    assert.ok(lineForward, `same-line forward anchors at ${zoom}%`);
-    await mouseExtendSelect(lineForward.from, lineForward.to);
-    const forward = await assertStableAfterMouseup(`same-line-forward-${zoom}`);
-    assert.ok(forward.text.trim().length >= 4, `same-line text at ${zoom}%: "${forward.text.slice(0, 20)}"`);
-
-    const bubbleVisible = await evaluate(`!document.getElementById('translate-bubble').hidden`);
-    assert.equal(bubbleVisible, true, `translate bubble at ${zoom}%`);
-    cases.push({ zoom, forward: forward.text.length, reverse: reverse.text.length });
   }
-
-  await openPdf(fixtures.multiline);
-  await setZoom('150');
-  const multi = await pickMultiLineRange();
-  assert.ok(multi, 'multiline anchors');
-  await mouseExtendSelect(multi.from, multi.to);
-  const multiSel = await assertStableAfterMouseup('multiline-forward');
-  assert.ok(multiSel.text.trim().length >= 4, 'multiline selection');
-
-  const gap = await pickWhitespaceRange();
-  assert.ok(gap, 'whitespace anchors');
-  await mouseExtendSelect(gap.from, gap.to);
-  await assertStableAfterMouseup('through-whitespace');
 
   console.log(JSON.stringify({ cases, errors }, null, 2));
   assert.deepEqual(errors, []);

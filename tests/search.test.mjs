@@ -13,7 +13,6 @@ test('English line breaks and geometric word gaps preserve raw highlight offsets
   for (const items of [[item('hello', 0, true), item('world')], [item('hello'), item('world', 60)]]) {
     const { content, hits } = search(items, 'hello world');
     assert.equal(hits.length, 1); assert.equal(hits[0].length, 10);
-    assert.equal(matchRects(content, viewport, hits[0].offset, hits[0].length).length, 2);
     assert.equal(search(items, 'world').hits[0].offset, 5);
   }
 });
@@ -31,7 +30,6 @@ test('ligature partial queries keep non-zero raw highlight ranges', () => {
   const fHit = fHits.find((hit) => hit.length > 0);
   assert.ok(fHit);
   assert.equal(fHit.length, 1);
-  assert.equal(matchRects(content, viewport, fHit.offset, fHit.length).length, 1);
   const { hits: ffHits } = search([item('ﬃ')], 'ff');
   assert.equal(ffHits[0].length, 1);
 });

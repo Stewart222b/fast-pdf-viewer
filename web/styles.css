@@ -389,6 +389,9 @@ select {
 }
 
 .page {
+  /* Only the official text layer participates in native text selection. */
+  -webkit-user-select: none;
+  user-select: none;
   position: relative;
   background: #fff;
   box-shadow: var(--shadow);

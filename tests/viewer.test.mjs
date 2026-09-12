@@ -10,7 +10,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 function layer() {
-  return { children: [], style: { setProperty() {} }, replaceChildren() { this.children = []; }, appendChild(el) { this.children.push(el); } };
+  return { ownerDocument: { createRange: () => ({ setStart() {}, setEnd() {}, getClientRects: () => [{left:10,top:700,width:10,height:10}] }) }, getBoundingClientRect: () => ({left:0,top:0}), children: [], style: { setProperty() {} }, replaceWith() {}, replaceChildren() { this.children = []; }, appendChild(el) { this.children.push(el); } };
 }
 function pageElement() {
   const layers = { '.hlLayer': layer(), '.textLayer': layer(), '.linkLayer': layer(), canvas: { style: {}, getContext() { return {}; } } };
@@ -23,9 +23,10 @@ async function setup(load = () => { throw new Error('unexpected load'); }) {
     document: { createElement: () => ({ style: {}, addEventListener() {}, href: '' }) },
     requestAnimationFrame: f => f(),
   });
-  const mock = new vm.SyntheticModule(['getDocument', 'GlobalWorkerOptions', 'TextLayer', 'setLayerDimensions'], function () {
+  const mock = new vm.SyntheticModule(['getDocument', 'GlobalWorkerOptions', 'TextLayer', 'TextLayerBuilder', 'setLayerDimensions'], function () {
     this.setExport('getDocument', load);
     this.setExport('GlobalWorkerOptions', {});
+    this.setExport('TextLayerBuilder', class { div = { style: { setProperty() {} } }; constructor({highlighter}) { highlighter.setTextMapping([{isConnected:true,firstChild:{}}], ["ABC"]); } async render() {} cancel() {} });
     this.setExport('TextLayer', class { async render() {} cancel() {} });
     this.setExport('setLayerDimensions', () => {});
   }, { context });
@@ -45,6 +46,8 @@ async function setup(load = () => { throw new Error('unexpected load'); }) {
   const history = new History();
   const wrapEl = { scrollTop: 0, scrollLeft: 0, clientHeight: 500, removeEventListener() {}, addEventListener() {}, scrollTo(p) { this.scrollTop = p.top ?? this.scrollTop; this.scrollLeft = p.left ?? this.scrollLeft; } };
   const viewer = new Viewer({ pagesEl: { replaceChildren() {} }, wrapEl, history });
+  viewer.textMappings.set(1, {entries:[{div:{isConnected:true,firstChild:{}},start:0,end:3}]});
+  viewer.textMappings.set(2, {entries:[{div:{isConnected:true,firstChild:{}},start:0,end:3}]});
   viewer.buildPlaceholders = () => { viewer.pageEls = Array.from({ length: viewer.pageCount }, pageElement); };
   viewer.setZoom = () => {};
   viewer.observe = () => {};
@@ -288,4 +291,23 @@ test('link annotations render without convertToViewportRectangle', async () => {
   await viewer.renderLinks(page, viewport, linkLayer);
   assert.equal(linkLayer.children.length, 1);
   assert.match(linkLayer.children[0].style.left, /^\d/);
+});
+
+test('zoom invalidates geometry and hides stale text even on offscreen pages', async () => {
+  const { viewer } = await setup();
+  viewer.pageEls = [pageElement(), pageElement()];
+  let hidden = 0;
+  for (let n = 1; n <= 2; n++) {
+    viewer.textLayers.set(n, { hide() { hidden++; } });
+    viewer.pageEls[n - 1].querySelector('.hlLayer').children.push({});
+    viewer.pageEls[n - 1].dataset.renderedZoom = '1.000';
+  }
+  viewer.renderVisible = async () => {};
+  Object.getPrototypeOf(viewer).setZoom.call(viewer, '200', { silent: true });
+  assert.equal(hidden, 2);
+  assert.equal(viewer.textMappings.size, 0);
+  for (const el of viewer.pageEls) {
+    assert.equal(el.querySelector('.hlLayer').children.length, 0);
+    assert.equal(el.dataset.renderedZoom, undefined);
+  }
 });

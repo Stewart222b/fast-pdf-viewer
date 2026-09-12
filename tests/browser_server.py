@@ -15,20 +15,18 @@ def build_multiline_pdf() -> bytes:
     def escape(text: str) -> str:
         return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
-    lines = [
-        "Row A: alpha beta gamma",
-        "Row B: delta epsilon zeta",
-        "Row C: eta theta iota",
-    ]
-    parts = ["BT /F1 16 Tf", "72 720 Td", f"({escape(lines[0])}) Tj"]
-    for line in lines[1:]:
-        parts.append("0 -28 Td")
-        parts.append(f"({escape(line)}) Tj")
-    parts.append("ET")
+    # Each TOC field is a separate text item, with proportional Helvetica.
+    parts = []
+    for row in range(18):
+        y = 720 - row * 28
+        title = "Overview of SurfRDS" if row == 1 else f"Section {chr(65 + row)} details"
+        for x, text in [(40, str(row + 1)), (72, title), (310, "." * 24), (480, str(row + 3))]:
+            parts.append(f"BT /F1 16 Tf 1 0 0 1 {x} {y} Tm ({escape(text)}) Tj ET")
+    parts.append("BT /F1 16 Tf 0 1 -1 0 550 400 Tm (Rotated SurfRDS) Tj ET")
     stream = "\n".join(parts).encode("latin-1")
     objs = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Pages /Kids [3 0 R 6 0 R 7 0 R] /Count 3 >>",
         (
             b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
             b"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>"
@@ -36,6 +34,7 @@ def build_multiline_pdf() -> bytes:
         f"<< /Length {len(stream)} >>\nstream\n".encode() + stream + b"\nendstream",
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     ]
+    objs.extend([objs[2], objs[2]])
     out = b"%PDF-1.4\n"
     offsets = [0]
     for i, obj in enumerate(objs, start=1):

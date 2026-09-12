@@ -1,10 +1,10 @@
 import {
   getDocument,
   GlobalWorkerOptions,
-  TextLayer,
   setLayerDimensions,
 } from "../vendor/pdfjs/build/pdf.mjs";
-import { buildTextIndex, matchRects } from "./search.js";
+import { TextLayerBuilder } from "../vendor/pdfjs/web/pdf_viewer.mjs";
+import { buildTextIndex, buildTextMapping, matchRects } from "./search.js";
 
 GlobalWorkerOptions.workerSrc = new URL(
   "../vendor/pdfjs/build/pdf.worker.mjs",
@@ -56,6 +56,7 @@ export class PdfViewer {
     this.loadingTask = null;
     this.renderJobs = new Map();
     this.textLayers = new Map();
+    this.textMappings = new Map();
     this.hitGeneration = 0;
     this.navigationGeneration = 0;
     if (globalThis.__PDF_BENCH__) {
@@ -149,6 +150,7 @@ export class PdfViewer {
     for (const layer of this.textLayers.values()) layer.cancel();
     this.tasks.clear();
     this.textLayers.clear();
+    this.textMappings.clear();
     this.renderJobs.clear();
     this.renderedPages.clear();
     clearTimeout(this.scrollTimer);
@@ -212,11 +214,14 @@ export class PdfViewer {
     this.zoom = this.computeZoom();
     const cssW = this.baseWidth * this.zoom;
     const cssH = this.baseHeight * this.zoom;
+    this.textMappings.clear();
+    for (const layer of this.textLayers.values()) layer.hide();
     for (const el of this.pageEls) {
       el.style.width = `${cssW}px`;
       el.style.height = `${cssH}px`;
       el.style.setProperty("--scale-factor", String(this.zoom));
       delete el.dataset.renderedZoom;
+      el.querySelector(".hlLayer").replaceChildren();
     }
     if (keepPage) this.scrollToPage(page, { instant: true });
     if (!silent) {
@@ -318,6 +323,7 @@ export class PdfViewer {
       prevTask.cancel();
     }
     this.textLayers.get(pageNumber)?.cancel();
+    this.textMappings.delete(pageNumber);
     this.renderJobs.set(pageNumber, job);
     job.promise = (async () => {
       try {
@@ -343,17 +349,28 @@ export class PdfViewer {
         this.tasks.set(pageNumber, task);
         await task.promise;
         if (!current()) return;
-        const textContent = this.textContents.get(pageNumber) || await page.getTextContent();
+        const textContent = this.textContents.get(pageNumber) || await page.getTextContent({ includeMarkedContent: true, disableNormalization: true });
         if (!current()) return;
         this.textContents.set(pageNumber, textContent);
-        const container = el.querySelector(".textLayer");
-        container.replaceChildren();
+        let mapping;
+        const textLayer = new TextLayerBuilder({
+          pdfPage: page,
+          highlighter: {
+            setTextMapping(textDivs, textContentItemsStr) {
+              mapping = { textDivs, textContentItemsStr };
+            },
+            enable() {},
+            disable() {},
+          },
+        });
+        const container = textLayer.div;
+        el.querySelector(".textLayer").replaceWith(container);
         container.style.setProperty("--scale-factor", String(cssViewport.scale));
         setLayerDimensions(container, cssViewport);
-        const textLayer = new TextLayer({ textContentSource: textContent, container, viewport: cssViewport });
         this.textLayers.set(pageNumber, textLayer);
-        await textLayer.render();
+        await textLayer.render({ viewport: cssViewport });
         if (!current()) return;
+        this.textMappings.set(pageNumber, buildTextMapping(mapping.textDivs, mapping.textContentItemsStr));
         await this.renderLinks(page, cssViewport, el.querySelector(".linkLayer"), current);
         if (!current()) return;
         await this.paintHighlights(pageNumber);
@@ -371,7 +388,6 @@ export class PdfViewer {
         if (this.renderJobs.get(pageNumber) === job) {
           this.renderJobs.delete(pageNumber);
           this.tasks.delete(pageNumber);
-          this.textLayers.delete(pageNumber);
           this.trimCache();
         }
       }
@@ -387,6 +403,9 @@ export class PdfViewer {
       const el = this.pageEls[number - 1];
       if (!el || this.renderJobs.has(number)) continue;
       if (el.offsetTop + el.offsetHeight >= top && el.offsetTop <= bottom) continue;
+      this.textLayers.get(number)?.cancel();
+      this.textLayers.delete(number);
+      this.textMappings.delete(number);
       const canvas = el.querySelector("canvas");
       canvas.width = canvas.height = 0;
       for (const selector of [".textLayer", ".linkLayer", ".hlLayer"]) el.querySelector(selector).replaceChildren();
@@ -519,7 +538,7 @@ export class PdfViewer {
         if (generation !== this.generation) return [];
         const page = await pdf.getPage(i);
         if (generation !== this.generation) return [];
-        const textContent = await page.getTextContent();
+        const textContent = await page.getTextContent({ includeMarkedContent: true, disableNormalization: true });
         if (generation !== this.generation) return [];
         pages.push({
           pageNumber: i,
@@ -547,31 +566,18 @@ export class PdfViewer {
     const layer = el.querySelector(".hlLayer");
     layer.replaceChildren();
     if (!this.hits.length || !this.query) return;
-    const textContent = this.textContents.get(pageNumber);
-    if (!textContent) return;
-    const generation = this.generation;
-    const hitGeneration = this.hitGeneration;
-    const zoom = this.zoom;
-    let page;
-    try {
-      page = await this.pdf.getPage(pageNumber);
-    } catch (error) {
-      if (generation !== this.generation || hitGeneration !== this.hitGeneration) return;
-      throw error;
-    }
-    if (generation !== this.generation || hitGeneration !== this.hitGeneration || zoom !== this.zoom) return;
-    layer.replaceChildren();
-    const cssViewport = page.getViewport({ scale: this.zoom });
+    const mapping = this.textMappings.get(pageNumber);
+    if (!mapping) return;
     this.hits.forEach((hit, index) => {
       if (hit.pageNumber !== pageNumber) return;
-      const rects = matchRects(textContent, cssViewport, hit.offset, hit.length);
+      const rects = matchRects(mapping, layer, hit.offset, hit.length);
       for (const rect of rects) {
         const box = document.createElement("div");
         box.className = `hl${index === this.hitIndex ? " current" : ""}`;
         box.style.left = `${rect.left}px`;
         box.style.top = `${rect.top}px`;
         box.style.width = `${rect.width}px`;
-        box.style.height = `${Math.max(rect.height, 10)}px`;
+        box.style.height = `${rect.height}px`;
         layer.appendChild(box);
       }
     });
@@ -586,7 +592,7 @@ export class PdfViewer {
     this.query = query;
     this.hitIndex = hits.length ? index : -1;
     await Promise.all([...pages].map(async (n) => {
-      if (!this.textContents.get(n)) await this.renderPage(n);
+      if (!this.textMappings.get(n)) await this.renderPage(n);
       await this.paintHighlights(n);
     }));
     if (jump && generation === this.hitGeneration && hits[index]) await this.jumpToHit(index, { push: true });
@@ -604,11 +610,8 @@ export class PdfViewer {
       const origin = this.getState();
       await this.renderPage(hit.pageNumber);
       if (!current()) return;
-      const page = await this.pdf.getPage(hit.pageNumber);
-      if (!current()) return;
-      const textContent = this.textContents.get(hit.pageNumber);
-      const rect = textContent && matchRects(textContent, page.getViewport({ scale: this.zoom }), hit.offset, hit.length)[0];
       const el = this.pageEls[hit.pageNumber - 1];
+      const rect = matchRects(this.textMappings.get(hit.pageNumber), el.querySelector(".hlLayer"), hit.offset, hit.length)[0];
       if (push) this.history.commit(origin);
       this.hitIndex = index;
       this.currentPage = hit.pageNumber;

@@ -88,35 +88,51 @@ function escapeHtml(value) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
-export function matchRects(textContent, viewport, offset, length) {
-  const items = textContent.items.filter((item) => typeof item.str === "string");
-  let cursor = 0;
+// Raw offsets are UTF-16 positions in textContentItemsStr.join("");
+// synthetic search spaces never consume raw positions.
+export function buildTextMapping(textDivs, textContentItemsStr) {
+  let offset = 0;
+  const entries = textContentItemsStr.map((str, i) => {
+    const entry = { div: textDivs[i], start: offset, end: offset + str.length };
+    offset = entry.end;
+    return entry;
+  });
+  return { textDivs, textContentItemsStr, entries };
+}
+
+export function matchRects(mapping, layer, offset, length) {
+  if (!mapping || length <= 0) return [];
+  const entries = mapping.entries.filter(e => e.end > offset && e.start < offset + length && e.div?.isConnected);
+  if (!entries.length) return [];
+  const origin = layer.getBoundingClientRect();
+  const sx = layer.clientWidth ? origin.width / layer.clientWidth : 1;
+  const sy = layer.clientHeight ? origin.height / layer.clientHeight : 1;
   const rects = [];
-  const end = offset + length;
-  for (const item of items) {
-    const next = cursor + item.str.length;
-    const overlapStart = Math.max(offset, cursor);
-    const overlapEnd = Math.min(end, next);
-    if (overlapEnd > overlapStart && item.transform) {
-      const [a, b, , , tx, ty] = item.transform;
-      const width = item.width ?? Math.hypot(a, b) * item.str.length;
-      const height = item.height ?? Math.abs(item.transform[3] || a);
-      const localStart = overlapStart - cursor;
-      const localEnd = overlapEnd - cursor;
-      const ratioStart = item.str.length ? localStart / item.str.length : 0;
-      const ratioEnd = item.str.length ? localEnd / item.str.length : 1;
-      const x = tx + width * ratioStart;
-      const w = width * (ratioEnd - ratioStart);
-      const [x1, y1] = viewport.convertToViewportPoint(x, ty);
-      const [x2, y2] = viewport.convertToViewportPoint(x + w, ty + height);
-      rects.push({
-        left: Math.min(x1, x2),
-        top: Math.min(y1, y2),
-        width: Math.abs(x2 - x1),
-        height: Math.abs(y2 - y1),
+  // Measure the participating text nodes separately so PDF.js's movable
+  // endOfContent sentinel (or marked-content wrappers) cannot add a page box.
+  for (const entry of entries) {
+    const range = layer.ownerDocument.createRange();
+    range.setStart(entry.div.firstChild, Math.max(0, offset - entry.start));
+    range.setEnd(entry.div.firstChild, Math.min(entry.end, offset + length) - entry.start);
+    for (const r of range.getClientRects()) {
+      if (r.width > 0 && r.height > 0) rects.push({
+        left: (r.left - origin.left) / sx, top: (r.top - origin.top) / sy,
+        width: r.width / sx, height: r.height / sy,
       });
     }
-    cursor = next;
   }
-  return rects;
+  // Merge only overlapping/adjacent boxes on the same visual line. Rotated
+  // text retains the browser's transformed bounding boxes, without PDF guesses.
+  const merged = [];
+  for (const rect of rects) {
+    const prev = merged.find(r => Math.abs(r.top - rect.top) <= 1 &&
+      Math.abs(r.height - rect.height) <= 1 &&
+      rect.left <= r.left + r.width + 1 && r.left <= rect.left + rect.width + 1);
+    if (prev) {
+      const right = Math.max(prev.left + prev.width, rect.left + rect.width);
+      prev.left = Math.min(prev.left, rect.left);
+      prev.width = right - prev.left;
+    } else merged.push({ ...rect });
+  }
+  return merged;
 }
