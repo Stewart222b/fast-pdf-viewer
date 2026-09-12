@@ -1,10 +1,10 @@
+import { fetchStartupOpen } from "./startup.js";
+
 export function createWebPlatform() {
   return {
     id: "web",
     label: "网页版",
-    async startupOpen() {
-      return null;
-    },
+    startupOpen: fetchStartupOpen,
     async pickFile() {
       return null;
     },

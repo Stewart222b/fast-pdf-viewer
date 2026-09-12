@@ -126,12 +126,22 @@ async function openSource(getSource) {
 async function openFile(file) {
   return openSource(() => {
     objectUrl = URL.createObjectURL(file);
-    return { url: objectUrl, name: file.name };
+    return {
+      url: objectUrl,
+      name: file.name,
+      size: file.size,
+      lastModified: file.lastModified,
+    };
   });
 }
 
 async function openFromPlatform(meta) {
-  return openSource(() => ({ url: meta.url, name: meta.name, id: meta.id }));
+  return openSource(() => ({
+    url: meta.url,
+    name: meta.name,
+    id: meta.id,
+    path: meta.path,
+  }));
 }
 
 async function renderOutline(request) {
@@ -473,10 +483,17 @@ function setTranslateError(message, selectionId) {
   const result = $("translate-result");
   result.hidden = false;
   result.classList.add("error");
-  result.innerHTML = `${message} <button type="button" class="link-btn" id="btn-translate-retry">重试</button>`;
+  result.replaceChildren();
+  result.append(document.createTextNode(`${message} `));
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.className = "link-btn";
+  retry.id = "btn-translate-retry";
+  retry.textContent = "重试";
+  retry.addEventListener("click", () => runTranslate(selectionId));
+  result.append(retry);
   $("translate-status").hidden = true;
   $("btn-translate-cancel").hidden = true;
-  $("btn-translate-retry")?.addEventListener("click", () => runTranslate(selectionId));
 }
 
 async function runTranslate(selectionId = bubbleSelectionId) {

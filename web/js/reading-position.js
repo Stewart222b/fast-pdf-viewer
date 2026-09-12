@@ -3,11 +3,13 @@ const KEY_PREFIX = "fast-pdf-reader-position:";
 export function readingFingerprint(source) {
   if (!source) return "";
   const name = source.name || "document";
+  if (source.path) return `path:${source.path}`;
+  if (source.size != null && source.lastModified != null) {
+    return `file:${name}:${source.size}:${source.lastModified}`;
+  }
   const url = source.url || "";
-  if (url.startsWith("blob:")) return `blob:${name}`;
-  const idMatch = url.match(/\/opened\/([0-9a-f]{32})\.pdf/);
-  if (idMatch) return `desktop:${idMatch[1]}:${name}`;
-  return `url:${name}:${url.split("?")[0]}`;
+  if (!url.startsWith("blob:")) return `url:${url.split("?")[0]}`;
+  return `blob:${name}:${source.size ?? 0}:${source.lastModified ?? 0}`;
 }
 
 export function loadReadingPosition(fingerprint) {
