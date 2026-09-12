@@ -311,3 +311,134 @@ test('zoom invalidates geometry and hides stale text even on offscreen pages', a
     assert.equal(el.dataset.renderedZoom, undefined);
   }
 });
+
+function manyPages(count) {
+  return Array.from({ length: count }, (_, i) => {
+    const el = pageElement();
+    el.dataset.pageNumber = String(i + 1);
+    el.offsetTop = i * 900;
+    el.offsetHeight = 800;
+    return el;
+  });
+}
+
+function surfHits(count, startPage = 1) {
+  return Array.from({ length: count }, (_, i) => ({
+    pageNumber: startPage + i,
+    offset: 0,
+    length: 3,
+  }));
+}
+
+function trackRenders(viewer) {
+  const rendered = [];
+  viewer.renderPage = async (n) => {
+    rendered.push(n);
+    const el = viewer.pageEls[n - 1];
+    el.dataset.renderedZoom = viewer.zoom.toFixed(3);
+    const canvas = el.querySelector('canvas');
+    canvas.width = 600;
+    canvas.height = 800;
+    viewer.renderedPages.set(n, { cleanup() {} });
+    viewer.textLayers.set(n, { cancel() {} });
+    await viewer.paintHighlights(n);
+  };
+  return rendered;
+}
+
+test('showHits with 445 hits does not render every hit page', async () => {
+  const { viewer } = await setup();
+  viewer.pdf = pdf('surf');
+  viewer.pageCount = 720;
+  viewer.pageEls = manyPages(720);
+  const rendered = trackRenders(viewer);
+  const hits = surfHits(445, 10);
+  const t0 = Date.now();
+  await viewer.showHits(hits, 'surf');
+  const ms = Date.now() - t0;
+  assert.ok(rendered.length <= 3, `renderPage called ${rendered.length} times: ${rendered}`);
+  assert.deepEqual([...new Set(rendered)], [10]);
+  assert.ok(ms < 200, `showHits took ${ms}ms`);
+  assert.ok(viewer.renderedPages.size <= viewer.maxCachedPages);
+  assert.equal(viewer.renderJobs.size, 0);
+  const canvases = viewer.pageEls.filter((el) => el.querySelector('canvas').width > 0).length;
+  assert.ok(canvases <= viewer.maxCachedPages);
+  assert.ok(canvases < 20);
+});
+
+test('index refresh does not render newly found hit pages', async () => {
+  const { viewer } = await setup();
+  viewer.pdf = pdf('surf');
+  viewer.pageCount = 720;
+  viewer.pageEls = manyPages(720);
+  const rendered = trackRenders(viewer);
+  await viewer.showHits(surfHits(10, 1), 'surf');
+  rendered.length = 0;
+  await viewer.showHits(surfHits(445, 1), 'surf', 0, { jump: false });
+  assert.equal(rendered.length, 0);
+  assert.equal(viewer.hits.length, 445);
+});
+
+test('clearing search does not call renderPage', async () => {
+  const { viewer } = await setup();
+  viewer.pdf = pdf('surf');
+  viewer.pageCount = 720;
+  viewer.pageEls = manyPages(720);
+  const rendered = trackRenders(viewer);
+  await viewer.showHits(surfHits(445, 5), 'surf');
+  const before = rendered.length;
+  await viewer.showHits([], '');
+  assert.equal(rendered.length, before);
+  viewer.clearHits();
+  assert.equal(rendered.length, before);
+});
+
+test('four typing clears do not start page renders', async () => {
+  const { viewer } = await setup();
+  viewer.pdf = pdf('surf');
+  viewer.pageCount = 720;
+  viewer.pageEls = manyPages(720);
+  const rendered = trackRenders(viewer);
+  for (let i = 0; i < 4; i++) viewer.clearHits();
+  assert.equal(rendered.length, 0);
+  await viewer.showHits(surfHits(445, 1), 'surf');
+  assert.ok(rendered.length <= 3);
+  assert.deepEqual([...new Set(rendered)], [1]);
+});
+
+test('next-result only renders the new target page', async () => {
+  const { viewer } = await setup();
+  viewer.pdf = pdf('surf');
+  viewer.pageCount = 720;
+  viewer.pageEls = manyPages(720);
+  const rendered = trackRenders(viewer);
+  const hits = [{ pageNumber: 1, offset: 0, length: 3 }, { pageNumber: 80, offset: 0, length: 3 }, ...surfHits(443, 81)];
+  await viewer.showHits(hits, 'surf');
+  rendered.length = 0;
+  await viewer.jumpToHit(1, { push: true });
+  assert.deepEqual(rendered, [80]);
+});
+
+test('rendering a hit page after search paints highlights on demand', async () => {
+  const { viewer } = await setup();
+  viewer.pdf = pdf('ABC');
+  viewer.pageCount = 120;
+  viewer.pageEls = manyPages(120);
+  viewer.jumpToHit = async () => {};
+  const hits = surfHits(80, 20);
+  await viewer.showHits(hits, 'ABC');
+  assert.equal(viewer.pageEls[49].querySelector('.hlLayer').children.length, 0);
+  viewer.pageEls[49].dataset.renderedZoom = '';
+  await Object.getPrototypeOf(viewer).renderPage.call(viewer, 50);
+  assert.ok(viewer.pageEls[49].querySelector('.hlLayer').children.length >= 1);
+});
+
+test('showHits and jumpToHit do not batch over all hit pages', async () => {
+  const source = await readFile(new URL('../web/js/viewer.js', import.meta.url), 'utf8');
+  const showHits = source.slice(source.indexOf('async showHits'), source.indexOf('async jumpToHit'));
+  const jumpToHit = source.slice(source.indexOf('async jumpToHit'));
+  assert.equal(/this\.hits\.map/.test(showHits), false);
+  assert.equal(/Promise\.all/.test(showHits), false);
+  assert.equal(/this\.hits\.map/.test(jumpToHit), false);
+  assert.equal(/Promise\.all/.test(jumpToHit), false);
+});

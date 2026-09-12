@@ -296,11 +296,34 @@ async function runSearch(query, request = searchGeneration, jump = true) {
   const current = () => request === searchGeneration && generation === viewer.generation;
   try {
     if (!current()) return;
+    const searchStarted = globalThis.__PDF_BENCH__ ? performance.now() : 0;
     const hits = searchDocument(viewer.pageTexts, query);
+    if (globalThis.__PDF_BENCH__) {
+      globalThis.__pdfSearchBench = {
+        searchDocumentMs: performance.now() - searchStarted,
+        hitCount: hits.length,
+        query,
+      };
+    }
     const unchanged = !jump && hits.length === searchHits.length && viewer.query === query;
-    if (!unchanged) await viewer.showHits(hits, query, jump ? 0 : Math.max(0, viewer.hitIndex), { jump });
-    if (!current()) return;
+    // Keep the result list independent of page rendering: showHits may await
+    // jumpToHit → renderPage for the current target only.
+    const shown = unchanged
+      ? null
+      : viewer.showHits(hits, query, jump ? 0 : Math.max(0, viewer.hitIndex), { jump });
+    if (!current()) {
+      await shown;
+      return;
+    }
     renderSearchList(unchanged ? searchHits : hits, query);
+    if (globalThis.__PDF_BENCH__) {
+      globalThis.__pdfSearchBench.resultListVisibleMs = performance.now() - searchStarted;
+    }
+    if (shown) await shown;
+    if (!current()) return;
+    if (globalThis.__PDF_BENCH__) {
+      globalThis.__pdfSearchBench.firstJumpMs = performance.now() - searchStarted;
+    }
     if (query) {
       if (jump) selectSidebar("search");
       if (viewer.indexError) {
@@ -383,7 +406,7 @@ $("search-input").addEventListener("input", (event) => {
   const query = event.target.value;
   const request = ++searchGeneration;
   clearTimeout(searchTimer);
-  viewer.showHits([], "").catch(console.error);
+  viewer.clearHits();
   renderSearchList([], "");
   searchTimer = setTimeout(() => runSearch(query, request), 180);
 });
