@@ -8,6 +8,7 @@ import {
 import { highlightSnippet, searchDocument } from "./search.js";
 import { loadSettings, saveSettings } from "./settings.js";
 import { wireModelPicker } from "./model-picker.js";
+import { applyBubblePlacement } from "./translate-bubble-placement.js";
 import { MAX_TRANSLATE_CHARS, translateText } from "./translate.js";
 import { PasswordResponses } from "../vendor/pdfjs/build/pdf.mjs";
 import { PdfViewer } from "./viewer.js";
@@ -591,6 +592,26 @@ window.addEventListener("keydown", (event) => {
 
 const bubble = $("translate-bubble");
 let selectedText = "";
+let bubbleSelectionRect = null;
+
+function currentSelectionRect() {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount) return bubbleSelectionRect;
+  const range = selection.getRangeAt(0);
+  if (!range.startContainer.parentElement?.closest(".textLayer")) return bubbleSelectionRect;
+  return range.getBoundingClientRect();
+}
+
+function repositionBubble() {
+  if (bubble.hidden) return;
+  const rect = currentSelectionRect();
+  if (!rect) return;
+  applyBubblePlacement(bubble, rect, wrap.getBoundingClientRect());
+}
+
+function scheduleRepositionBubble() {
+  requestAnimationFrame(() => repositionBubble());
+}
 
 function cancelTranslate() {
   translateAbort?.abort();
@@ -599,6 +620,7 @@ function cancelTranslate() {
 }
 
 function hideBubble() {
+  bubbleSelectionRect = null;
   bubble.hidden = true;
   $("translate-result").hidden = true;
   $("translate-result").classList.remove("error");
@@ -607,22 +629,16 @@ function hideBubble() {
   cancelTranslate();
 }
 
-function positionBubble(x, y) {
-  const left = Math.min(x, window.innerWidth - bubble.offsetWidth - 12);
-  const top = Math.min(y, window.innerHeight - 12);
-  bubble.style.left = `${Math.max(12, left)}px`;
-  bubble.style.top = `${Math.max(12, top)}px`;
-}
-
-function showBubble(x, y, text) {
+function showBubble(selectionRect, text) {
   const selectionId = ++bubbleSelectionId;
   selectedText = text;
+  bubbleSelectionRect = selectionRect;
   $("translate-source").textContent = text.length > 240 ? `${text.slice(0, 240)}…` : text;
   $("translate-result").hidden = true;
   $("translate-result").classList.remove("error");
   $("translate-result").textContent = "";
   bubble.hidden = false;
-  positionBubble(x, y);
+  repositionBubble();
   void runTranslate(selectionId);
   return selectionId;
 }
@@ -674,6 +690,7 @@ async function runTranslate(selectionId = bubbleSelectionId) {
     result.hidden = false;
     result.textContent = translated;
     translateAbort = null;
+    scheduleRepositionBubble();
   } catch (error) {
     if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
     if (controller.signal.aborted) {
@@ -698,9 +715,11 @@ document.addEventListener("mouseup", (event) => {
     hideBubble();
     return;
   }
-  const rect = range.getBoundingClientRect();
-  showBubble(rect.left, rect.bottom + 8, text);
+  showBubble(range.getBoundingClientRect(), text);
 });
+
+wrap.addEventListener("scroll", scheduleRepositionBubble, { passive: true });
+window.addEventListener("resize", scheduleRepositionBubble);
 
 $("btn-bubble-close").addEventListener("click", hideBubble);
 $("btn-translate-cancel").addEventListener("click", () => {
