@@ -234,7 +234,7 @@ class Bridge:
         path = result[0]
         set_opened(path)
         with opened_lock:
-            return {"name": opened["name"], "id": opened["id"]}
+            return {"name": opened["name"], "id": opened["id"], "path": opened["path"]}
 
 
 def open_window(url: str, title: str) -> bool:

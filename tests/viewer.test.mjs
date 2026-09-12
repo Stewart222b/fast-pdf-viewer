@@ -250,9 +250,11 @@ test('highlight refresh without jump does not cancel an in-flight search jump', 
 test('highlight refresh without jump does not cancel an outline destination', async () => {
   const { viewer } = await setup();
   const waiting = deferred();
-  viewer.pdf = { getDestination: () => waiting.promise };
+  const page = await pdf('A').getPage(1);
+  viewer.pdf = { getDestination: () => waiting.promise, getPage: async () => page };
   viewer.pageCount = 3;
   viewer.pageEls = [pageElement(), pageElement(), pageElement()];
+  viewer.textContents.set(1, content('A'));
   const dest = viewer.goToDest('outline', true);
   await viewer.showHits([{ pageNumber: 1, offset: 0, length: 1 }], 'A', 0, { jump: false });
   waiting.resolve([2]);

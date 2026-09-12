@@ -15,7 +15,7 @@ async function setup() {
   const revoked = [];
   let nextBlob = 0;
   function element() {
-    const el = { value: '', children: [], options: [], listeners: {}, style: {}, toggles: {}, attrs: {},
+    const el = { value: '', children: [], options: [], listeners: {}, style: {}, toggles: {}, attrs: {}, dataset: {},
       classList: { toggle(name, on) { el.toggles[name] = on; }, add() {}, remove() {} },
       addEventListener(name, fn) { this.listeners[name] = fn; }, replaceChildren() { this.children = []; },
       appendChild(child) { this.children.push(child); }, contains() { return false; }, focus() {}, select() {},

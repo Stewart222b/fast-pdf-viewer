@@ -128,7 +128,7 @@ python desktop/app.py --browser samples/demo.pdf
 测试：
 
 ```bash
-node --test tests/*.test.mjs
+node --experimental-vm-modules --test tests/*.test.mjs
 python -m unittest tests/test_http.py
 node tests/browser-smoke.mjs      # 需已启动 --browser 服务
 node tests/render-benchmark.mjs   # Phase 1 渲染基准

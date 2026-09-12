@@ -26,6 +26,15 @@ test('collapsed whitespace, ligatures and fullwidth text map to original charact
   assert.equal(hits.length, 1); assert.equal(hits[0].offset, 5); assert.equal(hits[0].length, 5);
   assert.equal(search([item('ﬃ')], 'fi').hits[0].length, 1);
 });
+test('ligature partial queries keep non-zero raw highlight ranges', () => {
+  const { content, hits: fHits } = search([item('ﬃ')], 'f');
+  const fHit = fHits.find((hit) => hit.length > 0);
+  assert.ok(fHit);
+  assert.equal(fHit.length, 1);
+  assert.equal(matchRects(content, viewport, fHit.offset, fHit.length).length, 1);
+  const { hits: ffHits } = search([item('ﬃ')], 'ff');
+  assert.equal(ffHits[0].length, 1);
+});
 test('snippet highlighting does not corrupt HTML entities or inject markup', () => {
   assert.equal(highlightSnippet('x < y & z', '<'), 'x <mark>&lt;</mark> y &amp; z');
   assert.equal(highlightSnippet('<img>', 'img'), '&lt;<mark>img</mark>&gt;');
