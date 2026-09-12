@@ -89,7 +89,11 @@ async function setup() {
   };
   const main = new vm.SourceTextModule(await readFile(new URL('../web/js/main.js', import.meta.url), 'utf8'), { context });
   await main.link(async spec => {
-    if (spec === './search.js' || spec === './translate-bubble-placement.js') {
+    if (
+      spec === './search.js' ||
+      spec === './translate-bubble-placement.js' ||
+      spec === './selection-anchor.js'
+    ) {
       return new vm.SourceTextModule(await readFile(new URL(`../web/js/${spec.slice(2)}`, import.meta.url), 'utf8'), { context });
     }
     if (spec.includes('vendor/pdfjs')) {

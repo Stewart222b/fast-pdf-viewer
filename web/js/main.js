@@ -8,6 +8,7 @@ import {
 import { highlightSnippet, searchDocument } from "./search.js";
 import { loadSettings, saveSettings } from "./settings.js";
 import { wireModelPicker } from "./model-picker.js";
+import { getSelectionAnchorFromSelection, getSelectionAnchorRect } from "./selection-anchor.js";
 import { applyBubblePlacement } from "./translate-bubble-placement.js";
 import { MAX_TRANSLATE_CHARS, translateText } from "./translate.js";
 import { PasswordResponses } from "../vendor/pdfjs/build/pdf.mjs";
@@ -595,11 +596,9 @@ let selectedText = "";
 let bubbleSelectionRect = null;
 
 function currentSelectionRect() {
-  const selection = window.getSelection();
-  if (!selection?.rangeCount) return bubbleSelectionRect;
-  const range = selection.getRangeAt(0);
-  if (!range.startContainer.parentElement?.closest(".textLayer")) return bubbleSelectionRect;
-  return range.getBoundingClientRect();
+  const viewport = wrap.getBoundingClientRect();
+  const anchored = getSelectionAnchorFromSelection(window.getSelection(), viewport);
+  return anchored || bubbleSelectionRect;
 }
 
 function repositionBubble() {
@@ -622,11 +621,32 @@ function cancelTranslate() {
 function hideBubble() {
   bubbleSelectionRect = null;
   bubble.hidden = true;
-  $("translate-result").hidden = true;
-  $("translate-result").classList.remove("error");
-  $("translate-result").textContent = "";
+  const result = $("translate-result");
+  result.hidden = true;
+  result.classList.remove("error", "streaming");
+  result.textContent = "";
   $("translate-status").hidden = true;
   cancelTranslate();
+}
+
+function showStreamingCaret(result) {
+  result.hidden = false;
+  result.classList.remove("error");
+  result.classList.add("streaming");
+  result.replaceChildren();
+  const caret = document.createElement("span");
+  caret.className = "translate-caret";
+  caret.setAttribute("aria-hidden", "true");
+  result.append(caret);
+}
+
+function setStreamingTranslation(text, result) {
+  result.replaceChildren();
+  if (text) result.append(document.createTextNode(text));
+  const caret = document.createElement("span");
+  caret.className = "translate-caret";
+  caret.setAttribute("aria-hidden", "true");
+  result.append(caret);
 }
 
 function showBubble(selectionRect, text) {
@@ -647,6 +667,7 @@ function setTranslateError(message, selectionId) {
   if (selectionId !== bubbleSelectionId) return;
   const result = $("translate-result");
   result.hidden = false;
+  result.classList.remove("streaming");
   result.classList.add("error");
   result.replaceChildren();
   result.append(document.createTextNode(`${message} `));
@@ -672,10 +693,10 @@ async function runTranslate(selectionId = bubbleSelectionId) {
   }
   const result = $("translate-result");
   const status = $("translate-status");
-  result.hidden = true;
   result.classList.remove("error");
-  status.hidden = false;
-  status.textContent = "翻译中…";
+  status.hidden = true;
+  showStreamingCaret(result);
+  scheduleRepositionBubble();
   $("btn-translate-cancel").hidden = false;
 
   const controller = new AbortController();
@@ -683,11 +704,17 @@ async function runTranslate(selectionId = bubbleSelectionId) {
   const requestId = ++translateRequestId;
 
   try {
-    const translated = await translateText(text, loadSettings(), { signal: controller.signal });
+    const translated = await translateText(text, loadSettings(), {
+      signal: controller.signal,
+      onDelta: (partial) => {
+        if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
+        setStreamingTranslation(partial, result);
+        scheduleRepositionBubble();
+      },
+    });
     if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
-    status.hidden = true;
     $("btn-translate-cancel").hidden = true;
-    result.hidden = false;
+    result.classList.remove("streaming");
     result.textContent = translated;
     translateAbort = null;
     scheduleRepositionBubble();
@@ -711,11 +738,15 @@ document.addEventListener("mouseup", (event) => {
     return;
   }
   const range = selection.getRangeAt(0);
-  if (!range.startContainer.parentElement?.closest(".textLayer")) {
+  const inTextLayer =
+    range.endContainer.parentElement?.closest(".textLayer") ||
+    range.startContainer.parentElement?.closest(".textLayer");
+  if (!inTextLayer) {
     hideBubble();
     return;
   }
-  showBubble(range.getBoundingClientRect(), text);
+  const anchor = getSelectionAnchorRect(range, wrap.getBoundingClientRect());
+  showBubble(anchor, text);
 });
 
 wrap.addEventListener("scroll", scheduleRepositionBubble, { passive: true });

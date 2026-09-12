@@ -85,10 +85,88 @@ export function buildTranslationMessages(text, targetLang) {
   ];
 }
 
+export function extractStreamDelta(parsed) {
+  const choice = parsed?.choices?.[0];
+  if (!choice) return "";
+  if (typeof choice.delta?.content === "string") return choice.delta.content;
+  if (typeof choice.message?.content === "string") return choice.message.content;
+  return "";
+}
+
+/**
+ * @param {string} chunk - May contain multiple SSE lines.
+ * @returns {string[]} content deltas
+ */
+export function parseSseTranslationChunk(chunk) {
+  const deltas = [];
+  for (const line of chunk.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) continue;
+    const payload = trimmed.slice(5).trim();
+    if (!payload || payload === "[DONE]") continue;
+    try {
+      const parsed = JSON.parse(payload);
+      const piece = extractStreamDelta(parsed);
+      if (piece) deltas.push(piece);
+    } catch {
+      // ignore malformed SSE lines
+    }
+  }
+  return deltas;
+}
+
+async function readStreamingTranslation(response, { onDelta, signal } = {}) {
+  if (!response.body) {
+    const data = await response.json().catch(() => ({}));
+    const content = data?.choices?.[0]?.message?.content?.trim();
+    if (!content) throw new Error("模型没有返回译文。");
+    onDelta?.(content);
+    return content;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let translated = "";
+
+  while (true) {
+    if (signal?.aborted) {
+      await reader.cancel().catch(() => {});
+      const error = new Error("aborted");
+      error.name = "AbortError";
+      throw error;
+    }
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lastNewline = buffer.lastIndexOf("\n");
+    if (lastNewline === -1) continue;
+    const lines = buffer.slice(0, lastNewline + 1);
+    buffer = buffer.slice(lastNewline + 1);
+    for (const piece of parseSseTranslationChunk(lines)) {
+      translated += piece;
+      onDelta?.(translated);
+    }
+  }
+  if (buffer.trim()) {
+    for (const piece of parseSseTranslationChunk(buffer)) {
+      translated += piece;
+      onDelta?.(translated);
+    }
+  }
+  const trimmed = translated.trim();
+  if (!trimmed) throw new Error("模型没有返回译文。");
+  return trimmed;
+}
+
 /**
  * OpenAI-compatible chat completions (OpenRouter, OpenAI, local proxies, etc.).
  */
-export async function translateWithProvider(text, settings, { signal, timeoutMs = 60_000 } = {}) {
+export async function translateWithProvider(
+  text,
+  settings,
+  { signal, timeoutMs = 60_000, onDelta } = {},
+) {
   if (!settings?.apiKey) {
     throw new Error("还没有填写 API Key，请先打开设置。");
   }
@@ -126,17 +204,24 @@ export async function translateWithProvider(text, settings, { signal, timeoutMs 
       body: JSON.stringify({
         model: settings.model || DEFAULT_MODEL,
         temperature: 0.1,
+        stream: true,
         messages: buildTranslationMessages(trimmed, settings.targetLang),
       }),
       signal: controller.signal,
     });
-    const data = await response.json().catch(() => ({}));
     if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
       const message = data?.error?.message || `翻译请求失败 (${response.status})`;
       throw new Error(message);
     }
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("text/event-stream") || onDelta) {
+      return await readStreamingTranslation(response, { onDelta, signal: controller.signal });
+    }
+    const data = await response.json().catch(() => ({}));
     const content = data?.choices?.[0]?.message?.content?.trim();
     if (!content) throw new Error("模型没有返回译文。");
+    onDelta?.(content);
     return content;
   } catch (error) {
     if (error?.name === "AbortError") {

@@ -551,6 +551,30 @@ select {
   color: #f5a8a8;
 }
 
+.bubble-result.streaming {
+  min-height: 1.5em;
+}
+
+.translate-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: translate-caret-blink 1s step-end infinite;
+}
+
+@keyframes translate-caret-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
 .link-btn {
   background: none;
   border: 0;
