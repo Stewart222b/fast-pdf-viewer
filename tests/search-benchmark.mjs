@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -128,6 +128,14 @@ async function runBenchmark() {
       };
     })()`);
 
+    const capture = async (name) => {
+      const shot = await send("Page.captureScreenshot", { format: "png", fromSurface: true });
+      await mkdir("/opt/cursor/artifacts", { recursive: true });
+      const dest = `/opt/cursor/artifacts/${name}.png`;
+      await writeFile(dest, Buffer.from(shot.data, "base64"));
+      return dest;
+    };
+
     await fetch(`http://127.0.0.1:${fixtures.port}/api/open-path`, {
       method: "POST",
       body: JSON.stringify({ path: fixtures.fixtures.surf720 }),
@@ -168,6 +176,7 @@ async function runBenchmark() {
     await until(`document.querySelectorAll('.search-hit').length > 0`);
     const atList = await stats();
     report.atResultList = atList;
+    report.screenshots = { resultList: await capture("search-result-list") };
     assert.ok(atList.searchHits > 0);
     assert.ok(atList.hitCount >= fixtures.expected.surfHits, `hits ${atList.hitCount}`);
     assert.ok(
@@ -186,6 +195,7 @@ async function runBenchmark() {
 
     await until(`document.querySelector('.hl')`, 30000);
     report.firstHighlight = await stats();
+    report.screenshots.firstHighlight = await capture("search-first-highlight");
     report.metrics = {
       searchDocumentMs: atList.searchBench.searchDocumentMs,
       resultListVisibleMs: atList.searchBench.resultListVisibleMs,
@@ -244,6 +254,7 @@ async function runBenchmark() {
     await until(`document.querySelector('[data-page-number="${farPage}"] .hl')`);
     report.scrolledHitPage = await stats();
     report.scrolledHitPage.page = farPage;
+    report.screenshots.scrolledHit = await capture("search-scrolled-hit");
     assert.ok(report.scrolledHitPage.renderedPages <= report.scrolledHitPage.maxCachedPages + 2);
 
     report.cdpErrors = cdpErrors;

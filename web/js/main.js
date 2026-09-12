@@ -319,13 +319,13 @@ async function runSearch(query, request = searchGeneration, jump = true) {
     if (globalThis.__PDF_BENCH__) {
       globalThis.__pdfSearchBench.resultListVisibleMs = performance.now() - searchStarted;
     }
+    if (query && jump) selectSidebar("search");
     if (shown) await shown;
     if (!current()) return;
     if (globalThis.__PDF_BENCH__) {
       globalThis.__pdfSearchBench.firstJumpMs = performance.now() - searchStarted;
     }
     if (query) {
-      if (jump) selectSidebar("search");
       if (viewer.indexError) {
         const warning = document.createElement("div");
         warning.className = "empty-side";
