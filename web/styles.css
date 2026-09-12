@@ -165,6 +165,14 @@ select {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 6px 8px;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.page-box input::-webkit-outer-spin-button,
+.page-box input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 #zoom-select {
