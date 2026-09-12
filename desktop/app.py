@@ -13,11 +13,26 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
-ROOT = Path(__file__).resolve().parents[1]
-WEB = ROOT / "web"
+def _web_dir() -> Path:
+    here = Path(__file__).resolve().parent
+    for root in (here.parent, here):
+        web = root / "web"
+        if web.is_dir():
+            return web
+    raise FileNotFoundError("找不到 web/ 资源目录，请在仓库根目录运行或 pip install -e .")
+
+
+WEB = _web_dir()
+ROOT = WEB.parent
 
 opened_lock = threading.Lock()
 opened: dict[str, object] = {"path": None, "name": None, "id": None}
+OPENED_PATH = re.compile(r"^/opened(?:/([0-9a-f]{32})\.pdf|\.pdf)$")
+
+
+class ViewerHTTPServer(ThreadingHTTPServer):
+    allow_reuse_address = False
+    daemon_threads = True
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -34,17 +49,18 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         if parsed.path == "/api/startup":
-            self._json(
-                {
+            with opened_lock:
+                payload = {
                     "path": opened.get("path"),
                     "name": opened.get("name"),
                     "id": opened.get("id"),
                     "hasFile": bool(opened.get("path")),
                 }
-            )
+            self._json(payload)
             return
-        if parsed.path == "/opened.pdf":
-            self._serve_opened()
+        opened_match = OPENED_PATH.match(parsed.path)
+        if opened_match:
+            self._serve_opened(opened_match.group(1))
             return
         super().do_GET()
 
@@ -52,16 +68,18 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_error(404)
 
     def do_HEAD(self) -> None:  # noqa: N802
-        if urlparse(self.path).path == "/opened.pdf":
-            self._serve_opened(head_only=True)
+        opened_match = OPENED_PATH.match(urlparse(self.path).path)
+        if opened_match:
+            self._serve_opened(opened_match.group(1), head_only=True)
         else:
             super().do_HEAD()
 
-    def _serve_opened(self, head_only: bool = False) -> None:
-        requested_id = parse_qs(urlparse(self.path).query).get("id", [None])[0]
+    def _serve_opened(self, path_id: str | None = None, head_only: bool = False) -> None:
+        requested_id = path_id or parse_qs(urlparse(self.path).query).get("id", [None])[0]
         with opened_lock:
             path = opened.get("path")
-            if requested_id is not None and requested_id != opened.get("id"):
+            current_id = opened.get("id")
+            if requested_id is not None and requested_id != current_id:
                 self.send_error(409, "Document changed; reopen the PDF")
                 return
         if not path:
@@ -118,7 +136,7 @@ class Handler(SimpleHTTPRequestHandler):
                         break
                     self.wfile.write(chunk)
                     remaining -= len(chunk)
-            except (BrokenPipeError, ConnectionResetError):
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 pass  # Expected when pdf.js cancels an obsolete range request.
 
     def _json(self, payload: dict, status: int = 200) -> None:
@@ -160,30 +178,28 @@ def start_server(port: int = DEFAULT_PORT, *, quiet: bool = False) -> ThreadingH
     mimetypes.add_type("application/javascript", ".mjs")
     mimetypes.add_type("application/wasm", ".wasm")
     preferred = port
-    last_error: OSError | None = None
-    for attempt in range(10):
-        try:
-            httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-            break
-        except OSError as error:
-            if error.errno not in {48, 98, 10048}:  # address already in use
-                raise
-            last_error = error
-            port += 1
-    else:
-        raise SystemExit(
-            f"无法在 127.0.0.1:{preferred}–{port - 1} 上启动本地服务（端口被占用）。"
-            f"请关闭占用进程后重试。{last_error}"
-        ) from last_error
-
-    if not quiet and port != preferred:
+    httpd = bind_server(port)
+    bound_port = httpd.server_address[1]
+    if not quiet and preferred not in (0, bound_port):
         print(
-            f"警告：端口 {preferred} 已被占用，已改用 {port}。",
+            f"警告：端口 {preferred} 已被占用，已改用 {bound_port}。",
             file=sys.stderr,
         )
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     return httpd
+
+
+def bind_server(port: int) -> ViewerHTTPServer:
+    if port == 0:
+        return ViewerHTTPServer(("127.0.0.1", 0), Handler)
+    errors: list[OSError] = []
+    for candidate in range(port, port + 30):
+        try:
+            return ViewerHTTPServer(("127.0.0.1", candidate), Handler)
+        except OSError as exc:
+            errors.append(exc)
+    raise OSError(f"无法监听 127.0.0.1:{port}-{port + 29}") from errors[-1]
 
 
 def parse_args() -> argparse.Namespace:
@@ -216,7 +232,8 @@ class Bridge:
             return None
         path = result[0]
         set_opened(path)
-        return {"name": Path(path).name, "id": opened["id"]}
+        with opened_lock:
+            return {"name": opened["name"], "id": opened["id"], "path": opened["path"]}
 
 
 def open_window(url: str, title: str) -> bool:

@@ -10,7 +10,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 function layer() {
-  return { children: [], style: { setProperty() {} }, replaceChildren() { this.children = []; }, appendChild(el) { this.children.push(el); } };
+  return { ownerDocument: { createRange: () => ({ setStart() {}, setEnd() {}, getClientRects: () => [{left:10,top:700,width:10,height:10}] }) }, getBoundingClientRect: () => ({left:0,top:0}), children: [], style: { setProperty() {} }, replaceWith() {}, replaceChildren() { this.children = []; }, appendChild(el) { this.children.push(el); } };
 }
 function pageElement() {
   const layers = { '.hlLayer': layer(), '.textLayer': layer(), '.linkLayer': layer(), canvas: { style: {}, getContext() { return {}; } } };
@@ -20,12 +20,13 @@ async function setup(load = () => { throw new Error('unexpected load'); }) {
   const context = vm.createContext({
     URL, console, setTimeout, clearTimeout,
     window: { devicePixelRatio: 1 },
-    document: { createElement: () => ({ style: {} }) },
+    document: { createElement: () => ({ style: {}, addEventListener() {}, href: '' }) },
     requestAnimationFrame: f => f(),
   });
-  const mock = new vm.SyntheticModule(['getDocument', 'GlobalWorkerOptions', 'TextLayer', 'setLayerDimensions'], function () {
+  const mock = new vm.SyntheticModule(['getDocument', 'GlobalWorkerOptions', 'TextLayer', 'TextLayerBuilder', 'setLayerDimensions'], function () {
     this.setExport('getDocument', load);
     this.setExport('GlobalWorkerOptions', {});
+    this.setExport('TextLayerBuilder', class { div = { style: { setProperty() {} } }; constructor({highlighter}) { highlighter.setTextMapping([{isConnected:true,firstChild:{}}], ["ABC"]); } async render() {} cancel() {} });
     this.setExport('TextLayer', class { async render() {} cancel() {} });
     this.setExport('setLayerDimensions', () => {});
   }, { context });
@@ -45,6 +46,8 @@ async function setup(load = () => { throw new Error('unexpected load'); }) {
   const history = new History();
   const wrapEl = { scrollTop: 0, scrollLeft: 0, clientHeight: 500, removeEventListener() {}, addEventListener() {}, scrollTo(p) { this.scrollTop = p.top ?? this.scrollTop; this.scrollLeft = p.left ?? this.scrollLeft; } };
   const viewer = new Viewer({ pagesEl: { replaceChildren() {} }, wrapEl, history });
+  viewer.textMappings.set(1, {entries:[{div:{isConnected:true,firstChild:{}},start:0,end:3}]});
+  viewer.textMappings.set(2, {entries:[{div:{isConnected:true,firstChild:{}},start:0,end:3}]});
   viewer.buildPlaceholders = () => { viewer.pageEls = Array.from({ length: viewer.pageCount }, pageElement); };
   viewer.setZoom = () => {};
   viewer.observe = () => {};
@@ -58,6 +61,22 @@ function pdf(text) {
     render: () => ({ promise: Promise.resolve(), cancel() {} }), getAnnotations: async () => [],
   }) };
 }
+
+test('onScroll notifies reading-position hook even when page number is unchanged', async () => {
+  const calls = [];
+  const { viewer, wrapEl } = await setup();
+  viewer.pageCount = 3;
+  viewer.pageEls = [
+    { offsetTop: 0, dataset: { pageNumber: '1' } },
+    { offsetTop: 900, dataset: { pageNumber: '2' } },
+    { offsetTop: 1800, dataset: { pageNumber: '3' } },
+  ];
+  viewer.currentPage = 1;
+  viewer.onScrollPosition = () => calls.push(viewer.wrapEl.scrollTop);
+  wrapEl.scrollTop = 120;
+  viewer.onScroll();
+  assert.deepEqual(calls, [120]);
+});
 
 test('latest open wins when an earlier loading task finishes late', async () => {
   const a = deferred(), b = deferred();
@@ -250,9 +269,11 @@ test('highlight refresh without jump does not cancel an in-flight search jump', 
 test('highlight refresh without jump does not cancel an outline destination', async () => {
   const { viewer } = await setup();
   const waiting = deferred();
-  viewer.pdf = { getDestination: () => waiting.promise };
+  const page = await pdf('A').getPage(1);
+  viewer.pdf = { getDestination: () => waiting.promise, getPage: async () => page };
   viewer.pageCount = 3;
   viewer.pageEls = [pageElement(), pageElement(), pageElement()];
+  viewer.textContents.set(1, content('A'));
   const dest = viewer.goToDest('outline', true);
   await viewer.showHits([{ pageNumber: 1, offset: 0, length: 1 }], 'A', 0, { jump: false });
   waiting.resolve([2]);
@@ -387,4 +408,169 @@ test('getDocument receives the ICC profile URL with other pdf.js asset URLs', as
   assert.match(options.standardFontDataUrl, /standard_fonts\/$/);
   assert.match(options.wasmUrl, /wasm\/$/);
   assert.match(options.iccUrl, /iccs\/$/);
+});
+
+test('link annotations render without convertToViewportRectangle', async () => {
+  const { viewer } = await setup();
+  const linkLayer = layer();
+  const page = {
+    getAnnotations: async () => [{
+      subtype: 'Link',
+      rect: [72, 720, 200, 740],
+      dest: [0, { name: 'XYZ' }, 0, 700],
+    }],
+  };
+  await viewer.renderLinks(page, viewport, linkLayer);
+  assert.equal(linkLayer.children.length, 1);
+  assert.match(linkLayer.children[0].style.left, /^\d/);
+});
+
+test('zoom invalidates geometry and hides stale text even on offscreen pages', async () => {
+  const { viewer } = await setup();
+  viewer.pageEls = [pageElement(), pageElement()];
+  let hidden = 0;
+  for (let n = 1; n <= 2; n++) {
+    viewer.textLayers.set(n, { hide() { hidden++; } });
+    viewer.pageEls[n - 1].querySelector('.hlLayer').children.push({});
+    viewer.pageEls[n - 1].dataset.renderedZoom = '1.000';
+  }
+  viewer.renderVisible = async () => {};
+  Object.getPrototypeOf(viewer).setZoom.call(viewer, '200', { silent: true });
+  assert.equal(hidden, 2);
+  assert.equal(viewer.textMappings.size, 0);
+  for (const el of viewer.pageEls) {
+    assert.equal(el.querySelector('.hlLayer').children.length, 0);
+    assert.equal(el.dataset.renderedZoom, undefined);
+  }
+});
+
+function manyPages(count) {
+  return Array.from({ length: count }, (_, i) => {
+    const el = pageElement();
+    el.dataset.pageNumber = String(i + 1);
+    el.offsetTop = i * 900;
+    el.offsetHeight = 800;
+    return el;
+  });
+}
+
+function surfHits(count, startPage = 1) {
+  return Array.from({ length: count }, (_, i) => ({
+    pageNumber: startPage + i,
+    offset: 0,
+    length: 3,
+  }));
+}
+
+function trackRenders(viewer) {
+  const rendered = [];
+  viewer.renderPage = async (n) => {
+    rendered.push(n);
+    const el = viewer.pageEls[n - 1];
+    el.dataset.renderedZoom = viewer.zoom.toFixed(3);
+    const canvas = el.querySelector('canvas');
+    canvas.width = 600;
+    canvas.height = 800;
+    viewer.renderedPages.set(n, { cleanup() {} });
+    viewer.textLayers.set(n, { cancel() {} });
+    await viewer.paintHighlights(n);
+  };
+  return rendered;
+}
+
+test('showHits with 445 hits does not render every hit page', async () => {
+  const { viewer } = await setup();
+  viewer.pdf = pdf('surf');
+  viewer.pageCount = 720;
+  viewer.pageEls = manyPages(720);
+  const rendered = trackRenders(viewer);
+  const hits = surfHits(445, 10);
+  const t0 = Date.now();
+  await viewer.showHits(hits, 'surf');
+  const ms = Date.now() - t0;
+  assert.ok(rendered.length <= 3, `renderPage called ${rendered.length} times: ${rendered}`);
+  assert.deepEqual([...new Set(rendered)], [10]);
+  assert.ok(ms < 200, `showHits took ${ms}ms`);
+  assert.ok(viewer.renderedPages.size <= viewer.maxCachedPages);
+  assert.equal(viewer.renderJobs.size, 0);
+  const canvases = viewer.pageEls.filter((el) => el.querySelector('canvas').width > 0).length;
+  assert.ok(canvases <= viewer.maxCachedPages);
+  assert.ok(canvases < 20);
+});
+
+test('index refresh does not render newly found hit pages', async () => {
+  const { viewer } = await setup();
+  viewer.pdf = pdf('surf');
+  viewer.pageCount = 720;
+  viewer.pageEls = manyPages(720);
+  const rendered = trackRenders(viewer);
+  await viewer.showHits(surfHits(10, 1), 'surf');
+  rendered.length = 0;
+  await viewer.showHits(surfHits(445, 1), 'surf', 0, { jump: false });
+  assert.equal(rendered.length, 0);
+  assert.equal(viewer.hits.length, 445);
+});
+
+test('clearing search does not call renderPage', async () => {
+  const { viewer } = await setup();
+  viewer.pdf = pdf('surf');
+  viewer.pageCount = 720;
+  viewer.pageEls = manyPages(720);
+  const rendered = trackRenders(viewer);
+  await viewer.showHits(surfHits(445, 5), 'surf');
+  const before = rendered.length;
+  await viewer.showHits([], '');
+  assert.equal(rendered.length, before);
+  viewer.clearHits();
+  assert.equal(rendered.length, before);
+});
+
+test('four typing clears do not start page renders', async () => {
+  const { viewer } = await setup();
+  viewer.pdf = pdf('surf');
+  viewer.pageCount = 720;
+  viewer.pageEls = manyPages(720);
+  const rendered = trackRenders(viewer);
+  for (let i = 0; i < 4; i++) viewer.clearHits();
+  assert.equal(rendered.length, 0);
+  await viewer.showHits(surfHits(445, 1), 'surf');
+  assert.ok(rendered.length <= 3);
+  assert.deepEqual([...new Set(rendered)], [1]);
+});
+
+test('next-result only renders the new target page', async () => {
+  const { viewer } = await setup();
+  viewer.pdf = pdf('surf');
+  viewer.pageCount = 720;
+  viewer.pageEls = manyPages(720);
+  const rendered = trackRenders(viewer);
+  const hits = [{ pageNumber: 1, offset: 0, length: 3 }, { pageNumber: 80, offset: 0, length: 3 }, ...surfHits(443, 81)];
+  await viewer.showHits(hits, 'surf');
+  rendered.length = 0;
+  await viewer.jumpToHit(1, { push: true });
+  assert.deepEqual(rendered, [80]);
+});
+
+test('rendering a hit page after search paints highlights on demand', async () => {
+  const { viewer } = await setup();
+  viewer.pdf = pdf('ABC');
+  viewer.pageCount = 120;
+  viewer.pageEls = manyPages(120);
+  viewer.jumpToHit = async () => {};
+  const hits = surfHits(80, 20);
+  await viewer.showHits(hits, 'ABC');
+  assert.equal(viewer.pageEls[49].querySelector('.hlLayer').children.length, 0);
+  viewer.pageEls[49].dataset.renderedZoom = '';
+  await Object.getPrototypeOf(viewer).renderPage.call(viewer, 50);
+  assert.ok(viewer.pageEls[49].querySelector('.hlLayer').children.length >= 1);
+});
+
+test('showHits and jumpToHit do not batch over all hit pages', async () => {
+  const source = await readFile(new URL('../web/js/viewer.js', import.meta.url), 'utf8');
+  const showHits = source.slice(source.indexOf('async showHits'), source.indexOf('async jumpToHit'));
+  const jumpToHit = source.slice(source.indexOf('async jumpToHit'));
+  assert.equal(/this\.hits\.map/.test(showHits), false);
+  assert.equal(/Promise\.all/.test(showHits), false);
+  assert.equal(/this\.hits\.map/.test(jumpToHit), false);
+  assert.equal(/Promise\.all/.test(jumpToHit), false);
 });

@@ -1,0 +1,5 @@
+recursive-include web *
+recursive-include samples *
+include requirements.txt
+include LICENSE
+include README.md

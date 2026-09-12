@@ -15,28 +15,54 @@ async function setup() {
   const revoked = [];
   let nextBlob = 0;
   function element() {
-    const el = { value: '', children: [], options: [], listeners: {}, style: {}, toggles: [],
-      classList: { toggle(name, on) { el.toggles.push([name, on]); }, add() {}, remove() {} },
+    const el = { value: '', children: [], options: [], listeners: {}, style: {}, toggles: {}, attrs: {}, dataset: {},
+      classList: { toggle(name, on) { el.toggles[name] = on; }, add() {}, remove() {} },
       addEventListener(name, fn) { this.listeners[name] = fn; }, replaceChildren() { this.children = []; },
-      appendChild(child) { this.children.push(child); }, contains() { return false; }, focus() {}, select() {},
+      appendChild(child) { this.children.push(child); },
+      append(...kids) { for (const kid of kids) this.appendChild(kid); },
+      contains() { return false; }, focus() {}, select() {},
+      setAttribute(name, value) { this.attrs[name] = value; },
+      querySelector(sel) {
+        const walk = (nodes) => {
+          for (const node of nodes) {
+            if (sel === '.outline-item' && node.className === 'outline-item') return node;
+            if (node.children?.length) {
+              const found = walk(node.children);
+              if (found) return found;
+            }
+          }
+          return null;
+        };
+        return walk(this.children);
+      },
     };
     return el;
   }
   function get(id) { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); }
+  const workspace = element();
+  get('btn-sidebar');
   class Viewer {
     constructor(options = {}) {
       viewer = this; this.generation = 0; this.pageTexts = []; this.hitIndex = -1; this.shown = []; this.query = '';
       this.onIndex = options.onIndex;
     }
     close() { this.generation++; this.indexPromise = null; this.pageTexts = []; }
-    async open(source) { this.close(); this.source = source; this.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }]; return this; }
+    async open(source) { this.close(); this.source = source; this.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }]; this.pdf = { async getDestination(d) { return d; }, async getPageIndex() { return 0; } }; return this; }
     async getOutline() { return this.outlinePromise || null; }
+    clearHits() { this.shown.push(''); this.hitIndex = -1; this.query = ''; }
     async showHits(hits, query, index = 0, _options) { this.shown.push(query); this.hitIndex = hits.length ? index : -1; this.query = query; }
   }
   const context = vm.createContext({
     URL: { createObjectURL: () => `blob:test-${++nextBlob}`, revokeObjectURL: url => revoked.push(url) },
     console, fetch: async () => ({ ok: false }),
-    document: { getElementById: get, createElement: tag => { const el = element(); if (tag === 'input') fileInput = el; return el; }, body: element(), querySelectorAll: () => [], addEventListener() {} },
+    document: {
+      getElementById: get,
+      createElement: tag => { const el = element(); if (tag === 'input') fileInput = el; return el; },
+      body: element(),
+      querySelector: sel => (sel === '.workspace' ? workspace : null),
+      querySelectorAll: () => [],
+      addEventListener() {},
+    },
     window: { addEventListener(type, fn) { (windowListeners[type] ||= []).push(fn); } },
     setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
   });
@@ -44,7 +70,22 @@ async function setup() {
     './viewer.js': { PdfViewer: Viewer },
     './history.js': { ViewHistory: class { onChange() {} } },
     './settings.js': { loadSettings: () => ({}), saveSettings: () => ({}) },
-    './translate.js': { translateText() {} },
+    './translate.js': { translateText() {}, MAX_TRANSLATE_CHARS: 4000 },
+    './reading-position.js': {
+      readingFingerprint: () => '',
+      loadReadingPosition: () => null,
+      saveReadingPosition: () => {},
+    },
+    './platform/index.js': {
+      createPlatform: () => ({
+        id: 'test',
+        async startupOpen() { return null; },
+        async pickFile() { return null; },
+      }),
+    },
+    './model-picker.js': {
+      wireModelPicker: () => ({ refresh() {}, hideMenu() {} }),
+    },
   };
   const main = new vm.SourceTextModule(await readFile(new URL('../web/js/main.js', import.meta.url), 'utf8'), { context });
   await main.link(async spec => {
@@ -100,7 +141,7 @@ test('late outline response cannot overwrite a newer document outline', async ()
   app.fileInput.files = [{ name: 'B', arrayBuffer: async () => new ArrayBuffer(0) }];
   await app.fileInput.listeners.change();
   waiting.resolve([{ title: 'A outline', dest: 1 }]); await a;
-  assert.equal(app.get('outline-pane').children[0].textContent, 'B outline');
+  assert.equal(app.get('outline-pane').querySelector('.outline-item')?.textContent, 'B outline');
 });
 
 
@@ -139,8 +180,8 @@ test('indexing refresh does not switch the sidebar to search', async () => {
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(app.viewer.shown, ['Alpha']);
   assert.equal(app.get('search-count').textContent, '1 / 1');
-  assert.equal(app.get('search-pane').toggles.some(([name, on]) => name === 'active' && on), false);
-  assert.equal(app.get('outline-pane').toggles.length, 0);
+  assert.equal(app.get('search-pane').toggles.active, undefined);
+  assert.equal(app.get('outline-pane').toggles.active, undefined);
 });
 
 test('user search still selects the search sidebar tab', async () => {
@@ -148,6 +189,24 @@ test('user search still selects the search sidebar tab', async () => {
   app.viewer.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }];
   app.input('Alpha');
   await app.runTimer();
-  assert.deepEqual(app.get('search-pane').toggles.at(-1), ['active', true]);
-  assert.deepEqual(app.get('outline-pane').toggles.at(-1), ['active', false]);
+  assert.equal(app.get('search-pane').toggles.active, true);
+  assert.equal(app.get('outline-pane').toggles.active, false);
+});
+
+test('outline entry with numeric dest 0 maps to page 1', async () => {
+  const app = await setup();
+  app.viewer.pdf = {
+    async getDestination(dest) {
+      return dest;
+    },
+    async getPageIndex(ref) {
+      return ref;
+    },
+  };
+  app.viewer.outlinePromise = Promise.resolve([{ title: 'Cover', dest: [0, 'XYZ', null, null] }]);
+  app.fileInput.files = [{ name: 'doc.pdf', arrayBuffer: async () => new ArrayBuffer(0) }];
+  await app.fileInput.listeners.change();
+  await new Promise((resolve) => setImmediate(resolve));
+  const item = app.get('outline-pane').querySelector('.outline-item');
+  assert.equal(item?.dataset.page, '1');
 });

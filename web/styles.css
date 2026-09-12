@@ -39,23 +39,30 @@ select {
 .toolbar {
   height: var(--toolbar-h);
   display: grid;
-  grid-template-columns: 1fr minmax(120px, 2fr) 1fr;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, auto);
   align-items: center;
   gap: 12px;
   padding: 0 14px;
   background: var(--bg-raised);
   border-bottom: 1px solid var(--line);
+  min-width: 0;
 }
 
 .toolbar-left,
 .toolbar-right {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 8px;
+}
+
+.toolbar-left {
+  flex-shrink: 0;
 }
 
 .toolbar-right {
   justify-content: flex-end;
+  min-width: 0;
 }
 
 .toolbar-center {
@@ -79,6 +86,12 @@ select {
   border-radius: 10px;
   padding: 8px 12px;
   cursor: pointer;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .btn:hover:not(:disabled) {
@@ -100,27 +113,40 @@ select {
   filter: brightness(1.08);
 }
 
+.btn.active:not(.primary) {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
 .btn.icon {
   width: 36px;
-  padding: 8px 0;
-  text-align: center;
+  padding: 0;
 }
 
 .btn.tiny {
   padding: 4px 8px;
   border-radius: 8px;
   font-size: 12px;
+  height: 28px;
 }
 
 .btn.icon.tiny {
   width: 28px;
-  padding: 4px 0;
+  padding: 0;
 }
 
 .divider {
   width: 1px;
   height: 22px;
   background: var(--line);
+  flex: 0 0 auto;
+}
+
+.page-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
 }
 
 .page-box {
@@ -129,14 +155,33 @@ select {
   gap: 6px;
   color: var(--muted);
   font-size: 13px;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .page-box input {
-  width: 64px;
+  width: 52px;
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 6px 8px;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.page-box input::-webkit-outer-spin-button,
+.page-box input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+#zoom-select {
+  height: 36px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 8px;
+  flex: 0 0 auto;
 }
 
 .search-box {
@@ -147,10 +192,14 @@ select {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 4px 6px 4px 10px;
+  min-width: 0;
+  flex: 1 1 140px;
 }
 
 .search-box input {
-  width: 210px;
+  width: 180px;
+  min-width: 0;
+  flex: 1 1 auto;
   border: 0;
   background: transparent;
   outline: none;
@@ -161,6 +210,7 @@ select {
   font-size: 12px;
   min-width: 56px;
   text-align: right;
+  flex: 0 0 auto;
 }
 
 .workspace {
@@ -176,6 +226,16 @@ select {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  transition: width 0.15s ease, flex-basis 0.15s ease, opacity 0.15s ease;
+}
+
+.workspace.sidebar-collapsed .sidebar {
+  width: 0;
+  flex-basis: 0;
+  opacity: 0;
+  overflow: hidden;
+  border-right-width: 0;
+  pointer-events: none;
 }
 
 .sidebar-tabs {
@@ -224,12 +284,68 @@ select {
 
 .outline-item:hover,
 .search-hit:hover,
-.search-hit.active {
+.search-hit.active,
+.outline-item.active {
   background: var(--bg-hover);
+}
+
+.outline-item.active {
+  color: var(--accent);
+}
+
+.outline-node {
+  display: block;
+}
+
+.outline-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.outline-toggle {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0;
+}
+
+.outline-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.outline-toggle[hidden] {
+  display: none;
+}
+
+.outline-toggle[aria-expanded="false"]::before {
+  content: "▸";
+}
+
+.outline-toggle[aria-expanded="true"]::before {
+  content: "▾";
+}
+
+.outline-branch {
+  display: none;
+}
+
+.outline-branch.expanded {
+  display: block;
 }
 
 .outline-item {
   display: block;
+  flex: 1;
+  min-width: 0;
 }
 
 .search-hit {
@@ -275,6 +391,9 @@ select {
 }
 
 .page {
+  /* Only the official text layer participates in native text selection. */
+  -webkit-user-select: none;
+  user-select: none;
   position: relative;
   background: #fff;
   box-shadow: var(--shadow);
@@ -295,6 +414,14 @@ select {
 
 .page .textLayer {
   opacity: 1;
+  z-index: 2;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.page .linkLayer {
+  z-index: 3;
+  pointer-events: none;
 }
 
 .page .textLayer span {
@@ -305,15 +432,27 @@ select {
   cursor: text;
 }
 
+.page .textLayer ::selection {
+  background: rgb(0 120 215 / 0.45);
+  color: transparent;
+}
+
+.page .textLayer br::selection {
+  background: transparent;
+  color: transparent;
+}
+
 .page .linkLayer a {
   position: absolute;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .page .hlLayer {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  z-index: 4;
 }
 
 .page .hl {
@@ -393,6 +532,26 @@ select {
   color: var(--muted);
 }
 
+.bubble-status {
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: auto;
+}
+
+.bubble-result.error {
+  color: #f5a8a8;
+}
+
+.link-btn {
+  background: none;
+  border: 0;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
+}
+
 .modal {
   position: fixed;
   inset: 0;
@@ -452,6 +611,65 @@ select {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
+}
+
+.model-picker {
+  position: relative;
+}
+
+.model-picker-status {
+  font-size: 12px;
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.model-picker-status.error {
+  color: #e07a7a;
+}
+
+.model-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  max-height: 220px;
+  overflow: auto;
+  background: var(--bg-elevated, #1a2030);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  z-index: 20;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+}
+
+.model-menu[hidden] {
+  display: none;
+}
+
+.model-menu li button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.model-menu li button:hover,
+.model-menu li button:focus-visible {
+  background: var(--bg-hover);
+}
+
+.model-menu .model-id {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
 }
 
 ::-webkit-scrollbar {

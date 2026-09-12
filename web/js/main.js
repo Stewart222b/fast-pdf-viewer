@@ -1,11 +1,19 @@
 import { ViewHistory } from "./history.js";
+import { createPlatform } from "./platform/index.js";
+import {
+  loadReadingPosition,
+  readingFingerprint,
+  saveReadingPosition,
+} from "./reading-position.js";
 import { highlightSnippet, searchDocument } from "./search.js";
 import { loadSettings, saveSettings } from "./settings.js";
-import { translateText } from "./translate.js";
+import { wireModelPicker } from "./model-picker.js";
+import { MAX_TRANSLATE_CHARS, translateText } from "./translate.js";
 import { PasswordResponses } from "../vendor/pdfjs/build/pdf.mjs";
 import { PdfViewer } from "./viewer.js";
 
 const $ = (id) => document.getElementById(id);
+const platform = createPlatform();
 
 const history = new ViewHistory();
 let passwordDialog = null;
@@ -60,9 +68,11 @@ const viewer = new PdfViewer({
   wrapEl: $("viewer-wrap"),
   history,
   onState: syncToolbar,
+  onScrollPosition: scheduleSaveReadingPosition,
   onIndex: refreshIndexedSearch,
   onPassword: requestPdfPassword,
 });
+if (globalThis.__PDF_BENCH__) globalThis.__pdfViewer = viewer;
 
 const fileInput = document.createElement("input");
 fileInput.type = "file";
@@ -76,6 +86,11 @@ let openGeneration = 0;
 let searchGeneration = 0;
 let indexRefreshTimer = 0;
 let objectUrl = null;
+let currentFingerprint = "";
+let positionSaveTimer = 0;
+let translateAbort = null;
+let translateRequestId = 0;
+let bubbleSelectionId = 0;
 
 history.onChange(() => {
   $("btn-back").disabled = !history.canBack();
@@ -102,17 +117,69 @@ function syncToolbar(state) {
   }
   $("btn-back").disabled = !history.canBack();
   $("btn-forward").disabled = !history.canForward();
+  const page = state.page || 1;
+  $("btn-page-prev").disabled = !viewer.pdf || page <= 1;
+  $("btn-page-next").disabled = !viewer.pdf || page >= viewer.pageCount;
+  updateOutlineActive(page);
+  scheduleSaveReadingPosition();
+}
+
+function stepPage(delta) {
+  if (!viewer.pageCount) return;
+  const next = Math.min(viewer.pageCount, Math.max(1, viewer.currentPage + delta));
+  if (next === viewer.currentPage) return;
+  viewer.goToPage(next, { push: true });
+}
+
+function scheduleSaveReadingPosition() {
+  if (!currentFingerprint || !viewer.pdf) return;
+  clearTimeout(positionSaveTimer);
+  positionSaveTimer = setTimeout(() => {
+    saveReadingPosition(currentFingerprint, viewer.getState());
+  }, 400);
+}
+
+function flushReadingPosition() {
+  if (!currentFingerprint || !viewer.pdf) return;
+  clearTimeout(positionSaveTimer);
+  positionSaveTimer = 0;
+  saveReadingPosition(currentFingerprint, viewer.getState());
+}
+
+function updateOutlineActive(page) {
+  const pane = $("outline-pane");
+  let found = false;
+  pane.querySelectorAll(".outline-item").forEach((btn) => {
+    const match = Number(btn.dataset.page) === page;
+    btn.classList.toggle("active", match);
+    if (!match) return;
+    found = true;
+    let node = btn.closest(".outline-node");
+    while (node) {
+      const branch = node.querySelector(":scope > .outline-branch");
+      const toggle = node.querySelector(":scope > .outline-row > .outline-toggle");
+      if (branch) {
+        branch.classList.add("expanded");
+        toggle?.setAttribute("aria-expanded", "true");
+      }
+      node = node.parentElement?.closest(".outline-node");
+    }
+  });
+  if (!found) return;
 }
 
 async function openSource(getSource) {
   const request = ++openGeneration;
   searchGeneration += 1;
+  flushReadingPosition();
   clearTimeout(indexRefreshTimer);
   indexRefreshTimer = 0;
   clearTimeout(searchTimer);
+  cancelTranslate();
   viewer.close();
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   objectUrl = null;
+  currentFingerprint = "";
   $("search-input").value = "";
   renderSearchList([], "");
   $("outline-pane").replaceChildren();
@@ -122,6 +189,9 @@ async function openSource(getSource) {
     if (request !== openGeneration) return;
     const opened = await viewer.open(source);
     if (!opened || request !== openGeneration) return;
+    currentFingerprint = readingFingerprint(source);
+    const saved = loadReadingPosition(currentFingerprint);
+    if (saved) viewer.applyReadingPosition(saved);
     await renderOutline(request);
     if (request === openGeneration && $("search-input").value.trim()) {
       await runSearch($("search-input").value);
@@ -136,35 +206,104 @@ async function openSource(getSource) {
 async function openFile(file) {
   return openSource(() => {
     objectUrl = URL.createObjectURL(file);
-    return { url: objectUrl, name: file.name };
+    return {
+      url: objectUrl,
+      name: file.name,
+      size: file.size,
+      lastModified: file.lastModified,
+    };
   });
 }
 
-async function openUrl(name, id) {
-  return openSource(() => ({ url: `/opened.pdf?${id ? `id=${encodeURIComponent(id)}` : `t=${Date.now()}`}`, name }));
+async function openFromPlatform(meta) {
+  return openSource(() => ({
+    url: meta.url,
+    name: meta.name,
+    id: meta.id,
+    path: meta.path,
+  }));
 }
 
 async function renderOutline(request) {
   const pane = $("outline-pane");
   const outline = await viewer.getOutline();
   if (request !== openGeneration) return;
-  pane.replaceChildren();
-  if (!outline?.length) {
-    pane.innerHTML = '<div class="empty-side">这份 PDF 没有目录。</div>';
+  const pdf = viewer.pdf;
+  const generation = viewer.generation;
+  if (!pdf || !outline?.length) {
+    pane.replaceChildren();
+    if (!outline?.length) {
+      pane.innerHTML = '<div class="empty-side">这份 PDF 没有目录。</div>';
+    }
     return;
   }
-  const walk = (items, depth) => {
+  pane.replaceChildren();
+  const mount = (items, depth, container) => {
     for (const item of items) {
+      const node = document.createElement("div");
+      node.className = "outline-node";
+      const row = document.createElement("div");
+      row.className = "outline-row";
+      const hasChildren = Boolean(item.items?.length);
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "outline-toggle";
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.hidden = !hasChildren;
+      toggle.title = hasChildren ? "展开/折叠" : "";
       const btn = document.createElement("button");
+      btn.type = "button";
       btn.className = "outline-item";
-      btn.style.paddingLeft = `${10 + depth * 14}px`;
+      btn.style.paddingLeft = `${4 + depth * 12}px`;
       btn.textContent = item.title || "未命名";
+      if (item.pageNumber) btn.dataset.page = String(item.pageNumber);
       btn.addEventListener("click", () => viewer.goToDest(item.dest, true));
-      pane.appendChild(btn);
-      if (item.items?.length) walk(item.items, depth + 1);
+      row.append(toggle, btn);
+      node.append(row);
+      if (hasChildren) {
+        const branch = document.createElement("div");
+        branch.className = "outline-branch";
+        toggle.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const expanded = branch.classList.toggle("expanded");
+          toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+        });
+        mount(item.items, depth + 1, branch);
+        node.append(branch);
+      }
+      container.appendChild(node);
     }
   };
-  walk(outline, 0);
+  await attachOutlinePages(outline, { request, pdf, generation });
+  if (request !== openGeneration || viewer.generation !== generation || viewer.pdf !== pdf) return;
+  mount(outline, 0, pane);
+  updateOutlineActive(viewer.currentPage);
+}
+
+async function attachOutlinePages(items, ctx) {
+  const { pdf, request, generation } = ctx;
+  if (!pdf) return;
+  const stillValid = () =>
+    request === openGeneration && viewer.generation === generation && viewer.pdf === pdf;
+  for (const item of items) {
+    if (!stillValid()) return;
+    try {
+      if (item.dest != null) {
+        let explicit = item.dest;
+        if (typeof explicit === "string") explicit = await pdf.getDestination(explicit);
+        if (!stillValid()) return;
+        const ref = explicit?.[0];
+        if (ref != null) {
+          const pageIndex = typeof ref === "object" ? await pdf.getPageIndex(ref) : Number(ref);
+          if (!stillValid()) return;
+          item.pageNumber = pageIndex + 1;
+        }
+      }
+    } catch {
+      /* skip */
+    }
+    if (item.items?.length) await attachOutlinePages(item.items, ctx);
+  }
 }
 
 function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)) {
@@ -227,15 +366,39 @@ async function runSearch(query, request = searchGeneration, jump = true) {
   const current = () => request === searchGeneration && generation === viewer.generation;
   try {
     if (!current()) return;
+    const searchStarted = globalThis.__PDF_BENCH__ ? performance.now() : 0;
     const hits = searchDocument(viewer.pageTexts, query);
+    if (globalThis.__PDF_BENCH__) {
+      globalThis.__pdfSearchBench = {
+        searchDocumentMs: performance.now() - searchStarted,
+        hitCount: hits.length,
+        query,
+      };
+    }
     const unchanged = !jump && hits.length === searchHits.length && viewer.query === query;
-    if (!unchanged) await viewer.showHits(hits, query, jump ? 0 : Math.max(0, viewer.hitIndex), { jump });
-    if (!current()) return;
+    // Keep the result list independent of page rendering: showHits may await
+    // jumpToHit → renderPage for the current target only.
+    const shown = unchanged
+      ? null
+      : viewer.showHits(hits, query, jump ? 0 : Math.max(0, viewer.hitIndex), { jump });
+    if (!current()) {
+      await shown;
+      return;
+    }
     renderSearchList(unchanged ? searchHits : hits, query);
+    if (globalThis.__PDF_BENCH__) {
+      globalThis.__pdfSearchBench.resultListVisibleMs = performance.now() - searchStarted;
+    }
+    if (query && jump) selectSidebar("search");
+    if (shown) await shown;
+    if (!current()) return;
+    if (globalThis.__PDF_BENCH__) {
+      globalThis.__pdfSearchBench.firstJumpMs = performance.now() - searchStarted;
+    }
     if (query) {
-      if (jump) selectSidebar("search");
       if (viewer.indexError) {
         const warning = document.createElement("div");
+        warning.className = "empty-side";
         warning.textContent = "部分页面索引失败，当前仅显示已读取结果。";
         $("search-pane").appendChild(warning);
       } else if (viewer.indexedPages < viewer.pageCount) {
@@ -255,17 +418,17 @@ function selectSidebar(name) {
   $("search-pane").classList.toggle("active", name === "search");
 }
 
+function setSidebarCollapsed(collapsed) {
+  document.querySelector(".workspace").classList.toggle("sidebar-collapsed", collapsed);
+  $("btn-sidebar").classList.toggle("active", !collapsed);
+  $("btn-sidebar").setAttribute("aria-pressed", collapsed ? "false" : "true");
+}
+
 async function pickFile() {
-  try {
-    if (window.pywebview?.api?.pick) {
-      const result = await window.pywebview.api.pick();
-      if (result?.name) {
-        await openUrl(result.name, result.id);
-        return;
-      }
-    }
-  } catch {
-    /* fall through to file input */
+  const picked = await platform.pickFile();
+  if (picked) {
+    await openFromPlatform(picked);
+    return;
   }
   fileInput.click();
 }
@@ -277,6 +440,10 @@ fileInput.addEventListener("change", async () => {
 });
 
 $("btn-open").addEventListener("click", pickFile);
+$("btn-sidebar").addEventListener("click", () => {
+  setSidebarCollapsed(!document.querySelector(".workspace").classList.contains("sidebar-collapsed"));
+});
+setSidebarCollapsed(false);
 $("btn-back").addEventListener("click", () => viewer.back());
 $("btn-forward").addEventListener("click", () => viewer.forward());
 $("btn-zoom-in").addEventListener("click", () => {
@@ -288,8 +455,16 @@ $("btn-zoom-out").addEventListener("click", () => {
 $("zoom-select").addEventListener("change", (event) => {
   viewer.setZoom(event.target.value);
 });
+$("btn-page-prev").addEventListener("click", () => stepPage(-1));
+$("btn-page-next").addEventListener("click", () => stepPage(1));
 $("page-input").addEventListener("change", (event) => {
   viewer.goToPage(Number(event.target.value), { push: true });
+});
+$("page-input").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    viewer.goToPage(Number(event.target.value), { push: true });
+  }
 });
 
 document.querySelectorAll(".tab").forEach((tab) => {
@@ -301,7 +476,7 @@ $("search-input").addEventListener("input", (event) => {
   const query = event.target.value;
   const request = ++searchGeneration;
   clearTimeout(searchTimer);
-  viewer.showHits([], "").catch(console.error);
+  viewer.clearHits();
   renderSearchList([], "");
   searchTimer = setTimeout(() => runSearch(query, request), 180);
 });
@@ -310,6 +485,9 @@ $("search-input").addEventListener("keydown", async (event) => {
     event.preventDefault();
     if (event.shiftKey) await moveHit(-1);
     else await moveHit(1);
+  }
+  if (event.key === "Escape") {
+    event.target.blur();
   }
 });
 $("search-prev").addEventListener("click", () => moveHit(-1));
@@ -358,7 +536,6 @@ for (const type of ["mousedown", "mouseup", "auxclick", "pointerup"]) {
     (event) => {
       if (event.button !== 3 && event.button !== 4) return;
       event.preventDefault();
-      // Suppress browser navigation for every side-button event, but act once.
       if (type !== "mouseup") return;
       if (event.button === 3) viewer.back();
       else viewer.forward();
@@ -398,26 +575,114 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     viewer.back();
   }
+  if (!typing && (event.key === "ArrowDown" || event.key === "PageDown")) {
+    event.preventDefault();
+    stepPage(1);
+  }
+  if (!typing && (event.key === "ArrowUp" || event.key === "PageUp")) {
+    event.preventDefault();
+    stepPage(-1);
+  }
+  if (event.key === "Escape" && !typing) {
+    hideBubble();
+    $("settings-modal").hidden = true;
+  }
 });
 
 const bubble = $("translate-bubble");
 let selectedText = "";
 
+function cancelTranslate() {
+  translateAbort?.abort();
+  translateAbort = null;
+  $("btn-translate-cancel").hidden = true;
+}
+
 function hideBubble() {
   bubble.hidden = true;
   $("translate-result").hidden = true;
+  $("translate-result").classList.remove("error");
   $("translate-result").textContent = "";
+  $("translate-status").hidden = true;
+  cancelTranslate();
 }
 
-function showBubble(x, y, text) {
-  selectedText = text;
-  $("translate-source").textContent = text;
-  $("translate-result").hidden = true;
-  bubble.hidden = false;
+function positionBubble(x, y) {
   const left = Math.min(x, window.innerWidth - bubble.offsetWidth - 12);
   const top = Math.min(y, window.innerHeight - 12);
   bubble.style.left = `${Math.max(12, left)}px`;
   bubble.style.top = `${Math.max(12, top)}px`;
+}
+
+function showBubble(x, y, text) {
+  const selectionId = ++bubbleSelectionId;
+  selectedText = text;
+  $("translate-source").textContent = text.length > 240 ? `${text.slice(0, 240)}…` : text;
+  $("translate-result").hidden = true;
+  $("translate-result").classList.remove("error");
+  $("translate-result").textContent = "";
+  bubble.hidden = false;
+  positionBubble(x, y);
+  void runTranslate(selectionId);
+  return selectionId;
+}
+
+function setTranslateError(message, selectionId) {
+  if (selectionId !== bubbleSelectionId) return;
+  const result = $("translate-result");
+  result.hidden = false;
+  result.classList.add("error");
+  result.replaceChildren();
+  result.append(document.createTextNode(`${message} `));
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.className = "link-btn";
+  retry.id = "btn-translate-retry";
+  retry.textContent = "重试";
+  retry.addEventListener("click", () => runTranslate(selectionId));
+  result.append(retry);
+  $("translate-status").hidden = true;
+  $("btn-translate-cancel").hidden = true;
+}
+
+async function runTranslate(selectionId = bubbleSelectionId) {
+  if (selectionId !== bubbleSelectionId) return;
+  cancelTranslate();
+  const text = selectedText;
+  if (!text) return;
+  if (text.length > MAX_TRANSLATE_CHARS) {
+    setTranslateError(`选中文本过长（${text.length} 字），请缩短到 ${MAX_TRANSLATE_CHARS} 字以内。`, selectionId);
+    return;
+  }
+  const result = $("translate-result");
+  const status = $("translate-status");
+  result.hidden = true;
+  result.classList.remove("error");
+  status.hidden = false;
+  status.textContent = "翻译中…";
+  $("btn-translate-cancel").hidden = false;
+
+  const controller = new AbortController();
+  translateAbort = controller;
+  const requestId = ++translateRequestId;
+
+  try {
+    const translated = await translateText(text, loadSettings(), { signal: controller.signal });
+    if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
+    status.hidden = true;
+    $("btn-translate-cancel").hidden = true;
+    result.hidden = false;
+    result.textContent = translated;
+    translateAbort = null;
+  } catch (error) {
+    if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
+    if (controller.signal.aborted) {
+      status.hidden = true;
+      $("btn-translate-cancel").hidden = true;
+      return;
+    }
+    setTranslateError(error.message || String(error), selectionId);
+  }
 }
 
 document.addEventListener("mouseup", (event) => {
@@ -438,26 +703,48 @@ document.addEventListener("mouseup", (event) => {
 });
 
 $("btn-bubble-close").addEventListener("click", hideBubble);
+$("btn-translate-cancel").addEventListener("click", () => {
+  translateAbort?.abort();
+  $("translate-status").hidden = true;
+  $("btn-translate-cancel").hidden = true;
+});
 $("btn-copy").addEventListener("click", async () => {
-  if (selectedText) await navigator.clipboard.writeText(selectedText);
+  const copy = $("translate-result").textContent?.trim() || selectedText;
+  if (copy) await navigator.clipboard.writeText(copy);
 });
-$("btn-translate").addEventListener("click", async () => {
-  const result = $("translate-result");
-  result.hidden = false;
-  result.textContent = "翻译中…";
-  try {
-    result.textContent = await translateText(selectedText, loadSettings());
-  } catch (error) {
-    result.textContent = error.message || String(error);
+$("btn-translate").addEventListener("click", () => runTranslate());
+
+const modelPicker = wireModelPicker({
+  input: $("setting-model"),
+  menu: $("setting-model-menu"),
+  status: $("setting-model-status"),
+  getCredentials: () => ({
+    apiKey: $("setting-key").value.trim(),
+    apiBaseUrl: $("setting-base").value.trim(),
+  }),
+});
+let modelRefreshTimer = 0;
+const scheduleModelRefresh = () => {
+  clearTimeout(modelRefreshTimer);
+  modelRefreshTimer = setTimeout(() => modelPicker.refresh(), 400);
+};
+const onCredentialInput = () => {
+  if (!$("setting-key").value.trim() || !$("setting-base").value.trim()) {
+    modelPicker.invalidatePending();
   }
-});
+  scheduleModelRefresh();
+};
+$("setting-key").addEventListener("input", onCredentialInput);
+$("setting-base").addEventListener("input", onCredentialInput);
 
 $("btn-settings").addEventListener("click", () => {
   settings = loadSettings();
   $("setting-key").value = settings.apiKey;
+  $("setting-base").value = settings.apiBaseUrl;
   $("setting-model").value = settings.model;
   $("setting-lang").value = settings.targetLang;
   $("settings-modal").hidden = false;
+  modelPicker.refresh();
 });
 $("btn-settings-cancel").addEventListener("click", () => {
   $("settings-modal").hidden = true;
@@ -465,6 +752,7 @@ $("btn-settings-cancel").addEventListener("click", () => {
 $("btn-settings-save").addEventListener("click", () => {
   settings = saveSettings({
     apiKey: $("setting-key").value.trim(),
+    apiBaseUrl: $("setting-base").value.trim(),
     model: $("setting-model").value.trim() || "openai/gpt-4o-mini",
     targetLang: $("setting-lang").value,
   });
@@ -472,16 +760,15 @@ $("btn-settings-save").addEventListener("click", () => {
 });
 
 async function boot() {
+  document.body.dataset.platform = platform.id;
   const request = openGeneration;
-  try {
-    const res = await fetch("/api/startup");
-    if (res.ok) {
-      const data = await res.json();
-      if (data.hasFile && request === openGeneration) await openUrl(data.name, data.id);
-    }
-  } catch {
-    /* opened as a static file */
-  }
+  const startup = await platform.startupOpen();
+  if (startup && request === openGeneration) await openFromPlatform(startup);
 }
+
+window.addEventListener("pagehide", flushReadingPosition);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushReadingPosition();
+});
 
 boot();

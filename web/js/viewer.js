@@ -1,10 +1,10 @@
 import {
   getDocument,
   GlobalWorkerOptions,
-  TextLayer,
   setLayerDimensions,
 } from "../vendor/pdfjs/build/pdf.mjs";
-import { buildTextIndex, matchRects } from "./search.js";
+import { TextLayerBuilder } from "../vendor/pdfjs/web/pdf_viewer.mjs";
+import { buildTextIndex, buildTextMapping, matchRects } from "./search.js";
 
 GlobalWorkerOptions.workerSrc = new URL(
   "../vendor/pdfjs/build/pdf.worker.mjs",
@@ -16,6 +16,13 @@ const FONT_URL = new URL("../vendor/pdfjs/standard_fonts/", import.meta.url).toS
 const WASM_URL = new URL("../vendor/pdfjs/wasm/", import.meta.url).toString();
 const ICC_URL = new URL("../vendor/pdfjs/iccs/", import.meta.url).toString();
 
+function viewportRect(viewport, pdfRect) {
+  const [x1, y1, x2, y2] = pdfRect;
+  const [vx1, vy1] = viewport.convertToViewportPoint(x1, y1);
+  const [vx2, vy2] = viewport.convertToViewportPoint(x2, y2);
+  return [vx1, vy1, vx2, vy2];
+}
+
 function destTypeName(type) {
   if (type == null) return "";
   if (typeof type === "string") return type;
@@ -23,11 +30,12 @@ function destTypeName(type) {
 }
 
 export class PdfViewer {
-  constructor({ pagesEl, wrapEl, history, onState, onIndex, onPassword }) {
+  constructor({ pagesEl, wrapEl, history, onState, onScrollPosition, onIndex, onPassword }) {
     this.pagesEl = pagesEl;
     this.wrapEl = wrapEl;
     this.history = history;
     this.onState = onState;
+    this.onScrollPosition = onScrollPosition;
     this.onIndex = onIndex;
     this.onPassword = onPassword;
     this.renderedPages = new Map();
@@ -57,8 +65,34 @@ export class PdfViewer {
     this.loadingTask = null;
     this.renderJobs = new Map();
     this.textLayers = new Map();
+    this.textMappings = new Map();
+    this.visiblePages = new Set();
+    this.highlightedPages = new Set();
     this.hitGeneration = 0;
     this.navigationGeneration = 0;
+    if (globalThis.__PDF_BENCH__) {
+      this.bench = {
+        renderPageCalls: 0,
+        renderVisibleCalls: 0,
+        observerRenderCalls: 0,
+        renderTaskCancels: 0,
+        trimEvictions: 0,
+        renderJobsPeak: 0,
+        canvasPeak: 0,
+        textLayerPeak: 0,
+      };
+      const origRenderVisible = this.renderVisible.bind(this);
+      this.renderVisible = async (...args) => {
+        this.bench.renderVisibleCalls += 1;
+        return origRenderVisible(...args);
+      };
+      const origTrim = this.trimCache.bind(this);
+      this.trimCache = () => {
+        const before = this.renderedPages.size;
+        origTrim();
+        this.bench.trimEvictions += Math.max(0, before - this.renderedPages.size);
+      };
+    }
   }
 
   getState() {
@@ -129,8 +163,11 @@ export class PdfViewer {
     for (const layer of this.textLayers.values()) layer.cancel();
     this.tasks.clear();
     this.textLayers.clear();
+    this.textMappings.clear();
     this.renderJobs.clear();
     this.renderedPages.clear();
+    this.visiblePages.clear();
+    this.highlightedPages.clear();
     clearTimeout(this.scrollTimer);
     this.indexedPages = 0;
     this.indexError = null;
@@ -269,7 +306,13 @@ export class PdfViewer {
     const page = this.currentPage;
     this.zoomMode = String(mode);
     this.zoom = this.computeZoom();
-    for (const el of this.pageEls) delete el.dataset.renderedZoom;
+    this.textMappings.clear();
+    this.highlightedPages.clear();
+    for (const layer of this.textLayers.values()) layer.hide();
+    for (const el of this.pageEls) {
+      delete el.dataset.renderedZoom;
+      el.querySelector(".hlLayer").replaceChildren();
+    }
     this.applyPageLayout();
     if (keepPage) this.scrollToPage(page, { instant: true });
     if (!silent) {
@@ -297,12 +340,17 @@ export class PdfViewer {
 
   observe() {
     this.observer?.disconnect();
+    this.visiblePages.clear();
     this.observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
+          const n = Number(entry.target.dataset.pageNumber);
           if (entry.isIntersecting) {
-            const n = Number(entry.target.dataset.pageNumber);
+            this.visiblePages.add(n);
+            if (this.bench) this.bench.observerRenderCalls += 1;
             this.renderPage(n).catch((error) => console.error("PDF rendering failed", error));
+          } else {
+            this.visiblePages.delete(n);
           }
         }
       },
@@ -328,6 +376,7 @@ export class PdfViewer {
       this.currentPage = page;
       this.notify();
     }
+    this.onScrollPosition?.();
   };
 
   async renderVisible(force = false) {
@@ -346,6 +395,7 @@ export class PdfViewer {
   }
 
   renderPage(pageNumber, force = false) {
+    if (this.bench) this.bench.renderPageCalls += 1;
     const el = this.pageEls[pageNumber - 1];
     const pdf = this.pdf;
     if (!el || !pdf) return Promise.resolve();
@@ -363,9 +413,15 @@ export class PdfViewer {
     const job = { key };
     const current = () => generation === this.generation &&
       this.renderJobs.get(pageNumber) === job && this.zoom === zoom;
-    this.tasks.get(pageNumber)?.cancel();
+    const prevTask = this.tasks.get(pageNumber);
+    if (prevTask) {
+      if (this.bench) this.bench.renderTaskCancels += 1;
+      prevTask.cancel();
+    }
     this.textLayers.get(pageNumber)?.cancel();
+    this.textMappings.delete(pageNumber);
     this.renderJobs.set(pageNumber, job);
+    if (this.bench) this.bench.renderJobsPeak = Math.max(this.bench.renderJobsPeak, this.renderJobs.size);
     job.promise = (async () => {
       try {
         // A canvas cannot be used by two pdf.js render tasks concurrently.
@@ -390,17 +446,28 @@ export class PdfViewer {
         this.tasks.set(pageNumber, task);
         await task.promise;
         if (!current()) return;
-        const textContent = this.textContents.get(pageNumber) || await page.getTextContent();
+        const textContent = this.textContents.get(pageNumber) || await page.getTextContent({ includeMarkedContent: true, disableNormalization: true });
         if (!current()) return;
         this.textContents.set(pageNumber, textContent);
-        const container = el.querySelector(".textLayer");
-        container.replaceChildren();
+        let mapping;
+        const textLayer = new TextLayerBuilder({
+          pdfPage: page,
+          highlighter: {
+            setTextMapping(textDivs, textContentItemsStr) {
+              mapping = { textDivs, textContentItemsStr };
+            },
+            enable() {},
+            disable() {},
+          },
+        });
+        const container = textLayer.div;
+        el.querySelector(".textLayer").replaceWith(container);
         container.style.setProperty("--scale-factor", String(cssViewport.scale));
         setLayerDimensions(container, cssViewport);
-        const textLayer = new TextLayer({ textContentSource: textContent, container, viewport: cssViewport });
         this.textLayers.set(pageNumber, textLayer);
-        await textLayer.render();
+        await textLayer.render({ viewport: cssViewport });
         if (!current()) return;
+        this.textMappings.set(pageNumber, buildTextMapping(mapping.textDivs, mapping.textContentItemsStr));
         await this.renderLinks(page, cssViewport, el.querySelector(".linkLayer"), current);
         if (!current()) return;
         await this.paintHighlights(pageNumber);
@@ -408,6 +475,10 @@ export class PdfViewer {
           el.dataset.renderedZoom = key;
           this.renderedPages.delete(pageNumber);
           this.renderedPages.set(pageNumber, page);
+          if (this.bench) {
+            this.bench.canvasPeak = Math.max(this.bench.canvasPeak, this.renderedPages.size);
+            this.bench.textLayerPeak = Math.max(this.bench.textLayerPeak, this.textLayers.size);
+          }
         }
       } catch (error) {
         if (current() && error?.name !== "RenderingCancelledException" && error?.name !== "AbortException") {
@@ -418,7 +489,6 @@ export class PdfViewer {
         if (this.renderJobs.get(pageNumber) === job) {
           this.renderJobs.delete(pageNumber);
           this.tasks.delete(pageNumber);
-          this.textLayers.delete(pageNumber);
           this.trimCache();
         }
       }
@@ -434,6 +504,10 @@ export class PdfViewer {
       const el = this.pageEls[number - 1];
       if (!el || this.renderJobs.has(number)) continue;
       if (el.offsetTop + el.offsetHeight >= top && el.offsetTop <= bottom) continue;
+      this.textLayers.get(number)?.cancel();
+      this.textLayers.delete(number);
+      this.textMappings.delete(number);
+      this.highlightedPages.delete(number);
       const canvas = el.querySelector("canvas");
       canvas.width = canvas.height = 0;
       for (const selector of [".textLayer", ".linkLayer", ".hlLayer"]) el.querySelector(selector).replaceChildren();
@@ -450,7 +524,7 @@ export class PdfViewer {
     layer.replaceChildren();
     for (const annotation of annotations) {
       if (annotation.subtype !== "Link") continue;
-      const rect = viewport.convertToViewportRectangle(annotation.rect);
+      const rect = viewportRect(viewport, annotation.rect);
       const left = Math.min(rect[0], rect[2]);
       const top = Math.min(rect[1], rect[3]);
       const width = Math.abs(rect[2] - rect[0]);
@@ -576,19 +650,25 @@ export class PdfViewer {
 
   restore(state) {
     if (!state) return;
-    this.applyingHistory = true;
+    this.applyReadingPosition(state, { fromHistory: true });
+  }
+
+  applyReadingPosition(state, { fromHistory = false } = {}) {
+    if (!state) return;
+    if (fromHistory) this.applyingHistory = true;
     if (String(state.zoom) !== String(this.zoomMode)) {
       this.setZoom(state.zoom, { keepPage: false });
     }
-    this.currentPage = state.page;
+    if (state.page) this.currentPage = state.page;
     this.wrapEl.scrollTo({
-      top: state.scrollTop,
-      left: state.scrollLeft,
+      top: state.scrollTop ?? 0,
+      left: state.scrollLeft ?? 0,
       behavior: "auto",
     });
     this.notify();
     requestAnimationFrame(() => {
-      this.applyingHistory = false;
+      if (fromHistory) this.applyingHistory = false;
+      this.renderVisible(true).catch((error) => console.error("PDF rendering failed", error));
     });
   }
 
@@ -617,7 +697,7 @@ export class PdfViewer {
         if (generation !== this.generation) return [];
         const page = await pdf.getPage(i);
         if (generation !== this.generation) return [];
-        const textContent = await page.getTextContent();
+        const textContent = await page.getTextContent({ includeMarkedContent: true, disableNormalization: true });
         if (generation !== this.generation) return [];
         pages.push({
           pageNumber: i,
@@ -639,52 +719,92 @@ export class PdfViewer {
     }
   }
 
+  highlightCount(layer) {
+    if (!layer) return 0;
+    if (typeof layer.childElementCount === "number") return layer.childElementCount;
+    return layer.children?.length ?? 0;
+  }
+
+  liveHighlightPages(...extra) {
+    const pages = new Set();
+    for (const n of this.renderedPages.keys()) pages.add(n);
+    for (const n of this.visiblePages) pages.add(n);
+    for (const n of extra) {
+      const page = Number(n);
+      if (Number.isInteger(page) && page > 0) pages.add(page);
+    }
+    return pages;
+  }
+
+  refreshLiveHighlights(...extra) {
+    for (const n of this.liveHighlightPages(...extra)) this.paintHighlights(n);
+  }
+
+  clearRenderedHighlights() {
+    const pages = this.highlightedPages.size ? [...this.highlightedPages] : [...this.liveHighlightPages()];
+    for (const n of pages) {
+      const layer = this.pageEls[n - 1]?.querySelector(".hlLayer");
+      if (this.highlightCount(layer)) layer.replaceChildren();
+    }
+    this.highlightedPages.clear();
+  }
+
+  clearHits() {
+    this.hitGeneration += 1;
+    this.navigationGeneration += 1;
+    this.hits = [];
+    this.query = "";
+    this.hitIndex = -1;
+    this.clearRenderedHighlights();
+  }
+
   async paintHighlights(pageNumber) {
     const el = this.pageEls[pageNumber - 1];
     if (!el || !this.pdf) return;
     const layer = el.querySelector(".hlLayer");
-    layer.replaceChildren();
-    if (!this.hits.length || !this.query) return;
-    const textContent = this.textContents.get(pageNumber);
-    if (!textContent) return;
-    const generation = this.generation;
-    const hitGeneration = this.hitGeneration;
-    const zoom = this.zoom;
-    let page;
-    try {
-      page = await this.pdf.getPage(pageNumber);
-    } catch (error) {
-      if (generation !== this.generation || hitGeneration !== this.hitGeneration) return;
-      throw error;
+    if (!this.hits.length || !this.query) {
+      if (this.highlightCount(layer)) layer.replaceChildren();
+      this.highlightedPages.delete(pageNumber);
+      return;
     }
-    if (generation !== this.generation || hitGeneration !== this.hitGeneration || zoom !== this.zoom) return;
+    const mapping = this.textMappings.get(pageNumber);
+    if (!mapping) return;
     layer.replaceChildren();
-    const cssViewport = page.getViewport({ scale: this.zoom });
+    let painted = false;
     this.hits.forEach((hit, index) => {
       if (hit.pageNumber !== pageNumber) return;
-      const rects = matchRects(textContent, cssViewport, hit.offset, hit.length);
+      const rects = matchRects(mapping, layer, hit.offset, hit.length);
       for (const rect of rects) {
         const box = document.createElement("div");
         box.className = `hl${index === this.hitIndex ? " current" : ""}`;
         box.style.left = `${rect.left}px`;
         box.style.top = `${rect.top}px`;
         box.style.width = `${rect.width}px`;
-        box.style.height = `${Math.max(rect.height, 10)}px`;
+        box.style.height = `${rect.height}px`;
         layer.appendChild(box);
+        painted = true;
       }
     });
+    if (painted) this.highlightedPages.add(pageNumber);
+    else this.highlightedPages.delete(pageNumber);
   }
 
   async showHits(hits, query, index = 0, { jump = true } = {}) {
-    const pages = new Set([...this.hits, ...hits].map((hit) => hit.pageNumber));
     // Progressive index refreshes must not cancel in-flight search/outline jumps.
     const generation = jump ? ++this.hitGeneration : this.hitGeneration;
     if (jump) this.navigationGeneration += 1;
+    const prevPage = this.hits[this.hitIndex]?.pageNumber;
     this.hits = hits;
     this.query = query;
     this.hitIndex = hits.length ? index : -1;
-    await Promise.all([...pages].map((n) => this.paintHighlights(n)));
-    if (jump && generation === this.hitGeneration && hits[index]) await this.jumpToHit(index, { push: true });
+    if (!hits.length || !query) {
+      this.clearRenderedHighlights();
+      return;
+    }
+    this.refreshLiveHighlights(prevPage, hits[this.hitIndex]?.pageNumber);
+    if (jump && generation === this.hitGeneration && hits[index]) {
+      await this.jumpToHit(index, { push: true });
+    }
   }
 
   async jumpToHit(index, { push = false } = {}) {
@@ -697,13 +817,11 @@ export class PdfViewer {
       navigation === this.navigationGeneration;
     try {
       const origin = this.getState();
+      const prevPage = this.hits[this.hitIndex]?.pageNumber;
       await this.renderPage(hit.pageNumber);
       if (!current()) return;
-      const page = await this.pdf.getPage(hit.pageNumber);
-      if (!current()) return;
-      const textContent = this.textContents.get(hit.pageNumber);
-      const rect = textContent && matchRects(textContent, page.getViewport({ scale: this.zoom }), hit.offset, hit.length)[0];
       const el = this.pageEls[hit.pageNumber - 1];
+      const rect = matchRects(this.textMappings.get(hit.pageNumber), el.querySelector(".hlLayer"), hit.offset, hit.length)[0];
       if (push) this.history.commit(origin);
       this.hitIndex = index;
       this.currentPage = hit.pageNumber;
@@ -714,8 +832,7 @@ export class PdfViewer {
       });
       if (push) this.history.push(this.getState());
       this.notify();
-      const pages = new Set(this.hits.map((item) => item.pageNumber));
-      await Promise.all([...pages].map((n) => this.paintHighlights(n)));
+      this.refreshLiveHighlights(prevPage, hit.pageNumber);
     } catch (error) {
       if (current()) throw error;
     }

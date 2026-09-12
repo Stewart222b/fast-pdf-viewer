@@ -1,6 +1,7 @@
 .venv/
 __pycache__/
 *.pyc
+*.egg-info/
 .python-files
 web/vendor/pdfjs/
 *.pdf
@@ -9,3 +10,4 @@ web/vendor/pdfjs/
 Thumbs.db
 .idea/
 .vscode/
+/build/

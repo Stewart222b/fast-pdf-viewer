@@ -12,13 +12,18 @@
       <header class="toolbar">
         <div class="toolbar-left">
           <button id="btn-open" class="btn primary" title="打开 PDF (Ctrl+O)">打开</button>
+          <button id="btn-sidebar" class="btn" title="显示/隐藏目录侧栏">目录</button>
           <button id="btn-back" class="btn icon" title="返回（鼠标侧键 / Alt+← / Backspace）" disabled>←</button>
           <button id="btn-forward" class="btn icon" title="前进（鼠标侧键 / Alt+→）" disabled>→</button>
           <div class="divider"></div>
-          <label class="page-box">
-            <input id="page-input" type="number" min="1" value="1" />
-            <span>/ <b id="page-count">0</b></span>
-          </label>
+          <div class="page-nav">
+            <button id="btn-page-prev" class="btn icon tiny" type="button" title="上一页 (↑ / Page Up)" disabled>↑</button>
+            <label class="page-box">
+              <input id="page-input" type="number" min="1" value="1" />
+              <span>/ <b id="page-count">0</b></span>
+            </label>
+            <button id="btn-page-next" class="btn icon tiny" type="button" title="下一页 (↓ / Page Down)" disabled>↓</button>
+          </div>
         </div>
         <div class="toolbar-center">
           <span id="doc-title" class="doc-title">未打开文件</span>
@@ -63,7 +68,7 @@
               <ul>
                 <li>鼠标侧键 / Alt+← 返回刚才的位置</li>
                 <li>搜索会列出全部结果，并显示第几条</li>
-                <li>划词后可一键翻译（OpenRouter）</li>
+                <li>划词即译（OpenAI 兼容 API，默认 OpenRouter）</li>
               </ul>
             </div>
           </div>
@@ -74,9 +79,11 @@
 
     <div id="translate-bubble" class="translate-bubble" hidden>
       <div class="bubble-actions">
-        <button id="btn-translate" class="btn primary tiny">翻译</button>
+        <span id="translate-status" class="bubble-status" hidden>翻译中…</span>
+        <button id="btn-translate" class="btn primary tiny" title="重新翻译">翻译</button>
+        <button id="btn-translate-cancel" class="btn tiny" hidden>取消</button>
         <button id="btn-copy" class="btn tiny">复制</button>
-        <button id="btn-bubble-close" class="btn icon tiny">×</button>
+        <button id="btn-bubble-close" class="btn icon tiny" title="关闭 (Esc)">×</button>
       </div>
       <div id="translate-source" class="bubble-source"></div>
       <div id="translate-result" class="bubble-result" hidden></div>
@@ -101,14 +108,25 @@
     <div id="settings-modal" class="modal" hidden>
       <div class="modal-card">
         <h2>翻译设置</h2>
-        <p class="hint">Key 只存在本机浏览器存储，不会上传到除 OpenRouter 以外的地方。</p>
+        <p class="hint">
+          API Key 与 Base URL 仅保存在本机浏览器的 <code>localStorage</code> 中，不会经过我们的服务器。
+          翻译时，选中文本与你的设置会直接从本机发往你配置的 API 端点（默认 OpenRouter）。
+        </p>
         <label>
-          OpenRouter API Key
+          API Base URL（OpenAI 兼容）
+          <input id="setting-base" type="url" autocomplete="off" placeholder="https://openrouter.ai/api/v1" />
+        </label>
+        <label>
+          API Key
           <input id="setting-key" type="password" autocomplete="off" placeholder="sk-or-v1-..." />
         </label>
         <label>
           模型
-          <input id="setting-model" type="text" placeholder="openai/gpt-4o-mini" />
+          <div class="model-picker">
+            <input id="setting-model" type="text" autocomplete="off" placeholder="openai/gpt-4o-mini" />
+            <ul id="setting-model-menu" class="model-menu" hidden></ul>
+            <div id="setting-model-status" class="model-picker-status" hidden></div>
+          </div>
         </label>
         <label>
           目标语言

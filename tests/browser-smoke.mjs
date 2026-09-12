@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const profile = await mkdtemp(path.join(os.tmpdir(), 'fast-pdf-chrome-'));
 const server = spawn('python3', ['tests/browser_server.py'], { stdio: ['ignore', 'pipe', 'pipe'] });
-const chrome = spawn(process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
+const chrome = spawn(process.env.CHROME_PATH || '/usr/local/bin/google-chrome', [
   '--headless=new', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0',
   `--user-data-dir=${profile}`, '--window-size=1280,900', 'about:blank',
 ], { stdio: ['ignore', 'pipe', 'pipe'] });

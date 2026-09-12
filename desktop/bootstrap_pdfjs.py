@@ -11,12 +11,20 @@ import tempfile
 import urllib.request
 from pathlib import Path, PurePosixPath
 
-ROOT = Path(__file__).resolve().parents[1]
-VENDOR = ROOT / 'web' / 'vendor' / 'pdfjs'
+def _web_dir() -> Path:
+    here = Path(__file__).resolve().parent
+    for root in (here.parent, here):
+        web = root / 'web'
+        if web.is_dir():
+            return web
+    raise FileNotFoundError('找不到 web/ 资源目录，请在仓库根目录运行或 pip install -e .')
+
+
+VENDOR = _web_dir() / 'vendor' / 'pdfjs'
 VERSION = '6.3.289'
 TARBALL = f'https://registry.npmjs.org/pdfjs-dist/-/pdfjs-dist-{VERSION}.tgz'
 INTEGRITY = 'ZHjSVpDa3D6izMq8/04lvkhkATUmL9px6ChPaXc1k6nU2Mrhlg1/7F0bdUqCwUjw3NsPTfPZsMDUU6ZIcRaeQw=='
-FILES = {'build/pdf.mjs', 'build/pdf.worker.mjs', 'web/pdf_viewer.css'}
+FILES = {'build/pdf.mjs', 'build/pdf.worker.mjs', 'web/pdf_viewer.css', 'web/pdf_viewer.mjs'}
 FOLDERS = ('cmaps/', 'standard_fonts/', 'wasm/', 'iccs/')
 
 
