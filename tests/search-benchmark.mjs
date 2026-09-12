@@ -110,7 +110,7 @@ async function runBenchmark() {
       const pages = [...document.querySelectorAll('.page')];
       const canvases = pages.filter(p => {
         const c = p.querySelector('canvas');
-        return c && c.width > 0 && c.height > 0;
+        return p.dataset.renderedZoom && c && c.width > 0 && c.height > 0;
       }).length;
       const textLayers = pages.filter(p => p.querySelector('.textLayer')?.childElementCount > 0).length;
       return {
@@ -201,9 +201,9 @@ async function runBenchmark() {
       resultListVisibleMs: atList.searchBench.resultListVisibleMs,
       firstHitHighlightMs: report.firstHighlight.searchBench.firstJumpMs,
       searchTriggeredRenderPageCalls: atList.bench.renderPageCalls,
-      renderJobsPeak: atList.bench.renderJobsPeak,
-      canvasPeak: atList.bench.canvasPeak,
-      textLayerPeak: atList.bench.textLayerPeak,
+      renderJobsPeak: Math.max(atList.bench.renderJobsPeak ?? 0, atList.renderJobs),
+      canvasPeak: Math.max(atList.bench.canvasPeak ?? 0, atList.canvases),
+      textLayerPeak: Math.max(atList.bench.textLayerPeak ?? 0, atList.textLayers),
     };
 
     const beforeClear = report.firstHighlight.bench.renderPageCalls;
