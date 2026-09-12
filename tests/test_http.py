@@ -3,6 +3,7 @@ import importlib.util
 import json
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from urllib.parse import quote
@@ -11,6 +12,7 @@ from http.server import ThreadingHTTPServer
 
 SPEC = importlib.util.spec_from_file_location('app', Path(__file__).parents[1] / 'desktop/app.py')
 app = importlib.util.module_from_spec(SPEC)
+sys.modules.setdefault('app', app)
 SPEC.loader.exec_module(app)
 
 
@@ -136,6 +138,8 @@ class BrowserSetOpenedTests(unittest.TestCase):
             pdf = Path(directory) / 'bench.pdf'
             pdf.write_bytes(b'%PDF-1.4\n')
             server = ThreadingHTTPServer(('127.0.0.1', 0), BrowserTestHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
             try:
                 connection = HTTPConnection(*server.server_address, timeout=3)
                 payload = json.dumps({'path': str(pdf)}).encode()
@@ -153,6 +157,7 @@ class BrowserSetOpenedTests(unittest.TestCase):
                 connection.close()
             finally:
                 server.shutdown()
+                thread.join(timeout=3)
                 server.server_close()
                 app.set_opened(None)
 
