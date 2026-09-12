@@ -47,7 +47,11 @@ try {
   await send('Runtime.enable'); await send('Page.enable');
   const results = [];
   for (const key of ['small', 'long']) {
-    await fetch(`http://127.0.0.1:${fixtures.port}/api/open-path`, { method: 'POST', body: JSON.stringify({ path: fixtures[key] }) });
+    await fetch(`http://127.0.0.1:${fixtures.port}/api/browser/set-opened`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: fixtures[key] }),
+    });
     await send('Page.navigate', { url: `http://127.0.0.1:${fixtures.port}/` });
     await until(`document.querySelector('.page')?.dataset.renderedZoom`);
     const firstPageMs = await evaluate('performance.now()');

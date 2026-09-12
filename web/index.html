@@ -89,6 +89,22 @@
       <div id="translate-result" class="bubble-result" hidden></div>
     </div>
 
+    <div id="pdf-password-modal" class="modal" hidden>
+      <div class="modal-card">
+        <h2>需要 PDF 密码</h2>
+        <p class="hint">此文档已加密，请输入打开密码。</p>
+        <p id="pdf-password-error" class="hint error" hidden></p>
+        <label>
+          密码
+          <input id="pdf-password-input" type="password" autocomplete="off" />
+        </label>
+        <div class="modal-actions">
+          <button id="pdf-password-cancel" class="btn">取消</button>
+          <button id="pdf-password-submit" class="btn primary">打开</button>
+        </div>
+      </div>
+    </div>
+
     <div id="settings-modal" class="modal" hidden>
       <div class="modal-card">
         <h2>翻译设置</h2>

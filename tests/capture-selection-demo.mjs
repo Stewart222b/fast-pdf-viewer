@@ -42,7 +42,7 @@ const send = (m, p = {}) => new Promise((res, rej) => {
 const ev = async ex => (await send('Runtime.evaluate', { expression: ex, returnByValue: true, awaitPromise: true })).result.value;
 await send('Runtime.enable');
 await send('Page.enable');
-await fetch(`http://127.0.0.1:${fixtures.port}/api/open-path`, { method: 'POST', body: JSON.stringify({ path: fixtures.small }) });
+await fetch(`http://127.0.0.1:${fixtures.port}/api/browser/set-opened`, { method: 'POST', body: JSON.stringify({ path: fixtures.small }) });
 await send('Page.reload');
 for (let i = 0; i < 100; i++) {
   if (await ev(`!!document.querySelector('.page')?.dataset.renderedZoom`)) break;

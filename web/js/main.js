@@ -9,18 +9,67 @@ import { highlightSnippet, searchDocument } from "./search.js";
 import { loadSettings, saveSettings } from "./settings.js";
 import { wireModelPicker } from "./model-picker.js";
 import { MAX_TRANSLATE_CHARS, translateText } from "./translate.js";
+import { PasswordResponses } from "../vendor/pdfjs/build/pdf.mjs";
 import { PdfViewer } from "./viewer.js";
 
 const $ = (id) => document.getElementById(id);
 const platform = createPlatform();
 
 const history = new ViewHistory();
+let passwordDialog = null;
+
+function requestPdfPassword(reason) {
+  if (passwordDialog) return passwordDialog;
+  const modal = $("pdf-password-modal");
+  const input = $("pdf-password-input");
+  const error = $("pdf-password-error");
+  const submit = $("pdf-password-submit");
+  const cancel = $("pdf-password-cancel");
+  passwordDialog = new Promise((resolve, reject) => {
+    const cleanup = () => {
+      modal.hidden = true;
+      submit.removeEventListener("click", onSubmit);
+      cancel.removeEventListener("click", onCancel);
+      input.removeEventListener("keydown", onKey);
+      passwordDialog = null;
+    };
+    const onSubmit = () => {
+      cleanup();
+      resolve(input.value);
+    };
+    const onCancel = () => {
+      cleanup();
+      reject(new Error("已取消输入密码"));
+    };
+    const onKey = (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        onSubmit();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCancel();
+      }
+    };
+    error.hidden = reason !== PasswordResponses.INCORRECT_PASSWORD;
+    error.textContent = reason === PasswordResponses.INCORRECT_PASSWORD ? "密码错误，请重试。" : "";
+    input.value = "";
+    modal.hidden = false;
+    input.focus();
+    submit.addEventListener("click", onSubmit);
+    cancel.addEventListener("click", onCancel);
+    input.addEventListener("keydown", onKey);
+  });
+  return passwordDialog;
+}
+
 const viewer = new PdfViewer({
   pagesEl: $("pages"),
   wrapEl: $("viewer-wrap"),
   history,
   onState: syncToolbar,
   onIndex: refreshIndexedSearch,
+  onPassword: requestPdfPassword,
 });
 if (globalThis.__PDF_BENCH__) globalThis.__pdfViewer = viewer;
 

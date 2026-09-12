@@ -66,7 +66,7 @@ try {
 
   await send('Runtime.enable');
   await send('Page.enable');
-  await fetch(`http://127.0.0.1:${fixtures.port}/api/open-path`, {
+  await fetch(`http://127.0.0.1:${fixtures.port}/api/browser/set-opened`, {
     method: 'POST',
     body: JSON.stringify({ path: fixtures.small }),
   });
