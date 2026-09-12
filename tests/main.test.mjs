@@ -192,3 +192,21 @@ test('user search still selects the search sidebar tab', async () => {
   assert.equal(app.get('search-pane').toggles.active, true);
   assert.equal(app.get('outline-pane').toggles.active, false);
 });
+
+test('outline entry with numeric dest 0 maps to page 1', async () => {
+  const app = await setup();
+  app.viewer.pdf = {
+    async getDestination(dest) {
+      return dest;
+    },
+    async getPageIndex(ref) {
+      return ref;
+    },
+  };
+  app.viewer.outlinePromise = Promise.resolve([{ title: 'Cover', dest: [0, 'XYZ', null, null] }]);
+  app.fileInput.files = [{ name: 'doc.pdf', arrayBuffer: async () => new ArrayBuffer(0) }];
+  await app.fileInput.listeners.change();
+  await new Promise((resolve) => setImmediate(resolve));
+  const item = app.get('outline-pane').querySelector('.outline-item');
+  assert.equal(item?.dataset.page, '1');
+});

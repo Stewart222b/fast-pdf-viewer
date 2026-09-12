@@ -273,7 +273,7 @@ async function attachOutlinePages(items) {
         let explicit = item.dest;
         if (typeof explicit === "string") explicit = await viewer.pdf.getDestination(explicit);
         const ref = explicit?.[0];
-        if (ref) {
+        if (ref != null) {
           const pageIndex = typeof ref === "object" ? await viewer.pdf.getPageIndex(ref) : Number(ref);
           item.pageNumber = pageIndex + 1;
         }

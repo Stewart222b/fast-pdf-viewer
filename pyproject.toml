@@ -34,4 +34,4 @@ where = ["."]
 include = ["desktop*"]
 
 [tool.setuptools.package-data]
-"*" = ["web/**/*", "samples/*"]
+desktop = ["web/**/*", "samples/**/*"]
