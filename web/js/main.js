@@ -41,7 +41,6 @@ let positionSaveTimer = 0;
 let translateAbort = null;
 let translateRequestId = 0;
 let bubbleSelectionId = 0;
-let selectionDragSpan = null;
 
 history.onChange(() => {
   $("btn-back").disabled = !history.canBack();
@@ -80,42 +79,6 @@ function stepPage(delta) {
   const next = Math.min(viewer.pageCount, Math.max(1, viewer.currentPage + delta));
   if (next === viewer.currentPage) return;
   viewer.goToPage(next, { push: true });
-}
-
-function textLayerSpan(node) {
-  const el = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
-  return el?.closest?.(".textLayer span") || null;
-}
-
-function clampSelectionToTextSpans(clientX, clientY) {
-  const selection = window.getSelection();
-  if (!selection?.rangeCount) return;
-  const range = selection.getRangeAt(0);
-  if (range.collapsed) return;
-  const startSpan = textLayerSpan(range.startContainer);
-  if (!startSpan) {
-    selection.removeAllRanges();
-    return;
-  }
-  const pointSpan = document.elementFromPoint(clientX, clientY)?.closest?.(".textLayer span");
-  const endSpan = pointSpan || selectionDragSpan || startSpan;
-  selectionDragSpan = null;
-  const next = document.createRange();
-  next.setStart(range.startContainer, range.startOffset);
-  const endNode = endSpan.firstChild;
-  if (endNode?.nodeType === Node.TEXT_NODE) {
-    let endOffset = endNode.textContent.length;
-    const originalEndSpan = textLayerSpan(range.endContainer);
-    if (originalEndSpan === endSpan && range.endContainer === endNode) {
-      endOffset = Math.min(range.endOffset, endOffset);
-    }
-    next.setEnd(endNode, endOffset);
-  } else {
-    next.setEnd(endSpan, 0);
-  }
-  if (next.compareBoundaryPoints(Range.START_TO_END, next) > 0) next.collapse(true);
-  selection.removeAllRanges();
-  selection.addRange(next);
 }
 
 function scheduleSaveReadingPosition() {
@@ -450,14 +413,6 @@ async function moveHit(step) {
 }
 
 const wrap = $("viewer-wrap");
-wrap.addEventListener("mousedown", (event) => {
-  selectionDragSpan = event.target.closest?.(".textLayer span") || null;
-});
-wrap.addEventListener("mousemove", (event) => {
-  if (!(event.buttons & 1)) return;
-  const span = document.elementFromPoint(event.clientX, event.clientY)?.closest?.(".textLayer span");
-  if (span) selectionDragSpan = span;
-});
 wrap.addEventListener("dragover", (event) => {
   event.preventDefault();
   wrap.classList.add("dragover");
@@ -639,7 +594,6 @@ async function runTranslate(selectionId = bubbleSelectionId) {
 
 document.addEventListener("mouseup", (event) => {
   if (bubble.contains(event.target)) return;
-  clampSelectionToTextSpans(event.clientX, event.clientY);
   const selection = window.getSelection();
   const text = selection?.toString().trim() || "";
   if (!text || !selection.rangeCount) {
