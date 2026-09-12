@@ -20,27 +20,36 @@ function rectsIntersectViewport(rect, viewport) {
  * @param {Range} range
  * @param {RectLike | null} [viewportRect]
  */
-export function getSelectionAnchorRect(range, viewportRect = null) {
-  const clientRects = [...range.getClientRects()].filter(isValidRect);
-  if (clientRects.length) {
-    const visible = viewportRect
-      ? clientRects.filter((rect) => rectsIntersectViewport(rect, viewportRect))
-      : clientRects;
-    const pool = visible.length ? visible : clientRects;
-    return pool[pool.length - 1];
-  }
+function pickLastVisibleOrLast(rects, viewportRect) {
+  if (!rects.length) return null;
+  if (!viewportRect) return rects[rects.length - 1];
+  const visible = rects.filter((rect) => rectsIntersectViewport(rect, viewportRect));
+  const pool = visible.length ? visible : rects;
+  return pool[pool.length - 1];
+}
 
+export function getSelectionAnchorRect(range, viewportRect = null) {
   const endRange = range.cloneRange();
   endRange.collapse(false);
   const endRects = [...endRange.getClientRects()].filter(isValidRect);
-  if (endRects.length) {
-    const last = endRects[endRects.length - 1];
-    if (!viewportRect || rectsIntersectViewport(last, viewportRect)) return last;
+  const endAnchor = pickLastVisibleOrLast(endRects, viewportRect);
+  if (endAnchor) return endAnchor;
+
+  const endBox = endRange.getBoundingClientRect();
+  if (isValidRect(endBox) && (!viewportRect || rectsIntersectViewport(endBox, viewportRect))) {
+    return endBox;
   }
 
-  const collapsed = endRange.getBoundingClientRect();
-  if (isValidRect(collapsed)) return collapsed;
-  return range.getBoundingClientRect();
+  const clientRects = [...range.getClientRects()].filter(isValidRect);
+  const fromClients = pickLastVisibleOrLast(clientRects, viewportRect);
+  if (fromClients) return fromClients;
+
+  if (isValidRect(endBox)) return endBox;
+  const union = range.getBoundingClientRect();
+  if (isValidRect(union) && union.height > 200 && clientRects.length > 1) {
+    return clientRects[clientRects.length - 1];
+  }
+  return union;
 }
 
 /**
