@@ -7,12 +7,12 @@
   --text: #e8eaef;
   --muted: #9aa3b5;
   --accent: #7aa2ff;
-  --accent-strong: #5b8cff;
+  --accent-strong: #3d64d8;
   --danger: #f07178;
   --page-gap: 18px;
   --toolbar-h: 56px;
   --sidebar-w: 300px;
-  --shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.32);
   font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
@@ -55,7 +55,16 @@ select {
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
-  gap: 8px;
+  gap: 20px;
+}
+
+/* Permanent seats are grouped by spacing, not cards or hairlines. */
+.tb-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  min-width: 0;
 }
 
 .toolbar-left {
@@ -137,22 +146,26 @@ select {
   padding: 0;
 }
 
-.divider {
-  width: 1px;
-  height: 22px;
-  background: var(--line);
-  flex: 0 0 auto;
+/* Author display:inline-flex beats the UA [hidden] rule; enforce it. */
+.btn[hidden] {
+  display: none !important;
 }
 
-.page-nav {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex: 0 0 auto;
+/* Toolbar permanent seats stay visible but unframed; spacing groups them. */
+.toolbar .btn.toolbar-ghost {
+  border-color: transparent;
+  background: transparent;
+  height: 36px;
 }
 
-.page-nav .btn.icon.tiny {
-  flex: 0 0 auto;
+.toolbar .btn.toolbar-ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.toolbar .btn.toolbar-ghost.active:not(.primary) {
+  background: var(--bg-hover);
+  color: var(--accent);
+  border-color: transparent;
 }
 
 .page-box {
@@ -169,14 +182,24 @@ select {
   width: 3.2em;
   min-width: 2.5em;
   text-align: right;
-  background: var(--bg);
-  border: 1px solid var(--line);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 8px;
   padding: 6px 6px;
   font: inherit;
-  color: inherit;
+  color: var(--text);
   -moz-appearance: textfield;
   appearance: textfield;
+}
+
+.page-box .page-input:hover {
+  border-color: var(--line);
+}
+
+.page-box .page-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg);
 }
 
 .page-box .page-input::-webkit-outer-spin-button,
@@ -196,11 +219,11 @@ select {
 
 #zoom-button {
   height: 36px;
-  min-width: 104px;
+  min-width: 76px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -216,7 +239,6 @@ select {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--bg-raised);
-  box-shadow: var(--shadow);
 }
 
 .zoom-menu button {
@@ -251,12 +273,21 @@ select {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: var(--bg);
-  border: 1px solid var(--line);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 10px;
   padding: 4px 6px 4px 10px;
   min-width: 0;
   flex: 1 1 140px;
+}
+
+.search-box:hover {
+  border-color: var(--line);
+}
+
+.search-box:focus-within {
+  border-color: var(--accent);
+  background: var(--bg);
 }
 
 .search-box input {
@@ -321,31 +352,52 @@ select {
   transform: translateX(calc(-1 * var(--sidebar-w)));
 }
 
-.sidebar-tabs {
+.sidebar-head {
   display: flex;
-  padding: 10px;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 4px;
 }
 
-.tab {
-  flex: 1;
-  border: 0;
-  background: transparent;
+.sidebar-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted);
-  border-radius: 8px;
-  padding: 8px;
-  cursor: pointer;
+  font-size: 12px;
 }
 
-.tab.active {
-  background: var(--bg-hover);
-  color: var(--text);
+.search-pane-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px 8px;
+}
+
+.search-pane-bar .search-count {
+  flex: 1 1 auto;
+}
+
+.search-pane-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.search-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
 }
 
 .sidebar-pane {
   display: none;
   overflow: auto;
-  padding: 8px 10px 16px;
+  padding: 4px 10px 16px;
   min-height: 0;
 }
 
@@ -433,7 +485,6 @@ select {
 
 .search-hit {
   display: block;
-  margin-bottom: 6px;
 }
 
 .search-hit .meta {
@@ -460,9 +511,7 @@ select {
   overflow: auto;
   /* Prefetch resizes placeholders manually; disable browser scroll anchoring to avoid double compensation. */
   overflow-anchor: none;
-  background:
-    radial-gradient(1200px 500px at 50% -10%, #1c2333 0%, transparent 55%),
-    var(--bg);
+  background: var(--bg);
 }
 
 .pages {
@@ -604,12 +653,10 @@ select {
   background: #222733;
   border: 1px solid var(--line);
   border-radius: 12px;
-  box-shadow: var(--shadow);
   padding: 10px;
 }
 
 .bubble-body {
-  margin-top: 4px;
   min-height: 0;
   flex: 1 1 auto;
   overflow: auto;
@@ -620,6 +667,9 @@ select {
   gap: 6px;
   align-items: center;
   justify-content: flex-end;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
 }
 
 .bubble-actions-spacer {
@@ -641,7 +691,6 @@ select {
   font-weight: 600;
   line-height: 1;
   cursor: pointer;
-  box-shadow: var(--shadow);
 }
 
 .translate-chip:hover {
@@ -678,9 +727,14 @@ select {
 
 .bubble-source,
 .bubble-result {
-  margin-top: 8px;
+  margin-top: 0;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.bubble-result {
+  margin-top: 8px;
+  font-size: 14px;
 }
 
 .bubble-source.bubble-term,
@@ -835,7 +889,6 @@ select {
   background: var(--bg-elevated, #1a2030);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: var(--shadow);
   z-index: 20;
   margin: 0;
   padding: 4px;

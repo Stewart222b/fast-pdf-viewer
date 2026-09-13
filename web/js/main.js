@@ -185,8 +185,6 @@ function syncToolbar(state) {
   $("btn-back").disabled = !history.canBack();
   $("btn-forward").disabled = !history.canForward();
   const page = state.page || 1;
-  $("btn-page-prev").disabled = !viewer.pdf || page <= 1;
-  $("btn-page-next").disabled = !viewer.pdf || page >= viewer.pageCount;
   updateOutlineActive(page);
   scheduleSaveReadingPosition();
 }
@@ -301,6 +299,8 @@ async function renderOutline(request) {
     pane.replaceChildren();
     if (!outline?.length) {
       pane.innerHTML = '<div class="empty-side">这份 PDF 没有目录。</div>';
+      selectSidebar("outline");
+      setSidebarCollapsed(true);
     }
     return;
   }
@@ -376,19 +376,20 @@ async function attachOutlinePages(items, ctx) {
 function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)) {
   searchHits = hits;
   const pane = $("search-pane");
+  const list = $("search-list");
   const count = $("search-count");
-  pane.replaceChildren();
+  list.replaceChildren();
   $("search-prev").disabled = hits.length === 0;
   $("search-next").disabled = hits.length === 0;
   if (!query) {
     count.hidden = true;
-    pane.innerHTML = '<div class="empty-side">输入关键词后，这里会列出全部命中。</div>';
+    list.innerHTML = '<div class="empty-side">输入关键词后，这里会列出全部命中。</div>';
     return;
   }
   count.hidden = false;
   if (!hits.length) {
     count.textContent = "0 条";
-    pane.innerHTML = '<div class="empty-side">没有找到匹配。</div>';
+    list.innerHTML = '<div class="empty-side">没有找到匹配。</div>';
     return;
   }
   count.textContent = `${viewer.hitIndex + 1} / ${hits.length}`;
@@ -398,7 +399,7 @@ function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)
     button.className = "btn";
     button.textContent = label;
     button.addEventListener("click", () => renderSearchList(hits, query, nextStart));
-    pane.appendChild(button);
+    list.appendChild(button);
   };
   if (start > 0) moreButton("上一组结果", Math.max(0, start - 200));
   hits.slice(start, end).forEach((hit, localIndex) => {
@@ -412,10 +413,10 @@ function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)
         await viewer.jumpToHit(index, { push: true });
         if (searchHits === hits && $("search-input").value === query) renderSearchList(hits, query);
       } catch (error) {
-        if (searchHits === hits) pane.textContent = `定位失败：${error.message || error}`;
+        if (searchHits === hits) list.textContent = `定位失败：${error.message || error}`;
       }
     });
-    pane.appendChild(btn);
+    list.appendChild(btn);
   });
   if (end < hits.length) moreButton("下一组结果", end);
 }
@@ -456,7 +457,10 @@ async function runSearch(query, request = searchGeneration, jump = true) {
     if (globalThis.__PDF_BENCH__) {
       globalThis.__pdfSearchBench.resultListVisibleMs = performance.now() - searchStarted;
     }
-    if (query && jump) selectSidebar("search");
+    if (query && jump) {
+      selectSidebar("search");
+      setSidebarCollapsed(false);
+    }
     if (shown) await shown;
     if (!current()) return;
     if (globalThis.__PDF_BENCH__) {
@@ -467,22 +471,24 @@ async function runSearch(query, request = searchGeneration, jump = true) {
         const warning = document.createElement("div");
         warning.className = "empty-side";
         warning.textContent = "部分页面索引失败，当前仅显示已读取结果。";
-        $("search-pane").appendChild(warning);
+        $("search-list").appendChild(warning);
       } else if (viewer.indexedPages < viewer.pageCount) {
         $("search-count").textContent += ` · 索引 ${viewer.indexedPages}/${viewer.pageCount}`;
       }
     }
   } catch (error) {
-    if (current()) $("search-pane").textContent = `搜索失败：${error.message || error}`;
+    if (current()) $("search-list").textContent = `搜索失败：${error.message || error}`;
   }
 }
 
 function selectSidebar(name) {
-  document.querySelectorAll(".tab").forEach((tab) => {
-    tab.classList.toggle("active", tab.dataset.tab === name);
-  });
   $("outline-pane").classList.toggle("active", name === "outline");
   $("search-pane").classList.toggle("active", name === "search");
+  $("sidebar-title").textContent = name === "search" ? "搜索结果" : "目录";
+}
+
+function isSidebarCollapsed() {
+  return document.querySelector(".workspace").classList.contains("sidebar-collapsed");
 }
 
 function setSidebarCollapsed(collapsed) {
@@ -509,9 +515,14 @@ fileInput.addEventListener("change", async () => {
 
 $("btn-open").addEventListener("click", pickFile);
 $("btn-sidebar").addEventListener("click", () => {
-  setSidebarCollapsed(!document.querySelector(".workspace").classList.contains("sidebar-collapsed"));
+  const collapsed = !isSidebarCollapsed();
+  if (!collapsed && $("search-input").value.trim()) selectSidebar("search");
+  else selectSidebar("outline");
+  setSidebarCollapsed(collapsed);
 });
-setSidebarCollapsed(false);
+$("btn-sidebar-close").addEventListener("click", () => setSidebarCollapsed(true));
+// 默认收起：空文档、无目录文档都是全宽页面，目录按需打开。
+setSidebarCollapsed(true);
 $("btn-back").addEventListener("click", () => viewer.back());
 $("btn-forward").addEventListener("click", () => viewer.forward());
 $("btn-zoom-in").addEventListener("click", () => {
@@ -523,8 +534,6 @@ $("btn-zoom-out").addEventListener("click", () => {
 $("zoom-select").addEventListener("change", (event) => {
   viewer.setZoom(event.target.value);
 });
-$("btn-page-prev").addEventListener("click", () => stepPage(-1));
-$("btn-page-next").addEventListener("click", () => stepPage(1));
 function pageInputValue(raw) {
   const digits = String(raw || "").replace(/\D/g, "");
   const page = Number(digits);
@@ -541,10 +550,6 @@ $("page-input").addEventListener("keydown", (event) => {
     const page = pageInputValue(event.target.value);
     if (page) viewer.goToPage(page, { push: true });
   }
-});
-
-document.querySelectorAll(".tab").forEach((tab) => {
-  tab.addEventListener("click", () => selectSidebar(tab.dataset.tab));
 });
 
 let searchTimer = 0;
@@ -577,7 +582,7 @@ async function moveHit(step) {
     await viewer.jumpToHit(next, { push: true });
     if (searchHits === hits) renderSearchList(hits, $("search-input").value);
   } catch (error) {
-    if (searchHits === hits) $("search-pane").textContent = `定位失败：${error.message || error}`;
+    if (searchHits === hits) $("search-list").textContent = `定位失败：${error.message || error}`;
   }
 }
 
@@ -681,8 +686,9 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     stepPage(-1);
   }
-  if (event.key === "Escape" && !typing) {
-    hideBubble();
+  if (event.key === "Escape") {
+    if (!$("translate-bubble").hidden) hideBubble();
+    setZoomMenuOpen(false);
     $("settings-modal").hidden = true;
   }
 });
@@ -865,8 +871,16 @@ async function runTranslate(selectionId = bubbleSelectionId) {
   }
 }
 
-document.addEventListener("mouseup", (event) => {
-  if (bubble.contains(event.target) || translateChip.contains(event.target)) return;
+// 划词气泡是选区延伸：点击外部 / Esc 直接关闭，不做迷你聊天。
+document.addEventListener("pointerdown", (event) => {
+  if (bubble.hidden) return;
+  const target = event.target;
+  if (bubble.contains(target) || translateChip.contains(target)) return;
+  if (target.closest?.(".textLayer")) return;
+  hideBubble();
+});
+
+document.addEventListener("mouseup", (event) => {  if (bubble.contains(event.target) || translateChip.contains(event.target)) return;
   const selection = window.getSelection();
   const prepared = selection?.rangeCount ? prepareSelectionForTranslation(selection) : null;
   if (prepared?.tooLong) {
