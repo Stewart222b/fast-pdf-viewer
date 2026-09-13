@@ -234,14 +234,16 @@ select {
   --sidebar-slide-ms: 0.18s;
   width: var(--sidebar-w);
   flex: 0 0 var(--sidebar-w);
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
   background: #161922;
   border-right: 1px solid var(--line);
   transition:
     width var(--sidebar-slide-ms) ease,
-    flex-basis var(--sidebar-slide-ms) ease,
-    border-color var(--sidebar-slide-ms) ease;
+    flex var(--sidebar-slide-ms) ease,
+    border-color var(--sidebar-slide-ms) ease,
+    border-width var(--sidebar-slide-ms) ease;
 }
 
 .sidebar-inner {
@@ -258,7 +260,9 @@ select {
 
 .workspace.sidebar-collapsed .sidebar {
   width: 0;
-  flex-basis: 0;
+  max-width: 0;
+  flex: 0 0 0;
+  border-right-width: 0;
   border-right-color: transparent;
   pointer-events: none;
 }
