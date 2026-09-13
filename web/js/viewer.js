@@ -30,11 +30,12 @@ function destTypeName(type) {
 }
 
 export class PdfViewer {
-  constructor({ pagesEl, wrapEl, history, onState, onScrollPosition, onIndex, onPassword }) {
+  constructor({ pagesEl, wrapEl, history, onState, onZoomPreview, onScrollPosition, onIndex, onPassword }) {
     this.pagesEl = pagesEl;
     this.wrapEl = wrapEl;
     this.history = history;
     this.onState = onState;
+    this.onZoomPreview = onZoomPreview;
     this.onScrollPosition = onScrollPosition;
     this.onIndex = onIndex;
     this.onPassword = onPassword;
@@ -354,6 +355,7 @@ export class PdfViewer {
         this.pinchFrame = null;
         if (this.pinch) {
           this.pagesEl.style.transform = `scale(${this.pinch.target / this.pinch.zoom})`;
+          this.onZoomPreview?.(this.pinch.target * 100);
         }
       });
     }
@@ -370,6 +372,7 @@ export class PdfViewer {
     this.pagesEl.style.transform = "";
     this.pagesEl.style.transformOrigin = "";
     this.pagesEl.style.willChange = "";
+    this.onZoomPreview?.(this.zoomMode);
   }
 
   finishPinch() {

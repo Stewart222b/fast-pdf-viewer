@@ -23,6 +23,65 @@ import { PdfViewer } from "./viewer.js";
 const $ = (id) => document.getElementById(id);
 const platform = createPlatform();
 
+// The fixed select supplies presets; the visible label can show any gesture scale.
+const zoomMenuItems = [...$("zoom-select").options].map(option => {
+  const item = document.createElement("button");
+  item.type = "button";
+  item.tabIndex = -1;
+  item.dataset.zoom = option.value;
+  item.textContent = option.textContent;
+  item.setAttribute("role", "menuitemradio");
+  item.setAttribute("aria-checked", String(option.selected));
+  item.addEventListener("click", () => {
+    setZoomMenuOpen(false);
+    viewer.setZoom(option.value);
+    $("zoom-button").focus({ preventScroll: true });
+  });
+  $("zoom-menu").appendChild(item);
+  return item;
+});
+
+function setZoomMenuOpen(open, index) {
+  $("zoom-menu").hidden = !open;
+  $("zoom-button").setAttribute("aria-expanded", String(open));
+  if (open) {
+    const selected = zoomMenuItems.findIndex(item => item.getAttribute("aria-checked") === "true");
+    zoomMenuItems[index ?? Math.max(0, selected)]?.focus({ preventScroll: true });
+    $("zoom-menu").scrollTop = 0;
+  }
+}
+
+$("zoom-button").addEventListener("click", () => setZoomMenuOpen($("zoom-menu").hidden));
+$("zoom-button").addEventListener("keydown", event => {
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    setZoomMenuOpen(true, event.key === "ArrowDown" ? 0 : zoomMenuItems.length - 1);
+  }
+});
+$("zoom-menu").addEventListener("keydown", event => {
+  const index = zoomMenuItems.indexOf(document.activeElement);
+  let next;
+  if (event.key === "ArrowDown") next = (index + 1) % zoomMenuItems.length;
+  if (event.key === "ArrowUp") next = (index - 1 + zoomMenuItems.length) % zoomMenuItems.length;
+  if (event.key === "Home") next = 0;
+  if (event.key === "End") next = zoomMenuItems.length - 1;
+  if (next !== undefined) {
+    event.preventDefault();
+    zoomMenuItems[next]?.focus();
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    setZoomMenuOpen(false);
+    $("zoom-button").focus({ preventScroll: true });
+  }
+});
+document.addEventListener("pointerdown", event => {
+  if (!$("zoom-picker").contains(event.target)) setZoomMenuOpen(false);
+});
+$("zoom-picker").addEventListener("focusout", event => {
+  if (!$("zoom-picker").contains(event.relatedTarget)) setZoomMenuOpen(false);
+});
+
+
 const history = new ViewHistory();
 let passwordDialog = null;
 
@@ -76,6 +135,7 @@ const viewer = new PdfViewer({
   wrapEl: $("viewer-wrap"),
   history,
   onState: syncToolbar,
+  onZoomPreview: syncZoom,
   onScrollPosition: scheduleSaveReadingPosition,
   onIndex: refreshIndexedSearch,
   onPassword: requestPdfPassword,
@@ -105,24 +165,23 @@ history.onChange(() => {
   $("btn-forward").disabled = !history.canForward();
 });
 
+function syncZoom(mode) {
+  const value = String(mode);
+  const select = $("zoom-select");
+  const preset = [...select.options].find(opt => opt.value === value);
+  $("zoom-label").textContent = preset?.textContent || `${Math.round(Number(value))}%`;
+  select.value = value;
+  for (const item of zoomMenuItems) {
+    item.setAttribute("aria-checked", String(item.dataset.zoom === value));
+  }
+}
+
 function syncToolbar(state) {
   $("page-input").value = String(state.page || 1);
   $("page-count").textContent = String(viewer.pageCount || 0);
   $("doc-title").textContent = viewer.name || "未打开文件";
   $("drop-hint").classList.toggle("hidden", Boolean(viewer.pdf));
-  if (!["page-width", "page-fit"].includes(String(state.zoom))) {
-    const value = String(state.zoom);
-    const select = $("zoom-select");
-    if (![...select.options].some((opt) => opt.value === value)) {
-      const opt = document.createElement("option");
-      opt.value = value;
-      opt.textContent = `${value}%`;
-      select.appendChild(opt);
-    }
-    select.value = value;
-  } else {
-    $("zoom-select").value = String(state.zoom);
-  }
+  syncZoom(viewer.pinch ? viewer.pinch.target * 100 : state.zoom);
   $("btn-back").disabled = !history.canBack();
   $("btn-forward").disabled = !history.canForward();
   const page = state.page || 1;
