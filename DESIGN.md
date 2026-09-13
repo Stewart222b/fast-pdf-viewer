@@ -12,7 +12,7 @@ colors:
   readout: "#e8eaef"
   muted-readout: "#9aa3b5"
   signal-blue: "#7aa2ff"
-  signal-blue-strong: "#5b8cff"
+  signal-blue-strong: "#3d64d8"
   danger: "#f07178"
   primary-on-accent: "#ffffff"
 typography:
@@ -107,14 +107,14 @@ This file records the **shipped** look on `feat/ui-redesign` (post–PR #5). A l
 One cool-dark chassis with a single blue signal. Danger red is reserved for errors.
 
 ### Primary
-- **信号蓝** (`{colors.signal-blue}`): focus, active outline, checked zoom item, chip hover. Stronger fill (`{colors.signal-blue-strong}`) is the primary button (打开).
+- **信号蓝** (`{colors.signal-blue}`): focus, active outline, checked zoom item, chip hover. Stronger fill (`{colors.signal-blue-strong}`) is the primary button (打开); the fill is darkened to hold white text at 4.5:1.
 
 ### Neutral
-- **夜壳** (`{colors.night-shell}`): app ground and ghost-button fill.
+- **夜壳** (`{colors.night-shell}`): app ground.
 - **抬升面** (`{colors.raised-deck}`): toolbar and menus sitting one step above the ground.
 - **悬停板** (`{colors.hover-plate}`): hover/active non-primary controls.
 - **目录井** (`{colors.sidebar-well}`): outline/search sidebar (slightly off the ground, not a tokenized CSS variable).
-- **发丝线** (`{colors.hairline}`): borders and menu-item hover wash.
+- **发丝线** (`{colors.hairline}`): sidebar edge, bubble action divider, menu hover wash — never a full card outline on toolbar seats.
 - **读数** (`{colors.readout}`): primary text.
 - **弱读数** (`{colors.muted-readout}`): secondary labels, search counts, empty-state hints.
 
@@ -142,14 +142,16 @@ One cool-dark chassis with a single blue signal. Danger red is reserved for erro
 
 ## Layout
 
-Top **toolbar** is 56px, grid of left / fluid center title / right tools, 14px horizontal padding, 8–12px control gaps. Below it, a **flex workspace**: 300px outline/search sidebar (slides as a fixed-width inner pane) plus `#viewer-wrap` which owns remaining width and recenters the page. Page stack gap is 18px. Sidebar close must collapse to zero flex width so no gutter remains.
+Top **toolbar** is 56px, always visible, never auto-hidden: left file/nav cluster, fluid center title, right tool cluster, 14px horizontal padding. Permanent seats are capped at seven, grouped by spacing (tight 2px inside a group, 20px between groups) instead of hairline cards or dividers: 打开 / 目录 / 历史←→ / 页码 / 缩放 / 搜索框 / 设置. Zoom (`−` label `+`) and history (`←` `→`) each read as one seat. Below it, a **flex workspace**: outline/search sidebar plus `#viewer-wrap` which owns remaining width and recenters the page. Page stack gap is 18px.
+
+**Sidebar defaults shut.** The sidebar boots collapsed and stays collapsed for empty state and no-outline PDFs, so the page is full-width until the user toggles 目录. Closing collapses to zero flex width so no gutter remains. 目录 has exactly one entry: the toolbar toggle. The sidebar itself carries no 目录/搜索结果 tabs; its header only names the current mode (目录 / 搜索结果) with a close button. Search input lives in the toolbar; hit count, prev/next, and the result list live only in the sidebar search mode — never both.
 
 ## Elevation & Depth
 
-Flat at rest. Structure is darker vs slightly-lighter fills plus 1px hairlines. The shared shadow (`0 12px 40px rgba(0, 0, 0, 0.35)`) appears only on floating chrome: zoom menu, translate bubble, 译 chip, modal.
+Flat at rest and flat over the page. Structure is darker vs slightly-lighter fills; the viewer ground is a single flat fill with no radial glow. Floating panels (zoom menu, translate bubble, 译 chip, modal, model menu) commit to a defined hairline edge and carry no diffuse shadow. The one shadow left in the reader belongs to the paper page itself, which has no border — edge or elevation, never both.
 
 ### Shadow Vocabulary
-- **浮层** (`box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35)`): menus, bubble, chip, modal. Do not stack extra shadows.
+- **纸面** (`box-shadow: 0 4px 16px rgba(0, 0, 0, 0.32)`): the PDF sheet only. Do not put it on bordered panels.
 
 ### Named Rules
 **The Flat-By-Default Rule.** Surfaces are flat until they float over the page.
@@ -161,28 +163,30 @@ Controls are softly rounded: 10px on toolbar buttons and search field, 8px on co
 ## Components
 
 ### Buttons
-- **Shape:** 10px corners, 36px tall, 8×12 padding, 1px hairline.
+- **Shape:** 10px corners, 36px tall, 8×12 padding.
 - **Primary:** 信号蓝强底、白字、无描边；hover 提高亮度。
-- **Ghost:** 夜壳底 + 发丝线；hover 悬停板；active 非主按钮描边改信号蓝。
+- **Toolbar ghost:** 无框、无底，靠 20px 组间距分组；hover 悬停板；active 非主按钮字变信号蓝，不套描边。
+- **Dialog/sidebar buttons:** keep the quiet 8px tiny button; no dual-weight wall of 36px hairline cards.
 - **Disabled:** 40% opacity.
 
 ### Chips
-- **译 chip:** 28px tall, 8px radius, `#2a3140` fill, shared 浮层 shadow; hover uses 信号蓝 on border and type.
+- **译 chip:** 28px tall, 8px radius, `#2a3140` fill, defined hairline edge, no diffuse shadow; hover uses 信号蓝 on border and type.
 
 ### Cards / Containers
-- **Translate bubble:** 12px radius, `#222733`, 10px pad, max 420px, shared shadow, internal scroll.
-- **Modal:** raised deck, 16px radius, same shadow.
-- **Sidebar:** 300px, `#161922`, hairline right edge; inner pane translates, width does not squeeze type.
+- **Translate bubble:** 12px radius, `#222733`, 10px pad, max 420px, hairline edge, no diffuse shadow. Translation first, actions last: source/result body on top, 取消/复制/关闭 row pinned below a divider — a selection extension, not a mini-chat.
+- **Modal:** raised deck, 16px radius, hairline edge, no diffuse shadow.
+- **Sidebar:** 300px, `#161922`, hairline right edge; inner pane translates, width does not squeeze type. Single-mode header (title + close), no tab row.
 
 ### Inputs / Fields
-- **Search:** hairline capsule on 夜壳, transparent inner field, no extra focus ring beyond the box.
-- **Page index:** text input, tabular nums, no spinner.
+- **Search:** borderless input on transparent fill in the toolbar; hover/focus reveals the edge. Count, prev/next, and hits live only in the sidebar search mode.
+- **Page index:** borderless text input, tabular nums, no spinner; hover/focus reveals the edge.
 
 ### Navigation
-- Toolbar is the only global nav: 打开 / 目录, history, page, zoom, search, settings. 目录 is an active ghost, not a second primary. Sidebar tabs sit inside the well.
+- Toolbar is the only global nav: 打开 / 目录 toggle, history, page, zoom, search, settings. 目录 toggles the sidebar mode; the sidebar never repeats it as a tab.
+- Page stepping in chrome is the page box (type + Enter) plus ↑/↓/PageUp/PageDown keys; history is ←/→ plus Alt+←/→ and mouse side buttons.
 
 ### Signature: 划词气泡
-Fixed overlay anchored to the selection focus end, clamped inside `#viewer-wrap`. Compact chrome; streaming caret while tokens arrive.
+Fixed overlay anchored to the selection focus end, clamped inside `#viewer-wrap`. Source small muted, translation prominent, actions after. Esc or outside click closes; streaming caret while tokens arrive.
 
 ## Do's and Don'ts
 
