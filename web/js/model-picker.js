@@ -4,6 +4,7 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
   let models = [];
   let loadToken = 0;
   let activeController = null;
+  let suppressMenuOnInput = false;
 
   const hideMenu = () => {
     menu.hidden = true;
@@ -33,7 +34,10 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
       button.addEventListener("click", () => {
         input.value = model.id;
         hideMenu();
+        suppressMenuOnInput = true;
         input.dispatchEvent(new Event("input", { bubbles: true }));
+        suppressMenuOnInput = false;
+        input.blur();
       });
       item.append(button);
       menu.append(item);
@@ -91,7 +95,10 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
   input.addEventListener("focus", () => {
     if (models.length) renderMenu(input.value);
   });
-  input.addEventListener("input", () => renderMenu(input.value));
+  input.addEventListener("input", () => {
+    if (suppressMenuOnInput) return;
+    renderMenu(input.value);
+  });
   input.addEventListener("blur", () => {
     setTimeout(hideMenu, 120);
   });
