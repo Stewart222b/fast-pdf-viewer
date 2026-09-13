@@ -181,6 +181,8 @@ function syncToolbar(state) {
   $("page-count").textContent = String(viewer.pageCount || 0);
   $("doc-title").textContent = viewer.name || "未打开文件";
   $("drop-hint").classList.toggle("hidden", Boolean(viewer.pdf));
+  // Empty state keeps a primary 打开; once a PDF is open it steps down.
+  $("btn-open").classList.toggle("demoted", Boolean(viewer.pdf));
   syncZoom(viewer.pinch ? viewer.pinch.target * 100 : state.zoom);
   $("btn-back").disabled = !history.canBack();
   $("btn-forward").disabled = !history.canForward();
@@ -246,6 +248,7 @@ async function openSource(getSource) {
   objectUrl = null;
   currentFingerprint = "";
   $("search-input").value = "";
+  $("search-clear").hidden = true;
   renderSearchList([], "");
   $("outline-pane").replaceChildren();
   hideBubble();
@@ -514,6 +517,7 @@ fileInput.addEventListener("change", async () => {
 });
 
 $("btn-open").addEventListener("click", pickFile);
+$("btn-open-empty")?.addEventListener("click", pickFile);
 $("btn-sidebar").addEventListener("click", () => {
   const collapsed = !isSidebarCollapsed();
   if (!collapsed && $("search-input").value.trim()) selectSidebar("search");
@@ -556,10 +560,20 @@ let searchTimer = 0;
 $("search-input").addEventListener("input", (event) => {
   const query = event.target.value;
   const request = ++searchGeneration;
+  $("search-clear").hidden = !query;
   clearTimeout(searchTimer);
   viewer.clearHits();
   renderSearchList([], "");
   searchTimer = setTimeout(() => runSearch(query, request), 180);
+});
+$("search-clear").addEventListener("click", () => {
+  searchGeneration += 1;
+  clearTimeout(searchTimer);
+  viewer.clearHits();
+  $("search-input").value = "";
+  $("search-clear").hidden = true;
+  renderSearchList([], "");
+  $("search-input").focus();
 });
 $("search-input").addEventListener("keydown", async (event) => {
   if (event.key === "Enter") {

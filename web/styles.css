@@ -36,6 +36,26 @@ select {
   color: inherit;
 }
 
+.icon-sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+/* Lucide-style stroke icons (sprite stolen from the closed Superdesign pass). */
+.icon {
+  width: 1em;
+  height: 1em;
+  display: block;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .toolbar {
   position: relative;
   z-index: 10;
@@ -55,16 +75,23 @@ select {
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
-  gap: 20px;
+  gap: 12px;
 }
 
-/* Permanent seats are grouped by spacing, not cards or hairlines. */
+/* Permanent seats are grouped by spacing plus a hairline divider between clusters. */
 .tb-group {
   display: flex;
   align-items: center;
   gap: 2px;
   flex: 0 0 auto;
   min-width: 0;
+}
+
+.tb-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--line);
+  flex: 0 0 auto;
 }
 
 .toolbar-left {
@@ -86,15 +113,16 @@ select {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--muted);
 }
 
 .btn {
   border: 1px solid var(--line);
   background: var(--bg);
   color: var(--text);
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 8px 12px;
   cursor: pointer;
   white-space: nowrap;
@@ -124,6 +152,17 @@ select {
   filter: brightness(1.08);
 }
 
+/* After a PDF is open, 打开 steps down to a normal toolbar control. */
+#btn-open.demoted {
+  background: transparent;
+  border-color: transparent;
+}
+
+#btn-open.demoted:hover:not(:disabled) {
+  background: var(--bg-hover);
+  filter: none;
+}
+
 .btn.active:not(.primary) {
   background: var(--bg-hover);
   border-color: var(--accent);
@@ -134,9 +173,25 @@ select {
   padding: 0;
 }
 
+.btn.has-icon {
+  gap: 6px;
+}
+
+.btn .icon {
+  font-size: 15px;
+}
+
+.btn.icon .icon {
+  font-size: 16px;
+}
+
+.btn.tiny .icon {
+  font-size: 13px;
+}
+
 .btn.tiny {
   padding: 4px 8px;
-  border-radius: 8px;
+  border-radius: 4px;
   font-size: 12px;
   height: 28px;
 }
@@ -184,7 +239,7 @@ select {
   text-align: right;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 6px 6px;
   font: inherit;
   color: var(--text);
@@ -227,6 +282,11 @@ select {
   font-variant-numeric: tabular-nums;
 }
 
+#zoom-button .chevron {
+  font-size: 13px;
+  color: var(--muted);
+}
+
 .zoom-menu {
   position: absolute;
   top: calc(100% + 6px);
@@ -237,7 +297,7 @@ select {
   overflow-y: auto;
   padding: 4px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--bg-raised);
 }
 
@@ -247,7 +307,7 @@ select {
   width: 100%;
   padding: 7px 12px 7px 28px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   background: transparent;
   color: var(--text);
   font: inherit;
@@ -273,30 +333,65 @@ select {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  padding: 4px 6px 4px 10px;
+  height: 30px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 4px 0 8px;
   min-width: 0;
-  flex: 1 1 140px;
-}
-
-.search-box:hover {
-  border-color: var(--line);
+  flex: 0 1 210px;
 }
 
 .search-box:focus-within {
   border-color: var(--accent);
-  background: var(--bg);
+}
+
+.search-box .search-icon {
+  font-size: 14px;
+  color: var(--muted);
 }
 
 .search-box input {
-  width: 180px;
+  width: 140px;
   min-width: 0;
   flex: 1 1 auto;
   border: 0;
   background: transparent;
   outline: none;
+  font-size: 13px;
+}
+
+.search-box input::placeholder {
+  color: var(--muted);
+}
+
+.search-box input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.search-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.search-clear[hidden] {
+  display: none !important;
 }
 
 .search-count {
@@ -390,13 +485,14 @@ select {
 .search-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
   min-height: 0;
 }
 
 .sidebar-pane {
   display: none;
   overflow: auto;
+  overflow-x: hidden;
   padding: 4px 10px 16px;
   min-height: 0;
 }
@@ -408,20 +504,39 @@ select {
 .outline-item,
 .search-hit {
   width: 100%;
+  min-width: 0;
   text-align: left;
   border: 0;
   background: transparent;
   color: var(--text);
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 8px 10px;
   cursor: pointer;
 }
 
 .outline-item:hover,
-.search-hit:hover,
-.search-hit.active,
-.outline-item.active {
+.search-hit:hover {
   background: var(--bg-hover);
+}
+
+/* Current hit: thin accent bar on a quiet wash, not a blue card. */
+.search-hit {
+  position: relative;
+}
+
+.search-hit + .search-hit {
+  border-top: 1px solid var(--line);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.search-hit.active {
+  background: var(--bg-hover);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.search-hit.active .meta {
+  color: var(--accent);
 }
 
 .outline-item.active {
@@ -485,12 +600,22 @@ select {
 
 .search-hit {
   display: block;
+  overflow: hidden;
 }
 
 .search-hit .meta {
   color: var(--muted);
   font-size: 12px;
   margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-hit .snippet {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.5;
 }
 
 .search-hit .snippet mark {
@@ -626,6 +751,22 @@ select {
   font-size: 16px;
 }
 
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  pointer-events: auto;
+}
+
+#btn-open-empty {
+  margin: 0 0 16px;
+}
+
+.empty-state ul {
+  text-align: left;
+}
+
 .drop-hint ul {
   margin: 0;
   padding-left: 18px;
@@ -652,7 +793,7 @@ select {
   overflow: hidden;
   background: #222733;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 8px;
   padding: 10px;
 }
 
@@ -672,6 +813,28 @@ select {
   border-top: 1px solid var(--line);
 }
 
+/* Quiet by default; actions surface on hover for pointer users. */
+.bubble-close {
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+.bubble-close:hover {
+  opacity: 1;
+  color: var(--text);
+}
+
+@media (hover: hover) {
+  .translate-bubble .bubble-actions {
+    opacity: 0.55;
+  }
+
+  .translate-bubble:hover .bubble-actions,
+  .translate-bubble:focus-within .bubble-actions {
+    opacity: 1;
+  }
+}
+
 .bubble-actions-spacer {
   flex: 1 1 auto;
   min-width: 4px;
@@ -684,7 +847,7 @@ select {
   height: 28px;
   padding: 0 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: #2a3140;
   color: var(--text);
   font-size: 13px;
@@ -728,8 +891,14 @@ select {
 .bubble-source,
 .bubble-result {
   margin-top: 0;
-  font-size: 13px;
   line-height: 1.5;
+}
+
+/* Source stays quieter than the translation: smaller, dimmer, no titles. */
+.bubble-source {
+  font-size: 12px;
+  color: var(--muted);
+  opacity: 0.75;
 }
 
 .bubble-result {
@@ -754,10 +923,6 @@ select {
 
 .bubble-passage p:last-child {
   margin-bottom: 0;
-}
-
-.bubble-source {
-  color: var(--muted);
 }
 
 .bubble-status {
@@ -822,7 +987,7 @@ select {
   width: min(460px, calc(100vw - 24px));
   background: var(--bg-raised);
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 8px;
   padding: 20px;
 }
 
@@ -854,7 +1019,7 @@ select {
   margin-top: 6px;
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 10px;
 }
 
@@ -888,7 +1053,7 @@ select {
   overflow: auto;
   background: var(--bg-elevated, #1a2030);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 8px;
   z-index: 20;
   margin: 0;
   padding: 4px;
@@ -906,7 +1071,7 @@ select {
   background: transparent;
   color: var(--text);
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 4px;
   cursor: pointer;
   font-size: 13px;
 }
@@ -930,5 +1095,5 @@ select {
 
 ::-webkit-scrollbar-thumb {
   background: #3a4254;
-  border-radius: 10px;
+  border-radius: 6px;
 }
