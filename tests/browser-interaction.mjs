@@ -73,6 +73,16 @@ try {
   await send('Page.navigate', { url: `http://127.0.0.1:${fixtures.port}/` });
   await until(`document.querySelector('.page')?.dataset.renderedZoom`);
 
+  const layerGeometry = await evaluate(`(() => {
+    const page = document.querySelector('.page');
+    const rect = el => {const r = el.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height};};
+    return {canvas:rect(page.querySelector('canvas')), text:rect(page.querySelector('.textLayer')), border:getComputedStyle(page).borderWidth};
+  })()`);
+  console.log('layer geometry', layerGeometry);
+  for (const key of ['x', 'y', 'width', 'height']) {
+    assert.ok(Math.abs(layerGeometry.canvas[key] - layerGeometry.text[key]) <= 1, 'canvas and text must share ' + key);
+  }
+
   const linkLayerPe = await evaluate(`getComputedStyle(document.querySelector('.linkLayer')).pointerEvents`);
   assert.equal(linkLayerPe, 'none');
 
@@ -95,6 +105,147 @@ try {
   assert.equal(sidebarToggle.before, false);
   assert.equal(sidebarToggle.after, true);
   assert.equal(sidebarToggle.restored, true);
+
+  const motion = await evaluate(`(async () => {
+    await new Promise(r => setTimeout(r, 220));
+    const sidebar = document.getElementById('sidebar');
+    const width = sidebar.getBoundingClientRect().width;
+    document.getElementById('btn-sidebar').click();
+    await new Promise(r => setTimeout(r, 60));
+    const middle = sidebar.getBoundingClientRect().width;
+    await new Promise(r => setTimeout(r, 200));
+    const end = sidebar.getBoundingClientRect().width;
+    document.getElementById('btn-sidebar').click();
+    await new Promise(r => setTimeout(r, 220));
+    return { width, middle, end };
+  })()`);
+  console.log('sidebar motion', motion);
+  const pinch = await evaluate(`(async () => {
+    const wrap = document.querySelector('.viewer-wrap');
+    const page = document.querySelector('.page');
+    const before = page.getBoundingClientRect().width;
+    const rect = wrap.getBoundingClientRect();
+    wrap.dispatchEvent(new WheelEvent('wheel', {ctrlKey:true, deltaY:-1,
+      clientX:rect.left + 200, clientY:rect.top + 200, bubbles:true, cancelable:true}));
+    await new Promise(r => setTimeout(r, 50));
+    const during = page.getBoundingClientRect().width;
+    const select = document.getElementById("zoom-select");
+    const previewLabel = document.getElementById("zoom-label").textContent;
+    await new Promise(r => setTimeout(r, 300));
+    return { before, during, after:page.getBoundingClientRect().width, previewLabel, finalLabel:document.getElementById("zoom-label").textContent };
+  })()`);
+  console.log('pinch motion', pinch);
+  assert.equal(pinch.previewLabel, '152%', 'toolbar updates during the gesture and rounds to an integer');
+  assert.equal(pinch.finalLabel, pinch.previewLabel);
+  assert.ok(motion.middle > motion.width * 0.1 && motion.middle < motion.width * 0.95, 'collapse must have an intermediate width');
+  assert.ok(motion.end <= 1);
+  assert.ok(pinch.during > pinch.before && pinch.during < pinch.before * 1.03, 'tiny pinch must produce a small continuous scale change');
+  assert.ok(Math.abs(pinch.after - pinch.during) < 1, 'preview and final scale must agree');
+
+  const burst = await evaluate(`(async () => {
+    const wrap = document.querySelector('.viewer-wrap');
+    const page = document.querySelector('.page');
+    wrap.scrollTop = 300;
+    await new Promise(r => setTimeout(r, 200));
+    const rect = wrap.getBoundingClientRect();
+    const anchorY = rect.top + 220;
+    const before = page.getBoundingClientRect();
+    const fraction = (anchorY - before.top) / before.height;
+    const canvas = page.querySelector('canvas');
+    for (let i = 0; i < 10; i++) {
+      wrap.dispatchEvent(new WheelEvent('wheel', {ctrlKey:true, deltaY:-1,
+        clientX:rect.left + 220, clientY:anchorY, bubbles:true, cancelable:true}));
+      await new Promise(r => setTimeout(r, 16));
+    }
+    const during = page.getBoundingClientRect();
+    const sameCanvas = canvas === page.querySelector('canvas');
+    const previewError = Math.abs(during.top + fraction * during.height - anchorY);
+    await new Promise(r => setTimeout(r, 450));
+    const after = page.getBoundingClientRect();
+    const finalError = Math.abs(after.top + fraction * after.height - anchorY);
+    const customOptions = document.querySelectorAll('option[data-custom-zoom]').length;
+    return {sameCanvas, previewError, finalError, ratio:after.width / before.width, customOptions};
+  })()`);
+  console.log('pinch burst', burst);
+  assert.ok(burst.sameCanvas, 'gesture must reuse the bitmap without rendering');
+  assert.ok(burst.previewError < 1 && burst.finalError < 1, 'reading point must stay anchored');
+  assert.ok(Math.abs(burst.ratio - Math.exp(0.1)) < 0.001, 'all gesture deltas must accumulate');
+  assert.equal(burst.customOptions, 0, "gesture percentages must never become dropdown options");
+
+  const nativePinch = await evaluate(`(async () => {
+    const wrap = document.querySelector('.viewer-wrap');
+    const page = document.querySelector('.page');
+    const before = page.getBoundingClientRect().width;
+    const rect = wrap.getBoundingClientRect();
+    for (const [type, scale] of [['gesturestart', 1], ['gesturechange', 0.9], ['gestureend', 0.9]]) {
+      const event = new Event(type, {bubbles:true, cancelable:true});
+      Object.assign(event, {scale, clientX:rect.left + 220, clientY:rect.top + 220});
+      wrap.dispatchEvent(event);
+    }
+    await new Promise(r => setTimeout(r, 350));
+    return page.getBoundingClientRect().width / before;
+  })()`);
+  assert.ok(Math.abs(nativePinch - 0.9) < 0.001, 'native WebView gesture must scale continuously');
+
+  const zoomMenu = await evaluate(`(async () => {
+    const trigger = document.getElementById('zoom-button');
+    const menu = document.getElementById('zoom-menu');
+    const buttons = [...menu.querySelectorAll('button')];
+    const presets = buttons.map(button => button.textContent);
+    trigger.click();
+    buttons.at(-1).click();
+    trigger.click();
+    const rect = menu.getBoundingClientRect();
+    const triggerRect = trigger.getBoundingClientRect();
+    const complete = buttons.every(button => {
+      const box = button.getBoundingClientRect();
+      return box.top >= rect.top && box.bottom <= rect.bottom &&
+        document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === button;
+    });
+    const lastSelected = buttons.at(-1).getAttribute('aria-checked');
+    const lastLabel = document.getElementById('zoom-label').textContent;
+    menu.dispatchEvent(new KeyboardEvent('keydown', {key:'Home', bubbles:true}));
+    const homeFocus = document.activeElement === buttons[0];
+    menu.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true}));
+    const escapeClosed = menu.hidden && document.activeElement === trigger;
+    trigger.click();
+    buttons.find(button => button.dataset.zoom === '100').click();
+    const wrap = document.querySelector('.viewer-wrap');
+    const wrapRect = wrap.getBoundingClientRect();
+    for (const [type, scale] of [['gesturestart', 1], ['gesturechange', 1.389], ['gestureend', 1.389]]) {
+      const event = new Event(type, {bubbles:true, cancelable:true});
+      Object.assign(event, {scale, clientX:wrapRect.left + 220, clientY:wrapRect.top + 220});
+      wrap.dispatchEvent(event);
+    }
+    await new Promise(r => setTimeout(r, 300));
+    trigger.click();
+    const customLabel = document.getElementById('zoom-label').textContent;
+    const fixed = [...menu.querySelectorAll('button')].map(button => button.textContent);
+    wrap.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true}));
+    return {presets, complete, lastSelected, lastLabel, homeFocus, escapeClosed,
+      below:rect.top >= triggerRect.bottom, onScreen:rect.bottom <= innerHeight,
+      fixed, customLabel, outsideClosed:menu.hidden};
+  })()`);
+  console.log('zoom menu', zoomMenu);
+  assert.deepEqual(zoomMenu.presets, ['适合宽度', '适合页面', '100%', '125%', '150%', '200%', '250%']);
+  assert.deepEqual(zoomMenu.fixed, zoomMenu.presets);
+  assert.equal(zoomMenu.customLabel, '139%');
+  assert.equal(zoomMenu.lastLabel, '250%');
+  assert.equal(zoomMenu.lastSelected, 'true');
+  assert.ok(zoomMenu.complete && zoomMenu.below && zoomMenu.onScreen, 'all presets must remain visible when opening at 250%');
+  assert.ok(zoomMenu.homeFocus && zoomMenu.escapeClosed && zoomMenu.outsideClosed);
+
+  await until(`document.querySelector('.page')?.dataset.renderedZoom === '1.389'`);
+  const fractionalGeometry = await evaluate(`(() => {
+    const page = document.querySelector('.page');
+    const canvas = page.querySelector('canvas').getBoundingClientRect();
+    return ['.textLayer', '.hlLayer', '.linkLayer'].map(selector => {
+      const layer = page.querySelector(selector).getBoundingClientRect();
+      return {selector, error:Math.max(...['x','y','width','height'].map(key => Math.abs(canvas[key]-layer[key])))};
+    });
+  })()`);
+  console.log('fractional zoom alignment', fractionalGeometry);
+  assert.ok(fractionalGeometry.every(layer => layer.error <= 1), 'all interaction layers must match the bitmap after fractional pinch zoom');
 
   const outlineCount = await evaluate(`document.querySelectorAll('.outline-item').length`);
   if (outlineCount > 0) {

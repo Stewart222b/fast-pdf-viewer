@@ -18,11 +18,11 @@
           <div class="divider"></div>
           <div class="page-nav">
             <button id="btn-page-prev" class="btn icon tiny" type="button" title="上一页 (↑ / Page Up)" disabled>↑</button>
-            <label class="page-box">
-              <input id="page-input" type="number" min="1" value="1" />
-              <span>/ <b id="page-count">0</b></span>
-            </label>
             <button id="btn-page-next" class="btn icon tiny" type="button" title="下一页 (↓ / Page Down)" disabled>↓</button>
+            <label class="page-box">
+              <input id="page-input" class="page-input" type="text" inputmode="numeric" pattern="[0-9]*" value="1" aria-label="当前页码" />
+              <span class="page-total">/ <b id="page-count">0</b></span>
+            </label>
           </div>
         </div>
         <div class="toolbar-center">
@@ -30,15 +30,21 @@
         </div>
         <div class="toolbar-right">
           <button id="btn-zoom-out" class="btn icon" title="缩小 (Ctrl+-)">−</button>
-          <select id="zoom-select" title="缩放">
-            <option value="page-width">适合宽度</option>
-            <option value="page-fit">适合页面</option>
-            <option value="100">100%</option>
-            <option value="125">125%</option>
-            <option value="150" selected>150%</option>
-            <option value="200">200%</option>
-            <option value="250">250%</option>
-          </select>
+          <div id="zoom-picker" class="zoom-picker">
+            <button id="zoom-button" class="btn" type="button" title="缩放" aria-haspopup="menu" aria-expanded="false" aria-controls="zoom-menu">
+              <span id="zoom-label">150%</span><span aria-hidden="true">⌄</span>
+            </button>
+            <div id="zoom-menu" class="zoom-menu" role="menu" aria-label="缩放" hidden></div>
+            <select id="zoom-select" title="缩放" hidden>
+              <option value="page-width">适合宽度</option>
+              <option value="page-fit">适合页面</option>
+              <option value="100">100%</option>
+              <option value="125">125%</option>
+              <option value="150" selected>150%</option>
+              <option value="200">200%</option>
+              <option value="250">250%</option>
+            </select>
+          </div>
           <button id="btn-zoom-in" class="btn icon" title="放大 (Ctrl+=)">+</button>
           <div class="divider"></div>
           <div class="search-box">
@@ -52,13 +58,15 @@
       </header>
 
       <div class="workspace">
-        <aside id="sidebar" class="sidebar">
-          <div class="sidebar-tabs">
-            <button data-tab="outline" class="tab active">目录</button>
-            <button data-tab="search" class="tab">搜索结果</button>
+        <aside id="sidebar" class="sidebar" aria-hidden="false">
+          <div class="sidebar-inner">
+            <div class="sidebar-tabs">
+              <button data-tab="outline" class="tab active">目录</button>
+              <button data-tab="search" class="tab">搜索结果</button>
+            </div>
+            <div id="outline-pane" class="sidebar-pane active"></div>
+            <div id="search-pane" class="sidebar-pane"></div>
           </div>
-          <div id="outline-pane" class="sidebar-pane active"></div>
-          <div id="search-pane" class="sidebar-pane"></div>
         </aside>
         <main id="viewer-wrap" class="viewer-wrap">
           <div id="drop-hint" class="drop-hint">
@@ -77,16 +85,19 @@
       </div>
     </div>
 
+    <button id="translate-chip" class="translate-chip" type="button" hidden title="翻译选中文本">译</button>
+
     <div id="translate-bubble" class="translate-bubble" hidden>
       <div class="bubble-actions">
-        <span id="translate-status" class="bubble-status" hidden>翻译中…</span>
-        <button id="btn-translate" class="btn primary tiny" title="重新翻译">翻译</button>
         <button id="btn-translate-cancel" class="btn tiny" hidden>取消</button>
+        <span class="bubble-actions-spacer"></span>
         <button id="btn-copy" class="btn tiny">复制</button>
         <button id="btn-bubble-close" class="btn icon tiny" title="关闭 (Esc)">×</button>
       </div>
-      <div id="translate-source" class="bubble-source"></div>
-      <div id="translate-result" class="bubble-result" hidden></div>
+      <div class="bubble-body">
+        <div id="translate-source" class="bubble-source"></div>
+        <div id="translate-result" class="bubble-result" hidden></div>
+      </div>
     </div>
 
     <div id="pdf-password-modal" class="modal" hidden>
@@ -127,6 +138,10 @@
             <ul id="setting-model-menu" class="model-menu" hidden></ul>
             <div id="setting-model-status" class="model-picker-status" hidden></div>
           </div>
+        </label>
+        <label class="setting-checkbox" for="setting-auto-translate">
+          <input id="setting-auto-translate" type="checkbox" checked />
+          <span class="setting-checkbox-label">划词后自动翻译</span>
         </label>
         <label>
           目标语言

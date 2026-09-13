@@ -8,12 +8,79 @@ import {
 import { highlightSnippet, searchDocument } from "./search.js";
 import { loadSettings, saveSettings } from "./settings.js";
 import { wireModelPicker } from "./model-picker.js";
+import {
+  readBubblePlainText,
+  renderBubbleSource,
+  renderBubbleTranslation,
+} from "./bubble-text-render.js";
+import { getSelectionAnchorFromSelection, getSelectionAnchorRect } from "./selection-anchor.js";
+import { prepareSelectionForTranslation } from "./selection-text.js";
+import { applyBubblePlacement } from "./translate-bubble-placement.js";
 import { MAX_TRANSLATE_CHARS, translateText } from "./translate.js";
 import { PasswordResponses } from "../vendor/pdfjs/build/pdf.mjs";
 import { PdfViewer } from "./viewer.js";
 
 const $ = (id) => document.getElementById(id);
 const platform = createPlatform();
+
+// The fixed select supplies presets; the visible label can show any gesture scale.
+const zoomMenuItems = [...$("zoom-select").options].map(option => {
+  const item = document.createElement("button");
+  item.type = "button";
+  item.tabIndex = -1;
+  item.dataset.zoom = option.value;
+  item.textContent = option.textContent;
+  item.setAttribute("role", "menuitemradio");
+  item.setAttribute("aria-checked", String(option.selected));
+  item.addEventListener("click", () => {
+    setZoomMenuOpen(false);
+    viewer.setZoom(option.value);
+    $("zoom-button").focus({ preventScroll: true });
+  });
+  $("zoom-menu").appendChild(item);
+  return item;
+});
+
+function setZoomMenuOpen(open, index) {
+  $("zoom-menu").hidden = !open;
+  $("zoom-button").setAttribute("aria-expanded", String(open));
+  if (open) {
+    const selected = zoomMenuItems.findIndex(item => item.getAttribute("aria-checked") === "true");
+    zoomMenuItems[index ?? Math.max(0, selected)]?.focus({ preventScroll: true });
+    $("zoom-menu").scrollTop = 0;
+  }
+}
+
+$("zoom-button").addEventListener("click", () => setZoomMenuOpen($("zoom-menu").hidden));
+$("zoom-button").addEventListener("keydown", event => {
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    setZoomMenuOpen(true, event.key === "ArrowDown" ? 0 : zoomMenuItems.length - 1);
+  }
+});
+$("zoom-menu").addEventListener("keydown", event => {
+  const index = zoomMenuItems.indexOf(document.activeElement);
+  let next;
+  if (event.key === "ArrowDown") next = (index + 1) % zoomMenuItems.length;
+  if (event.key === "ArrowUp") next = (index - 1 + zoomMenuItems.length) % zoomMenuItems.length;
+  if (event.key === "Home") next = 0;
+  if (event.key === "End") next = zoomMenuItems.length - 1;
+  if (next !== undefined) {
+    event.preventDefault();
+    zoomMenuItems[next]?.focus();
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    setZoomMenuOpen(false);
+    $("zoom-button").focus({ preventScroll: true });
+  }
+});
+document.addEventListener("pointerdown", event => {
+  if (!$("zoom-picker").contains(event.target)) setZoomMenuOpen(false);
+});
+$("zoom-picker").addEventListener("focusout", event => {
+  if (!$("zoom-picker").contains(event.relatedTarget)) setZoomMenuOpen(false);
+});
+
 
 const history = new ViewHistory();
 let passwordDialog = null;
@@ -68,6 +135,7 @@ const viewer = new PdfViewer({
   wrapEl: $("viewer-wrap"),
   history,
   onState: syncToolbar,
+  onZoomPreview: syncZoom,
   onScrollPosition: scheduleSaveReadingPosition,
   onIndex: refreshIndexedSearch,
   onPassword: requestPdfPassword,
@@ -97,24 +165,23 @@ history.onChange(() => {
   $("btn-forward").disabled = !history.canForward();
 });
 
+function syncZoom(mode) {
+  const value = String(mode);
+  const select = $("zoom-select");
+  const preset = [...select.options].find(opt => opt.value === value);
+  $("zoom-label").textContent = preset?.textContent || `${Math.round(Number(value))}%`;
+  select.value = value;
+  for (const item of zoomMenuItems) {
+    item.setAttribute("aria-checked", String(item.dataset.zoom === value));
+  }
+}
+
 function syncToolbar(state) {
   $("page-input").value = String(state.page || 1);
   $("page-count").textContent = String(viewer.pageCount || 0);
   $("doc-title").textContent = viewer.name || "未打开文件";
   $("drop-hint").classList.toggle("hidden", Boolean(viewer.pdf));
-  if (!["page-width", "page-fit"].includes(String(state.zoom))) {
-    const value = String(state.zoom);
-    const select = $("zoom-select");
-    if (![...select.options].some((opt) => opt.value === value)) {
-      const opt = document.createElement("option");
-      opt.value = value;
-      opt.textContent = `${value}%`;
-      select.appendChild(opt);
-    }
-    select.value = value;
-  } else {
-    $("zoom-select").value = String(state.zoom);
-  }
+  syncZoom(viewer.pinch ? viewer.pinch.target * 100 : state.zoom);
   $("btn-back").disabled = !history.canBack();
   $("btn-forward").disabled = !history.canForward();
   const page = state.page || 1;
@@ -420,6 +487,7 @@ function selectSidebar(name) {
 
 function setSidebarCollapsed(collapsed) {
   document.querySelector(".workspace").classList.toggle("sidebar-collapsed", collapsed);
+  $("sidebar").setAttribute("aria-hidden", collapsed ? "true" : "false");
   $("btn-sidebar").classList.toggle("active", !collapsed);
   $("btn-sidebar").setAttribute("aria-pressed", collapsed ? "false" : "true");
 }
@@ -457,13 +525,21 @@ $("zoom-select").addEventListener("change", (event) => {
 });
 $("btn-page-prev").addEventListener("click", () => stepPage(-1));
 $("btn-page-next").addEventListener("click", () => stepPage(1));
+function pageInputValue(raw) {
+  const digits = String(raw || "").replace(/\D/g, "");
+  const page = Number(digits);
+  return Number.isFinite(page) && page > 0 ? page : null;
+}
+
 $("page-input").addEventListener("change", (event) => {
-  viewer.goToPage(Number(event.target.value), { push: true });
+  const page = pageInputValue(event.target.value);
+  if (page) viewer.goToPage(page, { push: true });
 });
 $("page-input").addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();
-    viewer.goToPage(Number(event.target.value), { push: true });
+    const page = pageInputValue(event.target.value);
+    if (page) viewer.goToPage(page, { push: true });
   }
 });
 
@@ -520,12 +596,34 @@ wrap.addEventListener("drop", async (event) => {
   if (file) await openFile(file);
 });
 
+let nativeGestureScale = null;
+wrap.addEventListener("gesturestart", (event) => {
+  if (!viewer.pdf) return;
+  event.preventDefault();
+  nativeGestureScale = event.scale || 1;
+}, { passive: false });
+wrap.addEventListener("gesturechange", (event) => {
+  if (nativeGestureScale == null || !(event.scale > 0)) return;
+  event.preventDefault();
+  viewer.pinchZoom({
+    deltaY: -100 * Math.log(event.scale / nativeGestureScale),
+    deltaMode: 0, clientX: event.clientX, clientY: event.clientY,
+  });
+  nativeGestureScale = event.scale;
+}, { passive: false });
+wrap.addEventListener("gestureend", (event) => {
+  if (nativeGestureScale == null) return;
+  event.preventDefault();
+  nativeGestureScale = null;
+  viewer.finishPinch();
+}, { passive: false });
+
 wrap.addEventListener(
   "wheel",
   (event) => {
     if (!event.ctrlKey && !event.metaKey) return;
     event.preventDefault();
-    $("zoom-select").value = viewer.bumpZoom(event.deltaY < 0 ? 1 : -1);
+    if (nativeGestureScale == null) viewer.pinchZoom(event);
   },
   { passive: false },
 );
@@ -590,40 +688,116 @@ window.addEventListener("keydown", (event) => {
 });
 
 const bubble = $("translate-bubble");
+const translateChip = $("translate-chip");
 let selectedText = "";
+let selectedTranslationMode = "passage";
+let bubbleSelectionRect = null;
+
+function isAutoTranslateOn() {
+  return loadSettings().autoTranslateOnSelect !== false;
+}
+
+function setBubbleStreaming(streaming) {
+  $("btn-translate-cancel").hidden = !streaming;
+}
+
+function currentSelectionRect() {
+  const viewport = wrap.getBoundingClientRect();
+  const anchored = getSelectionAnchorFromSelection(window.getSelection(), viewport);
+  return anchored || bubbleSelectionRect;
+}
+
+function repositionBubble() {
+  if (bubble.hidden) return;
+  const rect = currentSelectionRect();
+  if (!rect) return;
+  applyBubblePlacement(bubble, rect, wrap.getBoundingClientRect());
+}
+
+function scheduleRepositionBubble() {
+  requestAnimationFrame(() => {
+    repositionTranslateChip();
+    repositionBubble();
+  });
+}
+
+function clearStreamingResult() {
+  const result = $("translate-result");
+  result.classList.remove("streaming");
+  result.replaceChildren();
+  result.hidden = true;
+}
 
 function cancelTranslate() {
   translateAbort?.abort();
   translateAbort = null;
-  $("btn-translate-cancel").hidden = true;
+  setBubbleStreaming(false);
+  clearStreamingResult();
+}
+
+function hideTranslateChip() {
+  translateChip.hidden = true;
+}
+
+function repositionTranslateChip() {
+  if (translateChip.hidden) return;
+  const rect = currentSelectionRect();
+  if (!rect) return;
+  const viewport = wrap.getBoundingClientRect();
+  const gap = 8;
+  const margin = 8;
+  translateChip.hidden = false;
+  const w = translateChip.offsetWidth;
+  const h = translateChip.offsetHeight;
+  let left = rect.left;
+  let top = rect.bottom + gap;
+  if (top + h > viewport.bottom - margin) top = rect.top - gap - h;
+  left = Math.min(Math.max(left, viewport.left + margin), viewport.right - w - margin);
+  top = Math.min(Math.max(top, viewport.top + margin), viewport.bottom - h - margin);
+  translateChip.style.left = `${left}px`;
+  translateChip.style.top = `${top}px`;
 }
 
 function hideBubble() {
+  bubbleSelectionRect = null;
+  hideTranslateChip();
   bubble.hidden = true;
-  $("translate-result").hidden = true;
-  $("translate-result").classList.remove("error");
-  $("translate-result").textContent = "";
-  $("translate-status").hidden = true;
+  const result = $("translate-result");
+  result.hidden = true;
+  result.classList.remove("error", "streaming");
+  result.textContent = "";
+  setBubbleStreaming(false);
   cancelTranslate();
 }
 
-function positionBubble(x, y) {
-  const left = Math.min(x, window.innerWidth - bubble.offsetWidth - 12);
-  const top = Math.min(y, window.innerHeight - 12);
-  bubble.style.left = `${Math.max(12, left)}px`;
-  bubble.style.top = `${Math.max(12, top)}px`;
+function showTranslateChip(selectionRect, text) {
+  selectedText = text;
+  bubbleSelectionRect = selectionRect;
+  translateChip.hidden = false;
+  repositionTranslateChip();
 }
 
-function showBubble(x, y, text) {
+function showStreamingCaret(result) {
+  result.hidden = false;
+  result.classList.add("streaming");
+  renderBubbleTranslation(result, "", selectedTranslationMode, { streaming: true });
+}
+
+function openTranslatePanel(selectionRect, text, { startTranslate = true } = {}) {
+  hideTranslateChip();
   const selectionId = ++bubbleSelectionId;
   selectedText = text;
-  $("translate-source").textContent = text.length > 240 ? `${text.slice(0, 240)}…` : text;
-  $("translate-result").hidden = true;
-  $("translate-result").classList.remove("error");
-  $("translate-result").textContent = "";
+  bubbleSelectionRect = selectionRect;
+  const source = $("translate-source");
+  renderBubbleSource(source, text, selectedTranslationMode);
+  const result = $("translate-result");
+  result.hidden = true;
+  result.classList.remove("error", "streaming");
+  result.replaceChildren();
   bubble.hidden = false;
-  positionBubble(x, y);
-  void runTranslate(selectionId);
+  setBubbleStreaming(false);
+  repositionBubble();
+  if (startTranslate) void runTranslate(selectionId);
   return selectionId;
 }
 
@@ -631,6 +805,7 @@ function setTranslateError(message, selectionId) {
   if (selectionId !== bubbleSelectionId) return;
   const result = $("translate-result");
   result.hidden = false;
+  result.classList.remove("streaming");
   result.classList.add("error");
   result.replaceChildren();
   result.append(document.createTextNode(`${message} `));
@@ -641,8 +816,7 @@ function setTranslateError(message, selectionId) {
   retry.textContent = "重试";
   retry.addEventListener("click", () => runTranslate(selectionId));
   result.append(retry);
-  $("translate-status").hidden = true;
-  $("btn-translate-cancel").hidden = true;
+  setBubbleStreaming(false);
 }
 
 async function runTranslate(selectionId = bubbleSelectionId) {
@@ -655,30 +829,36 @@ async function runTranslate(selectionId = bubbleSelectionId) {
     return;
   }
   const result = $("translate-result");
-  const status = $("translate-status");
-  result.hidden = true;
   result.classList.remove("error");
-  status.hidden = false;
-  status.textContent = "翻译中…";
-  $("btn-translate-cancel").hidden = false;
+  showStreamingCaret(result);
+  scheduleRepositionBubble();
+  setBubbleStreaming(true);
 
   const controller = new AbortController();
   translateAbort = controller;
   const requestId = ++translateRequestId;
 
   try {
-    const translated = await translateText(text, loadSettings(), { signal: controller.signal });
+    const translated = await translateText(text, loadSettings(), {
+      signal: controller.signal,
+      mode: selectedTranslationMode,
+      onDelta: (partial) => {
+        if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
+        renderBubbleTranslation(result, partial, selectedTranslationMode, { streaming: true });
+        scheduleRepositionBubble();
+      },
+    });
     if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
-    status.hidden = true;
-    $("btn-translate-cancel").hidden = true;
-    result.hidden = false;
-    result.textContent = translated;
+    setBubbleStreaming(false);
+    result.classList.remove("streaming");
+    renderBubbleTranslation(result, translated, selectedTranslationMode);
     translateAbort = null;
+    scheduleRepositionBubble();
   } catch (error) {
     if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
     if (controller.signal.aborted) {
-      status.hidden = true;
-      $("btn-translate-cancel").hidden = true;
+      setBubbleStreaming(false);
+      clearStreamingResult();
       return;
     }
     setTranslateError(error.message || String(error), selectionId);
@@ -686,33 +866,68 @@ async function runTranslate(selectionId = bubbleSelectionId) {
 }
 
 document.addEventListener("mouseup", (event) => {
-  if (bubble.contains(event.target)) return;
+  if (bubble.contains(event.target) || translateChip.contains(event.target)) return;
   const selection = window.getSelection();
-  const text = selection?.toString().trim() || "";
+  const prepared = selection?.rangeCount ? prepareSelectionForTranslation(selection) : null;
+  if (prepared?.tooLong) {
+    const range = selection.getRangeAt(0);
+    const anchor = getSelectionAnchorRect(range, wrap.getBoundingClientRect(), selection);
+    selectedTranslationMode = "passage";
+    const selectionId = openTranslatePanel(anchor, "", { startTranslate: false });
+    setTranslateError(
+      `选中文本过长（${prepared.charCount} 字），请缩短到 ${MAX_TRANSLATE_CHARS} 字以内。`,
+      selectionId,
+    );
+    return;
+  }
+  const text = prepared?.text || "";
   if (!text || !selection.rangeCount) {
-    if (!event.target.closest("#translate-bubble")) hideBubble();
+    if (
+      !event.target.closest("#translate-bubble") &&
+      !event.target.closest("#translate-chip")
+    ) {
+      hideBubble();
+    }
     return;
   }
   const range = selection.getRangeAt(0);
-  if (!range.startContainer.parentElement?.closest(".textLayer")) {
+  const inTextLayer =
+    range.endContainer.parentElement?.closest(".textLayer") ||
+    range.startContainer.parentElement?.closest(".textLayer");
+  if (!inTextLayer) {
     hideBubble();
     return;
   }
-  const rect = range.getBoundingClientRect();
-  showBubble(rect.left, rect.bottom + 8, text);
+  selectedTranslationMode = prepared.mode;
+  const anchor = getSelectionAnchorRect(range, wrap.getBoundingClientRect(), selection);
+  if (isAutoTranslateOn()) {
+    openTranslatePanel(anchor, text);
+  } else {
+    bubble.hidden = true;
+    cancelTranslate();
+    showTranslateChip(anchor, text);
+  }
+});
+
+wrap.addEventListener("scroll", scheduleRepositionBubble, { passive: true });
+window.addEventListener("resize", scheduleRepositionBubble);
+
+translateChip.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const rect = currentSelectionRect() || bubbleSelectionRect;
+  if (!rect || !selectedText) return;
+  openTranslatePanel(rect, selectedText);
 });
 
 $("btn-bubble-close").addEventListener("click", hideBubble);
 $("btn-translate-cancel").addEventListener("click", () => {
   translateAbort?.abort();
-  $("translate-status").hidden = true;
-  $("btn-translate-cancel").hidden = true;
+  setBubbleStreaming(false);
 });
 $("btn-copy").addEventListener("click", async () => {
-  const copy = $("translate-result").textContent?.trim() || selectedText;
+  const copy = readBubblePlainText($("translate-result")) || selectedText;
   if (copy) await navigator.clipboard.writeText(copy);
 });
-$("btn-translate").addEventListener("click", () => runTranslate());
 
 const modelPicker = wireModelPicker({
   input: $("setting-model"),
@@ -743,6 +958,7 @@ $("btn-settings").addEventListener("click", () => {
   $("setting-base").value = settings.apiBaseUrl;
   $("setting-model").value = settings.model;
   $("setting-lang").value = settings.targetLang;
+  $("setting-auto-translate").checked = settings.autoTranslateOnSelect !== false;
   $("settings-modal").hidden = false;
   modelPicker.refresh();
 });
@@ -755,6 +971,7 @@ $("btn-settings-save").addEventListener("click", () => {
     apiBaseUrl: $("setting-base").value.trim(),
     model: $("setting-model").value.trim() || "openai/gpt-4o-mini",
     targetLang: $("setting-lang").value,
+    autoTranslateOnSelect: $("setting-auto-translate").checked,
   });
   $("settings-modal").hidden = true;
 });

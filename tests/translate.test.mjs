@@ -10,6 +10,7 @@ import {
   modelsUrl,
   normalizeApiBase,
   translateWithProvider,
+  parseSseTranslationChunk,
 } from '../web/js/translate-provider.js';
 
 test('normalizeApiBase trims trailing slashes', () => {
@@ -78,19 +79,33 @@ test('translateWithProvider rejects empty key and long text', async () => {
   );
 });
 
+test('parseSseTranslationChunk extracts delta content', () => {
+  const chunk =
+    'data: {"choices":[{"delta":{"content":"你"}}]}\n\n' +
+    'data: {"choices":[{"delta":{"content":"好"}}]}\n';
+  assert.deepEqual(parseSseTranslationChunk(chunk), ['你', '好']);
+});
+
 test('translateWithProvider uses Latin-1 fetch headers for OpenRouter', async () => {
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     assert.equal(url, 'https://openrouter.ai/api/v1/chat/completions');
+    assert.equal(JSON.parse(init.body).stream, true);
     for (const value of Object.values(init.headers)) {
       assert.match(String(value), /^[\x00-\xff]*$/, `header must be Latin-1: ${value}`);
     }
     assert.equal(init.headers['X-Title'], 'Fast PDF Viewer');
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'));
+        controller.close();
+      },
+    });
     return {
       ok: true,
-      async json() {
-        return { choices: [{ message: { content: 'ok' } }] };
-      },
+      headers: { get: () => 'text/event-stream' },
+      body: stream,
     };
   };
   await translateWithProvider('hello', {
@@ -105,26 +120,40 @@ test('latin1HeaderValue keeps ASCII and falls back for Unicode', () => {
   assert.equal(latin1HeaderValue('速览', 'Fast PDF Viewer'), 'Fast PDF Viewer');
 });
 
-test('translateWithProvider parses success response', async () => {
+test('translateWithProvider streams deltas via onDelta', async () => {
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     assert.equal(url, 'https://openrouter.ai/api/v1/chat/completions');
     const body = JSON.parse(init.body);
     assert.equal(body.model, 'openai/gpt-4o-mini');
+    assert.equal(body.stream, true);
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"你"}}]}\n\n'));
+        controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"好"}}]}\n\n'));
+        controller.close();
+      },
+    });
     return {
       ok: true,
-      async json() {
-        return { choices: [{ message: { content: '你好' } }] };
-      },
+      headers: { get: () => 'text/event-stream' },
+      body: stream,
     };
   };
-  const out = await translateWithProvider('hello', {
-    apiKey: 'secret',
-    apiBaseUrl: 'https://openrouter.ai/api/v1',
-    model: 'openai/gpt-4o-mini',
-    targetLang: 'zh-CN',
-  });
+  const partials = [];
+  const out = await translateWithProvider(
+    'hello',
+    {
+      apiKey: 'secret',
+      apiBaseUrl: 'https://openrouter.ai/api/v1',
+      model: 'openai/gpt-4o-mini',
+      targetLang: 'zh-CN',
+    },
+    { onDelta: (text) => partials.push(text) },
+  );
   assert.equal(out, '你好');
+  assert.deepEqual(partials, ['你', '你好']);
   globalThis.fetch = original;
 });
 

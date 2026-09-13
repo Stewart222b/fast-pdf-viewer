@@ -74,21 +74,124 @@ export function latin1HeaderValue(value, fallback = "") {
   return /^[\x00-\xff]*$/.test(text) ? text : fallback;
 }
 
-export function buildTranslationMessages(text, targetLang) {
+/** @param {'term' | 'passage'} mode */
+export function buildTranslationMessages(text, targetLang, mode = "passage") {
   const language = LANG_NAME[targetLang] || targetLang;
+  if (mode === "term") {
+    return [
+      {
+        role: "system",
+        content: [
+          `You are a concise bilingual dictionary for ${language}.`,
+          "The user selected a short word or term from a PDF.",
+          "Reply in " + language + " only, compact dictionary-card style (no markdown fences):",
+          "1) Headword line (original term if helpful)",
+          "2) 词性 / part of speech",
+          "3) 1–3 brief definitions",
+          "4) 1–2 short example sentences",
+          "Keep the whole answer short enough for a small popup.",
+        ].join(" "),
+      },
+      { role: "user", content: text },
+    ];
+  }
   return [
     {
       role: "system",
-      content: `You are a precise translator. Translate the user's text into ${language}. Preserve numbers, names, and line breaks. Return only the translation.`,
+      content: [
+        `Translate the user's passage into ${language}.`,
+        "The text is from a PDF: soft line wraps are already removed; blank lines mark real paragraphs.",
+        "Translate as coherent paragraphs matching those boundaries.",
+        "Do not split into one sentence per line or preserve PDF wrap breaks.",
+        "Return only the translation.",
+      ].join(" "),
     },
     { role: "user", content: text },
   ];
 }
 
+export function extractStreamDelta(parsed) {
+  const choice = parsed?.choices?.[0];
+  if (!choice) return "";
+  if (typeof choice.delta?.content === "string") return choice.delta.content;
+  if (typeof choice.message?.content === "string") return choice.message.content;
+  return "";
+}
+
+/**
+ * @param {string} chunk - May contain multiple SSE lines.
+ * @returns {string[]} content deltas
+ */
+export function parseSseTranslationChunk(chunk) {
+  const deltas = [];
+  for (const line of chunk.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) continue;
+    const payload = trimmed.slice(5).trim();
+    if (!payload || payload === "[DONE]") continue;
+    try {
+      const parsed = JSON.parse(payload);
+      const piece = extractStreamDelta(parsed);
+      if (piece) deltas.push(piece);
+    } catch {
+      // ignore malformed SSE lines
+    }
+  }
+  return deltas;
+}
+
+async function readStreamingTranslation(response, { onDelta, signal } = {}) {
+  if (!response.body) {
+    const data = await response.json().catch(() => ({}));
+    const content = data?.choices?.[0]?.message?.content?.trim();
+    if (!content) throw new Error("模型没有返回译文。");
+    onDelta?.(content);
+    return content;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let translated = "";
+
+  while (true) {
+    if (signal?.aborted) {
+      await reader.cancel().catch(() => {});
+      const error = new Error("aborted");
+      error.name = "AbortError";
+      throw error;
+    }
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lastNewline = buffer.lastIndexOf("\n");
+    if (lastNewline === -1) continue;
+    const lines = buffer.slice(0, lastNewline + 1);
+    buffer = buffer.slice(lastNewline + 1);
+    for (const piece of parseSseTranslationChunk(lines)) {
+      translated += piece;
+      onDelta?.(translated);
+    }
+  }
+  if (buffer.trim()) {
+    for (const piece of parseSseTranslationChunk(buffer)) {
+      translated += piece;
+      onDelta?.(translated);
+    }
+  }
+  const trimmed = translated.trim();
+  if (!trimmed) throw new Error("模型没有返回译文。");
+  return trimmed;
+}
+
 /**
  * OpenAI-compatible chat completions (OpenRouter, OpenAI, local proxies, etc.).
  */
-export async function translateWithProvider(text, settings, { signal, timeoutMs = 60_000 } = {}) {
+export async function translateWithProvider(
+  text,
+  settings,
+  { signal, timeoutMs = 60_000, onDelta, mode = "passage" } = {},
+) {
   if (!settings?.apiKey) {
     throw new Error("还没有填写 API Key，请先打开设置。");
   }
@@ -126,17 +229,24 @@ export async function translateWithProvider(text, settings, { signal, timeoutMs 
       body: JSON.stringify({
         model: settings.model || DEFAULT_MODEL,
         temperature: 0.1,
-        messages: buildTranslationMessages(trimmed, settings.targetLang),
+        stream: true,
+        messages: buildTranslationMessages(trimmed, settings.targetLang, mode),
       }),
       signal: controller.signal,
     });
-    const data = await response.json().catch(() => ({}));
     if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
       const message = data?.error?.message || `翻译请求失败 (${response.status})`;
       throw new Error(message);
     }
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("text/event-stream") || onDelta) {
+      return await readStreamingTranslation(response, { onDelta, signal: controller.signal });
+    }
+    const data = await response.json().catch(() => ({}));
     const content = data?.choices?.[0]?.message?.content?.trim();
     if (!content) throw new Error("模型没有返回译文。");
+    onDelta?.(content);
     return content;
   } catch (error) {
     if (error?.name === "AbortError") {
