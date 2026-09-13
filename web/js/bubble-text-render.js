@@ -1,9 +1,9 @@
 import { truncateBubblePreview } from "./selection-text.js";
 
-export function renderBubbleSource(el, text, mode) {
+export function renderBubbleSource(el, text, mode, { full = false } = {}) {
   el.classList.toggle("bubble-passage", mode === "passage");
   el.classList.toggle("bubble-term", mode === "term");
-  const preview = truncateBubblePreview(text);
+  const preview = full ? text : truncateBubblePreview(text);
   if (mode === "passage") {
     renderPassageParagraphs(el, preview);
   } else {

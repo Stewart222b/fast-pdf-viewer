@@ -30,12 +30,13 @@ function destTypeName(type) {
 }
 
 export class PdfViewer {
-  constructor({ pagesEl, wrapEl, history, onState, onZoomPreview, onScrollPosition, onIndex, onPassword }) {
+  constructor({ pagesEl, wrapEl, history, onState, onZoomPreview, onPinchCommit, onScrollPosition, onIndex, onPassword }) {
     this.pagesEl = pagesEl;
     this.wrapEl = wrapEl;
     this.history = history;
     this.onState = onState;
     this.onZoomPreview = onZoomPreview;
+    this.onPinchCommit = onPinchCommit;
     this.onScrollPosition = onScrollPosition;
     this.onIndex = onIndex;
     this.onPassword = onPassword;
@@ -382,6 +383,7 @@ export class PdfViewer {
     this.setZoom(String(pinch.target * 100), { keepPage: false });
     this.wrapEl.scrollLeft = pinch.page.offsetLeft + pinch.pageX * this.zoom - pinch.x;
     this.wrapEl.scrollTop = pinch.page.offsetTop + pinch.pageY * this.zoom - pinch.y;
+    this.onPinchCommit?.();
   }
 
   bumpZoom(delta) {

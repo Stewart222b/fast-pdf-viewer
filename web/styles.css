@@ -1219,6 +1219,37 @@ select {
   }
 }
 
+@media (max-width: 360px) {
+  /* 320–360px: keep one-row toolbar; icon-only 打开/目录 if labels still overflow. */
+  #btn-open span,
+  #btn-sidebar span {
+    display: none;
+  }
+  #btn-open,
+  #btn-sidebar {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+  .toolbar {
+    gap: 4px;
+    padding: 0 6px;
+  }
+  .toolbar-left,
+  .toolbar-right {
+    gap: 4px;
+  }
+  .search-box input {
+    width: 72px;
+    min-width: 0;
+  }
+  #zoom-button span:not(.icon):not(.chevron) {
+    max-width: 4.5em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
 @media (max-width: 620px) {
   #btn-search-toggle {
     display: inline-flex !important;

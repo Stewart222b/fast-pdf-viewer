@@ -154,6 +154,21 @@ test('file loading uses revocable blob URLs without reading entire files', async
   assert.deepEqual(app.revoked, ['blob:test-1']);
 });
 
+test('late empty outline does not leave an active search sidebar', async () => {
+  const app = await setup(), waiting = deferred();
+  app.viewer.outlinePromise = waiting.promise;
+  app.fileInput.files = [{ name: 'A', arrayBuffer: async () => new ArrayBuffer(0) }];
+  const opening = app.fileInput.listeners.change();
+  await new Promise(resolve => setImmediate(resolve));
+  app.click('sidebar-tab-search');
+  assert.equal(app.get('search-pane').toggles.active, true);
+  waiting.resolve([]);
+  await opening;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.get('search-pane').toggles.active, true);
+  assert.equal(app.get('outline-pane').toggles.active, false);
+});
+
 test('late outline response cannot overwrite a newer document outline', async () => {
   const app = await setup(), waiting = deferred();
   app.viewer.outlinePromise = waiting.promise;

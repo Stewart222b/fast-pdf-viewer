@@ -137,6 +137,7 @@ const viewer = new PdfViewer({
   history,
   onState: syncToolbar,
   onZoomPreview: syncZoom,
+  onPinchCommit: markZoomTouched,
   onScrollPosition: scheduleSaveReadingPosition,
   onIndex: refreshIndexedSearch,
   onPassword: requestPdfPassword,
@@ -344,8 +345,11 @@ async function renderOutline(request) {
     pane.replaceChildren();
     if (!outline?.length) {
       pane.innerHTML = '<div class="empty-side">这份 PDF 没有目录。</div>';
-      selectSidebar("outline");
-      setSidebarCollapsed(true);
+      // Late outline with no entries must not kick the user out of search.
+      if (sidebarMode !== "search") {
+        selectSidebar("outline");
+        setSidebarCollapsed(true);
+      }
     }
     return;
   }
@@ -544,6 +548,16 @@ function isSidebarCollapsed() {
   return document.querySelector(".workspace").classList.contains("sidebar-collapsed");
 }
 
+function schedulePageWidthReflow() {
+  if (!viewer.pdf || viewer.zoomMode !== "page-width") return;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      viewer.setZoom("page-width", { silent: true });
+      syncZoom(viewer.zoomMode);
+    });
+  });
+}
+
 function setSidebarCollapsed(collapsed) {
   document.querySelector(".workspace").classList.toggle("sidebar-collapsed", collapsed);
   const sidebar = $("sidebar");
@@ -558,6 +572,7 @@ function setSidebarCollapsed(collapsed) {
   }
   $("btn-sidebar").classList.toggle("active", !collapsed);
   $("btn-sidebar").setAttribute("aria-pressed", collapsed ? "false" : "true");
+  schedulePageWidthReflow();
 }
 
 async function pickFile() {
@@ -926,9 +941,11 @@ function updateSourceFold() {
   const toggle = $("btn-source-toggle");
   if (!source || !toggle) return;
   const long = (selectedText || "").length > 400;
-  source.classList.toggle("collapsed", long && toggle.dataset.expanded !== "true");
+  const expanded = toggle.dataset.expanded === "true";
+  renderBubbleSource(source, selectedText, selectedTranslationMode, { full: expanded });
+  source.classList.toggle("collapsed", long && !expanded);
   toggle.hidden = !long;
-  toggle.textContent = toggle.dataset.expanded === "true" ? "收起原文" : "展开原文";
+  toggle.textContent = expanded ? "收起原文" : "展开原文";
 }
 
 function isMissingKeyError(message) {
@@ -1022,6 +1039,7 @@ document.addEventListener("pointerdown", (event) => {
   const target = event.target;
   if (bubble.contains(target) || translateChip.contains(target)) return;
   if (target.closest?.(".textLayer")) return;
+  if (target.closest?.("#settings-modal, #pdf-password-modal")) return;
   hideBubble();
 });
 
