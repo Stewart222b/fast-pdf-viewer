@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-13T07:23:00Z",
+  "title": "Design System: 速览 Fast PDF Viewer",
+  "extensions": {
+    "colorMeta": {
+      "night-shell": { "role": "neutral", "displayName": "夜壳", "canonical": "#12141a" },
+      "raised-deck": { "role": "neutral", "displayName": "抬升面", "canonical": "#1b1e27" },
+      "signal-blue": { "role": "primary", "displayName": "信号蓝", "canonical": "#7aa2ff" },
+      "signal-blue-strong": { "role": "primary", "displayName": "信号蓝强", "canonical": "#5b8cff" },
+      "readout": { "role": "neutral", "displayName": "读数", "canonical": "#e8eaef" },
+      "hairline": { "role": "neutral", "displayName": "发丝线", "canonical": "#2c3344" },
+      "danger": { "role": "tertiary", "displayName": "危险", "canonical": "#f07178" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Empty-state 速览 wordmark only." },
+      "title": { "displayName": "Title", "purpose": "Toolbar document title." },
+      "body": { "displayName": "Body", "purpose": "Chrome labels and bubble copy." },
+      "label": { "displayName": "Label", "purpose": "Search counts and compact meta." }
+    },
+    "shadows": [
+      { "name": "float", "value": "0 12px 40px rgba(0, 0, 0, 0.35)", "purpose": "Menus, translate bubble, 译 chip, modal." }
+    ],
+    "motion": [
+      { "name": "sidebar-slide", "value": "0.18s ease", "purpose": "Fixed-width sidebar slide, not text squeeze." }
+    ],
+    "breakpoints": []
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "打开 and other one live action.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">打开</button>",
+      "css": ".ds-btn-primary { background: #5b8cff; color: #fff; border: 0; border-radius: 10px; padding: 8px 12px; height: 36px; font: 14px/1 \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif; cursor: pointer; } .ds-btn-primary:hover { filter: brightness(1.08); } .ds-btn-primary:focus-visible { outline: 2px solid #7aa2ff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Toolbar tools and 目录.",
+      "html": "<button class=\"ds-btn-ghost\" type=\"button\">目录</button>",
+      "css": ".ds-btn-ghost { background: #12141a; color: #e8eaef; border: 1px solid #2c3344; border-radius: 10px; padding: 8px 12px; height: 36px; font: 14px/1 \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif; cursor: pointer; } .ds-btn-ghost:hover { background: #252a36; } .ds-btn-ghost:focus-visible { outline: 2px solid #7aa2ff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Search Field",
+      "kind": "input",
+      "refersTo": "input-search",
+      "description": "Toolbar document search.",
+      "html": "<label class=\"ds-search\"><input type=\"search\" placeholder=\"搜索文档\"><span class=\"ds-search-count\">3 / 47</span></label>",
+      "css": ".ds-search { display: flex; align-items: center; gap: 6px; background: #12141a; border: 1px solid #2c3344; border-radius: 10px; padding: 4px 6px 4px 10px; } .ds-search input { border: 0; background: transparent; color: #e8eaef; font: 14px/1.3 \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif; outline: none; } .ds-search-count { color: #9aa3b5; font-size: 12px; }"
+    },
+    {
+      "name": "Translate Chip",
+      "kind": "chip",
+      "refersTo": "chip-translate",
+      "description": "Compact 译 control when auto-translate is off.",
+      "html": "<button class=\"ds-chip-translate\" type=\"button\">译</button>",
+      "css": ".ds-chip-translate { min-width: 28px; height: 28px; padding: 0 8px; border: 1px solid #2c3344; border-radius: 8px; background: #2a3140; color: #e8eaef; font: 600 13px/1 \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif; box-shadow: 0 12px 40px rgba(0,0,0,0.35); cursor: pointer; } .ds-chip-translate:hover { border-color: #7aa2ff; color: #7aa2ff; }"
+    },
+    {
+      "name": "Translate Bubble",
+      "kind": "custom",
+      "refersTo": "card-bubble",
+      "description": "划词 overlay clamped inside the viewer.",
+      "html": "<div class=\"ds-bubble\"><header>复制</header><p>主检区域是晶圆中心与边缘排除区域之间的区域。</p></div>",
+      "css": ".ds-bubble { width: 280px; background: #222733; color: #e8eaef; border: 1px solid #2c3344; border-radius: 12px; padding: 10px; box-shadow: 0 12px 40px rgba(0,0,0,0.35); font: 14px/1.45 \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif; } .ds-bubble header { font-size: 12px; color: #9aa3b5; margin-bottom: 6px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "安静仪器",
+    "overview": "Chrome recedes so the PDF page can do the work. The incumbent UI is a dark, mostly flat instrument panel: system UI fonts, hairline dividers, and a spare blue accent used for the thing that is currently in play. Density is for hours inside a technical manual, not for a marketing site. This file records the shipped look; a later redesign may replace this world.",
+    "keyCharacteristics": [
+      "Dark-only; no light theme in code.",
+      "Tonal stacking for structure; one shared drop shadow for floating chrome.",
+      "System sans; no display typeface except the empty-state wordmark.",
+      "8–12px corner radii on controls; the page stays rectangular."
+    ],
+    "rules": [
+      { "name": "The One Signal Rule", "body": "Blue is for the current action or focus. Do not paint large surfaces blue.", "section": "colors" },
+      { "name": "The Page Is Not Chrome Rule", "body": "The PDF sheet stays paper-white from the document; chrome never tints the page.", "section": "colors" },
+      { "name": "The One Family Rule", "body": "Do not introduce Inter, a second display face, or icon fonts for chrome.", "section": "typography" },
+      { "name": "The Flat-By-Default Rule", "body": "Surfaces are flat until they float over the page.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep chrome dark and the PDF page paper-white.",
+      "Do use 信号蓝 only for the live control or focus.",
+      "Do slide the sidebar as a whole; never animate inner text width.",
+      "Do collapse a closed sidebar to zero flex width so the page recenters."
+    ],
+    "donts": [
+      "Don't introduce a light theme or purple SaaS gradient.",
+      "Don't nest cards inside cards on the reading surface.",
+      "Don't add Inter, icon-tile headers, or bounce easing.",
+      "Don't put Chat chrome in the reader; translation stays 划词."
+    ]
+  }
+}
