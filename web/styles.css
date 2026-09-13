@@ -260,7 +260,6 @@ select {
 
 .workspace.sidebar-collapsed .sidebar {
   width: 0;
-  max-width: 0;
   flex: 0 0 0;
   border-right-width: 0;
   border-right-color: transparent;

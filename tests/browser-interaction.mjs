@@ -96,6 +96,23 @@ try {
   assert.equal(sidebarToggle.after, true);
   assert.equal(sidebarToggle.restored, true);
 
+  const motion = await evaluate(`(async () => {
+    await new Promise(r => setTimeout(r, 220));
+    const sidebar = document.getElementById('sidebar');
+    const width = sidebar.getBoundingClientRect().width;
+    document.getElementById('btn-sidebar').click();
+    await new Promise(r => setTimeout(r, 60));
+    const middle = sidebar.getBoundingClientRect().width;
+    await new Promise(r => setTimeout(r, 200));
+    const end = sidebar.getBoundingClientRect().width;
+    document.getElementById('btn-sidebar').click();
+    await new Promise(r => setTimeout(r, 220));
+    return { width, middle, end };
+  })()`);
+  console.log('sidebar motion', motion);
+  assert.ok(motion.middle > motion.width * 0.1 && motion.middle < motion.width * 0.95, 'collapse must have an intermediate width');
+  assert.ok(motion.end <= 1);
+
   const outlineCount = await evaluate(`document.querySelectorAll('.outline-item').length`);
   if (outlineCount > 0) {
     const pageBefore = await evaluate(`Number(document.getElementById('page-input').value)`);
