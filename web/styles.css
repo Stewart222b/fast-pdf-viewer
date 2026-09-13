@@ -537,6 +537,7 @@ select {
 
 .sidebar-search {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   margin: 0 10px 8px;
@@ -559,7 +560,7 @@ select {
 
 .sidebar-search input {
   width: 0;
-  min-width: 0;
+  min-width: 3.5rem;
   flex: 1 1 auto;
   border: 0;
   background: transparent;
@@ -571,9 +572,13 @@ select {
   font-size: 12px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
-  text-align: right;
-  flex: 0 0 auto;
+  flex: 0 0 100%;
+  box-sizing: border-box;
+  padding-left: 20px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
 }
 
 .search-results {
