@@ -16,12 +16,7 @@ export function renderBubbleTranslation(el, text, mode, { streaming = false } = 
   el.classList.toggle("bubble-passage", mode === "passage" && !streaming);
   el.classList.toggle("bubble-term", mode === "term" || streaming);
   if (streaming) {
-    el.replaceChildren();
-    if (text) el.append(document.createTextNode(text));
-    const caret = document.createElement("span");
-    caret.className = "translate-caret";
-    caret.setAttribute("aria-hidden", "true");
-    el.append(caret);
+    el.textContent = text;
     return;
   }
   if (mode === "passage") {

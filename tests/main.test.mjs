@@ -124,7 +124,7 @@ test('queries show available results without waiting for full indexing', async (
   app.input('Beta'); const b = app.runTimer();
   waiting.resolve(); await Promise.all([a, b]);
   assert.deepEqual(app.viewer.shown, ['', 'Alpha', '', 'Beta']);
-  assert.equal(app.get('search-count').textContent, '1 / 1');
+  assert.equal(app.get('search-count').textContent, '第 1 条 · 共 1');
 });
 
 test('file loading uses revocable blob URLs without reading entire files', async () => {
@@ -188,7 +188,7 @@ test('indexing refresh does not switch the sidebar to search', async () => {
   app.runTimer();
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(app.viewer.shown, ['Alpha']);
-  assert.equal(app.get('search-count').textContent, '1 / 1');
+  assert.equal(app.get('search-count').textContent, '第 1 条 · 共 1');
   assert.equal(app.get('search-pane').toggles.active, undefined);
   assert.equal(app.get('outline-pane').toggles.active, undefined);
 });
@@ -200,6 +200,34 @@ test('user search still selects the search sidebar tab', async () => {
   await app.runTimer();
   assert.equal(app.get('search-pane').toggles.active, true);
   assert.equal(app.get('outline-pane').toggles.active, false);
+});
+
+test('toolbar search toggle opens and closes the search tab', async () => {
+  const app = await setup();
+  app.get('btn-search').listeners.click();
+  assert.equal(app.get('search-pane').toggles.active, true);
+  assert.equal(app.get('outline-pane').toggles.active, false);
+  assert.equal(app.get('btn-search').attrs['aria-pressed'], 'true');
+  app.get('btn-search').listeners.click();
+  assert.equal(app.get('search-pane').toggles.active, false);
+  assert.equal(app.get('outline-pane').toggles.active, true);
+  assert.equal(app.get('btn-search').attrs['aria-pressed'], 'false');
+});
+
+test('Ctrl+F opens the sidebar search panel', async () => {
+  const app = await setup();
+  let prevented = false;
+  app.dispatch('keydown', {
+    ctrlKey: true,
+    metaKey: false,
+    altKey: false,
+    key: 'f',
+    target: { matches: () => false },
+    preventDefault() { prevented = true; },
+  });
+  assert.equal(prevented, true);
+  assert.equal(app.get('search-pane').toggles.active, true);
+  assert.equal(app.get('btn-search').attrs['aria-pressed'], 'true');
 });
 
 test('outline entry with numeric dest 0 maps to page 1', async () => {

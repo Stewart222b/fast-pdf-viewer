@@ -84,6 +84,8 @@ $("zoom-picker").addEventListener("focusout", event => {
 
 const history = new ViewHistory();
 let passwordDialog = null;
+let sidebarCollapsed = false;
+let sidebarTab = "outline";
 
 function requestPdfPassword(reason) {
   if (passwordDialog) return passwordDialog;
@@ -373,9 +375,14 @@ async function attachOutlinePages(items, ctx) {
   }
 }
 
+function formatSearchCount(current, total) {
+  if (!total) return "0 条";
+  return `第 ${current} 条 · 共 ${total}`;
+}
+
 function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)) {
   searchHits = hits;
-  const pane = $("search-pane");
+  const pane = $("search-results");
   const count = $("search-count");
   pane.replaceChildren();
   $("search-prev").disabled = hits.length === 0;
@@ -391,7 +398,7 @@ function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)
     pane.innerHTML = '<div class="empty-side">没有找到匹配。</div>';
     return;
   }
-  count.textContent = `${viewer.hitIndex + 1} / ${hits.length}`;
+  count.textContent = formatSearchCount(viewer.hitIndex + 1, hits.length);
   const end = Math.min(hits.length, start + 200);
   const moreButton = (label, nextStart) => {
     const button = document.createElement("button");
@@ -403,9 +410,11 @@ function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)
   if (start > 0) moreButton("上一组结果", Math.max(0, start - 200));
   hits.slice(start, end).forEach((hit, localIndex) => {
     const index = start + localIndex;
+    const active = index === viewer.hitIndex;
     const btn = document.createElement("button");
-    btn.className = `search-hit${index === viewer.hitIndex ? " active" : ""}`;
-    btn.innerHTML = `<div class="meta">第 ${hit.pageNumber} 页 · ${index + 1}/${hits.length}</div>
+    btn.className = `search-hit${active ? " active" : ""}`;
+    const pageLabel = active ? `第 ${hit.pageNumber} 页 · 当前` : `第 ${hit.pageNumber} 页`;
+    btn.innerHTML = `<div class="meta">${pageLabel}</div>
       <div class="snippet">${highlightSnippet(hit.snippet, query)}</div>`;
     btn.addEventListener("click", async () => {
       try {
@@ -467,29 +476,46 @@ async function runSearch(query, request = searchGeneration, jump = true) {
         const warning = document.createElement("div");
         warning.className = "empty-side";
         warning.textContent = "部分页面索引失败，当前仅显示已读取结果。";
-        $("search-pane").appendChild(warning);
+        $("search-results").appendChild(warning);
       } else if (viewer.indexedPages < viewer.pageCount) {
         $("search-count").textContent += ` · 索引 ${viewer.indexedPages}/${viewer.pageCount}`;
       }
     }
   } catch (error) {
-    if (current()) $("search-pane").textContent = `搜索失败：${error.message || error}`;
+    if (current()) $("search-results").textContent = `搜索失败：${error.message || error}`;
   }
 }
 
 function selectSidebar(name) {
+  sidebarTab = name;
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.classList.toggle("active", tab.dataset.tab === name);
   });
   $("outline-pane").classList.toggle("active", name === "outline");
   $("search-pane").classList.toggle("active", name === "search");
+  syncSearchToggle();
 }
 
 function setSidebarCollapsed(collapsed) {
+  sidebarCollapsed = collapsed;
   document.querySelector(".workspace").classList.toggle("sidebar-collapsed", collapsed);
   $("sidebar").setAttribute("aria-hidden", collapsed ? "true" : "false");
   $("btn-sidebar").classList.toggle("active", !collapsed);
   $("btn-sidebar").setAttribute("aria-pressed", collapsed ? "false" : "true");
+  syncSearchToggle();
+}
+
+function syncSearchToggle() {
+  const searchOn = sidebarTab === "search" && !sidebarCollapsed;
+  $("btn-search").classList.toggle("active", searchOn);
+  $("btn-search").setAttribute("aria-pressed", searchOn ? "true" : "false");
+}
+
+function openSearchPanel() {
+  setSidebarCollapsed(false);
+  selectSidebar("search");
+  $("search-input").focus();
+  $("search-input").select();
 }
 
 async function pickFile() {
@@ -508,10 +534,18 @@ fileInput.addEventListener("change", async () => {
 });
 
 $("btn-open").addEventListener("click", pickFile);
+$("btn-open-empty").addEventListener("click", pickFile);
 $("btn-sidebar").addEventListener("click", () => {
-  setSidebarCollapsed(!document.querySelector(".workspace").classList.contains("sidebar-collapsed"));
+  setSidebarCollapsed(!sidebarCollapsed);
 });
 setSidebarCollapsed(false);
+$("btn-search").addEventListener("click", () => {
+  if (sidebarTab === "search" && !sidebarCollapsed) {
+    selectSidebar("outline");
+    return;
+  }
+  openSearchPanel();
+});
 $("btn-back").addEventListener("click", () => viewer.back());
 $("btn-forward").addEventListener("click", () => viewer.forward());
 $("btn-zoom-in").addEventListener("click", () => {
@@ -577,7 +611,7 @@ async function moveHit(step) {
     await viewer.jumpToHit(next, { push: true });
     if (searchHits === hits) renderSearchList(hits, $("search-input").value);
   } catch (error) {
-    if (searchHits === hits) $("search-pane").textContent = `定位失败：${error.message || error}`;
+    if (searchHits === hits) $("search-results").textContent = `定位失败：${error.message || error}`;
   }
 }
 
@@ -650,8 +684,7 @@ window.addEventListener("keydown", (event) => {
   }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
     event.preventDefault();
-    $("search-input").focus();
-    $("search-input").select();
+    openSearchPanel();
   }
   if ((event.ctrlKey || event.metaKey) && (event.key === "=" || event.key === "+")) {
     event.preventDefault();
@@ -697,10 +730,6 @@ function isAutoTranslateOn() {
   return loadSettings().autoTranslateOnSelect !== false;
 }
 
-function setBubbleStreaming(streaming) {
-  $("btn-translate-cancel").hidden = !streaming;
-}
-
 function currentSelectionRect() {
   const viewport = wrap.getBoundingClientRect();
   const anchored = getSelectionAnchorFromSelection(window.getSelection(), viewport);
@@ -731,7 +760,6 @@ function clearStreamingResult() {
 function cancelTranslate() {
   translateAbort?.abort();
   translateAbort = null;
-  setBubbleStreaming(false);
   clearStreamingResult();
 }
 
@@ -766,7 +794,6 @@ function hideBubble() {
   result.hidden = true;
   result.classList.remove("error", "streaming");
   result.textContent = "";
-  setBubbleStreaming(false);
   cancelTranslate();
 }
 
@@ -777,7 +804,7 @@ function showTranslateChip(selectionRect, text) {
   repositionTranslateChip();
 }
 
-function showStreamingCaret(result) {
+function showStreamingResult(result) {
   result.hidden = false;
   result.classList.add("streaming");
   renderBubbleTranslation(result, "", selectedTranslationMode, { streaming: true });
@@ -795,7 +822,6 @@ function openTranslatePanel(selectionRect, text, { startTranslate = true } = {})
   result.classList.remove("error", "streaming");
   result.replaceChildren();
   bubble.hidden = false;
-  setBubbleStreaming(false);
   repositionBubble();
   if (startTranslate) void runTranslate(selectionId);
   return selectionId;
@@ -807,16 +833,7 @@ function setTranslateError(message, selectionId) {
   result.hidden = false;
   result.classList.remove("streaming");
   result.classList.add("error");
-  result.replaceChildren();
-  result.append(document.createTextNode(`${message} `));
-  const retry = document.createElement("button");
-  retry.type = "button";
-  retry.className = "link-btn";
-  retry.id = "btn-translate-retry";
-  retry.textContent = "重试";
-  retry.addEventListener("click", () => runTranslate(selectionId));
-  result.append(retry);
-  setBubbleStreaming(false);
+  result.textContent = message;
 }
 
 async function runTranslate(selectionId = bubbleSelectionId) {
@@ -830,9 +847,8 @@ async function runTranslate(selectionId = bubbleSelectionId) {
   }
   const result = $("translate-result");
   result.classList.remove("error");
-  showStreamingCaret(result);
+  showStreamingResult(result);
   scheduleRepositionBubble();
-  setBubbleStreaming(true);
 
   const controller = new AbortController();
   translateAbort = controller;
@@ -849,7 +865,6 @@ async function runTranslate(selectionId = bubbleSelectionId) {
       },
     });
     if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
-    setBubbleStreaming(false);
     result.classList.remove("streaming");
     renderBubbleTranslation(result, translated, selectedTranslationMode);
     translateAbort = null;
@@ -857,7 +872,6 @@ async function runTranslate(selectionId = bubbleSelectionId) {
   } catch (error) {
     if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
     if (controller.signal.aborted) {
-      setBubbleStreaming(false);
       clearStreamingResult();
       return;
     }
@@ -920,9 +934,9 @@ translateChip.addEventListener("click", (event) => {
 });
 
 $("btn-bubble-close").addEventListener("click", hideBubble);
-$("btn-translate-cancel").addEventListener("click", () => {
-  translateAbort?.abort();
-  setBubbleStreaming(false);
+$("btn-translate-retry").addEventListener("click", () => {
+  if (!selectedText) return;
+  runTranslate(bubbleSelectionId);
 });
 $("btn-copy").addEventListener("click", async () => {
   const copy = readBubblePlainText($("translate-result")) || selectedText;

@@ -83,3 +83,18 @@ test("maxHeight keeps bubble inside viewport", () => {
   const { top, maxHeight } = computeBubblePlacement(selection, viewport, bubbleW, bubbleH);
   assert.ok(top + maxHeight <= viewport.bottom - 8);
 });
+
+test("short viewer after title strip still keeps bubble in viewport", () => {
+  const short = { left: 300, top: 90, right: 1400, bottom: 720, width: 1100, height: 630 };
+  const selection = {
+    left: 400,
+    top: 640,
+    right: 700,
+    bottom: 660,
+    width: 300,
+    height: 20,
+  };
+  const { top, maxHeight } = computeBubblePlacement(selection, short, 400, 280);
+  assert.ok(top >= short.top + 8);
+  assert.ok(top + maxHeight <= short.bottom - 8);
+});

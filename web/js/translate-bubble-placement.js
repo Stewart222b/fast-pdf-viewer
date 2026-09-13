@@ -63,9 +63,31 @@ export function computeBubblePlacement(
 
 export function maxBubbleWidthForViewport(viewportRect, options = {}) {
   const margin = options.margin ?? BUBBLE_MARGIN;
-  const cap = options.absoluteMax ?? 420;
+  const cap = options.absoluteMax ?? 400;
   const viewportWidth = viewportRect.right - viewportRect.left;
   return Math.min(cap, Math.max(160, viewportWidth - margin * 2));
+}
+
+function intersectRects(a, b) {
+  const left = Math.max(a.left, b.left);
+  const top = Math.max(a.top, b.top);
+  const right = Math.min(a.right, b.right);
+  const bottom = Math.min(a.bottom, b.bottom);
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top),
+  };
+}
+
+function windowRectFromGlobal(viewportRect) {
+  const width = Number(globalThis.innerWidth) || 0;
+  const height = Number(globalThis.innerHeight) || 0;
+  if (width <= 0 || height <= 0) return viewportRect;
+  return { left: 0, top: 0, right: width, bottom: height, width, height };
 }
 
 /**
@@ -74,14 +96,16 @@ export function maxBubbleWidthForViewport(viewportRect, options = {}) {
  * @param {RectLike} viewportRect
  */
 export function applyBubblePlacement(bubbleEl, selectionRect, viewportRect, options) {
-  const maxWidth = maxBubbleWidthForViewport(viewportRect, options);
+  const clip = intersectRects(viewportRect, options?.windowRect ?? windowRectFromGlobal(viewportRect));
+  const usable = clip.width > 0 && clip.height > 0 ? clip : viewportRect;
+  const maxWidth = maxBubbleWidthForViewport(usable, options);
   bubbleEl.style.maxWidth = `${maxWidth}px`;
   bubbleEl.style.width = `${maxWidth}px`;
   const width = bubbleEl.offsetWidth;
   const height = bubbleEl.offsetHeight;
   const { left, top, maxHeight } = computeBubblePlacement(
     selectionRect,
-    viewportRect,
+    usable,
     width,
     height,
     options,

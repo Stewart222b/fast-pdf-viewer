@@ -32,11 +32,11 @@ Edge / Chrome 内置 PDF 预览常见问题：
 | 快速打开 | pdf.js 按需渲染，页缓存默认 8 页（基准验证） |
 | 连续滚动 | IntersectionObserver + 预取，快速滚动约 60 FPS |
 | 缩放 | 适合宽度 / 适合页面 / 50%–500%，Ctrl + 滚轮 |
-| 搜索 | 全文索引、侧栏结果列表、**3 / 47** 计数、Enter / Shift+Enter 跳转 |
+| 搜索 | 全文索引、侧栏结果列表、**第 3 条 · 共 47** 计数、Enter / Shift+Enter 跳转 |
 | 目录 | PDF Outline，当前阅读章节高亮 |
 | 导航 | 鼠标侧键、Alt+←/→、Backspace 前进/后退 |
 | 阅读位置 | 同一文档再次打开时恢复页码与滚动（本机 `localStorage`） |
-| 划词翻译 | OpenAI 兼容 API（默认 OpenRouter），选中即译，可取消/重试 |
+| 划词翻译 | OpenAI 兼容 API（默认 OpenRouter），选中即译，可复制/重试 |
 | 桌面 + 网页 | 桌面：Python + WebView2；网页：本地选/拖 PDF，**不上传** |
 
 ---
