@@ -428,6 +428,7 @@ function selectSidebar(name) {
 
 function setSidebarCollapsed(collapsed) {
   document.querySelector(".workspace").classList.toggle("sidebar-collapsed", collapsed);
+  $("sidebar").setAttribute("aria-hidden", collapsed ? "true" : "false");
   $("btn-sidebar").classList.toggle("active", !collapsed);
   $("btn-sidebar").setAttribute("aria-pressed", collapsed ? "false" : "true");
 }

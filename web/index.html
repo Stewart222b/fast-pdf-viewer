@@ -52,13 +52,15 @@
       </header>
 
       <div class="workspace">
-        <aside id="sidebar" class="sidebar">
-          <div class="sidebar-tabs">
-            <button data-tab="outline" class="tab active">目录</button>
-            <button data-tab="search" class="tab">搜索结果</button>
+        <aside id="sidebar" class="sidebar" aria-hidden="false">
+          <div class="sidebar-inner">
+            <div class="sidebar-tabs">
+              <button data-tab="outline" class="tab active">目录</button>
+              <button data-tab="search" class="tab">搜索结果</button>
+            </div>
+            <div id="outline-pane" class="sidebar-pane active"></div>
+            <div id="search-pane" class="sidebar-pane"></div>
           </div>
-          <div id="outline-pane" class="sidebar-pane active"></div>
-          <div id="search-pane" class="sidebar-pane"></div>
         </aside>
         <main id="viewer-wrap" class="viewer-wrap">
           <div id="drop-hint" class="drop-hint">
