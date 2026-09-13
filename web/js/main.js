@@ -459,13 +459,21 @@ $("zoom-select").addEventListener("change", (event) => {
 });
 $("btn-page-prev").addEventListener("click", () => stepPage(-1));
 $("btn-page-next").addEventListener("click", () => stepPage(1));
+function pageInputValue(raw) {
+  const digits = String(raw || "").replace(/\D/g, "");
+  const page = Number(digits);
+  return Number.isFinite(page) && page > 0 ? page : null;
+}
+
 $("page-input").addEventListener("change", (event) => {
-  viewer.goToPage(Number(event.target.value), { push: true });
+  const page = pageInputValue(event.target.value);
+  if (page) viewer.goToPage(page, { push: true });
 });
 $("page-input").addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();
-    viewer.goToPage(Number(event.target.value), { push: true });
+    const page = pageInputValue(event.target.value);
+    if (page) viewer.goToPage(page, { push: true });
   }
 });
 
@@ -592,8 +600,17 @@ window.addEventListener("keydown", (event) => {
 });
 
 const bubble = $("translate-bubble");
+const translateChip = $("translate-chip");
 let selectedText = "";
 let bubbleSelectionRect = null;
+
+function isAutoTranslateOn() {
+  return loadSettings().autoTranslateOnSelect !== false;
+}
+
+function setBubbleStreaming(streaming) {
+  $("btn-translate-cancel").hidden = !streaming;
+}
 
 function currentSelectionRect() {
   const viewport = wrap.getBoundingClientRect();
@@ -609,24 +626,58 @@ function repositionBubble() {
 }
 
 function scheduleRepositionBubble() {
-  requestAnimationFrame(() => repositionBubble());
+  requestAnimationFrame(() => {
+    repositionTranslateChip();
+    repositionBubble();
+  });
 }
 
 function cancelTranslate() {
   translateAbort?.abort();
   translateAbort = null;
-  $("btn-translate-cancel").hidden = true;
+  setBubbleStreaming(false);
+}
+
+function hideTranslateChip() {
+  translateChip.hidden = true;
+}
+
+function repositionTranslateChip() {
+  if (translateChip.hidden) return;
+  const rect = currentSelectionRect();
+  if (!rect) return;
+  const viewport = wrap.getBoundingClientRect();
+  const gap = 8;
+  const margin = 8;
+  translateChip.hidden = false;
+  const w = translateChip.offsetWidth;
+  const h = translateChip.offsetHeight;
+  let left = rect.left;
+  let top = rect.bottom + gap;
+  if (top + h > viewport.bottom - margin) top = rect.top - gap - h;
+  left = Math.min(Math.max(left, viewport.left + margin), viewport.right - w - margin);
+  top = Math.min(Math.max(top, viewport.top + margin), viewport.bottom - h - margin);
+  translateChip.style.left = `${left}px`;
+  translateChip.style.top = `${top}px`;
 }
 
 function hideBubble() {
   bubbleSelectionRect = null;
+  hideTranslateChip();
   bubble.hidden = true;
   const result = $("translate-result");
   result.hidden = true;
   result.classList.remove("error", "streaming");
   result.textContent = "";
-  $("translate-status").hidden = true;
+  setBubbleStreaming(false);
   cancelTranslate();
+}
+
+function showTranslateChip(selectionRect, text) {
+  selectedText = text;
+  bubbleSelectionRect = selectionRect;
+  translateChip.hidden = false;
+  repositionTranslateChip();
 }
 
 function showStreamingCaret(result) {
@@ -649,7 +700,8 @@ function setStreamingTranslation(text, result) {
   result.append(caret);
 }
 
-function showBubble(selectionRect, text) {
+function openTranslatePanel(selectionRect, text, { startTranslate = true } = {}) {
+  hideTranslateChip();
   const selectionId = ++bubbleSelectionId;
   selectedText = text;
   bubbleSelectionRect = selectionRect;
@@ -658,8 +710,9 @@ function showBubble(selectionRect, text) {
   $("translate-result").classList.remove("error");
   $("translate-result").textContent = "";
   bubble.hidden = false;
+  setBubbleStreaming(false);
   repositionBubble();
-  void runTranslate(selectionId);
+  if (startTranslate) void runTranslate(selectionId);
   return selectionId;
 }
 
@@ -678,8 +731,7 @@ function setTranslateError(message, selectionId) {
   retry.textContent = "重试";
   retry.addEventListener("click", () => runTranslate(selectionId));
   result.append(retry);
-  $("translate-status").hidden = true;
-  $("btn-translate-cancel").hidden = true;
+  setBubbleStreaming(false);
 }
 
 async function runTranslate(selectionId = bubbleSelectionId) {
@@ -692,12 +744,10 @@ async function runTranslate(selectionId = bubbleSelectionId) {
     return;
   }
   const result = $("translate-result");
-  const status = $("translate-status");
   result.classList.remove("error");
-  status.hidden = true;
   showStreamingCaret(result);
   scheduleRepositionBubble();
-  $("btn-translate-cancel").hidden = false;
+  setBubbleStreaming(true);
 
   const controller = new AbortController();
   translateAbort = controller;
@@ -713,7 +763,7 @@ async function runTranslate(selectionId = bubbleSelectionId) {
       },
     });
     if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
-    $("btn-translate-cancel").hidden = true;
+    setBubbleStreaming(false);
     result.classList.remove("streaming");
     result.textContent = translated;
     translateAbort = null;
@@ -721,8 +771,7 @@ async function runTranslate(selectionId = bubbleSelectionId) {
   } catch (error) {
     if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
     if (controller.signal.aborted) {
-      status.hidden = true;
-      $("btn-translate-cancel").hidden = true;
+      setBubbleStreaming(false);
       return;
     }
     setTranslateError(error.message || String(error), selectionId);
@@ -730,11 +779,16 @@ async function runTranslate(selectionId = bubbleSelectionId) {
 }
 
 document.addEventListener("mouseup", (event) => {
-  if (bubble.contains(event.target)) return;
+  if (bubble.contains(event.target) || translateChip.contains(event.target)) return;
   const selection = window.getSelection();
   const text = selection?.toString().trim() || "";
   if (!text || !selection.rangeCount) {
-    if (!event.target.closest("#translate-bubble")) hideBubble();
+    if (
+      !event.target.closest("#translate-bubble") &&
+      !event.target.closest("#translate-chip")
+    ) {
+      hideBubble();
+    }
     return;
   }
   const range = selection.getRangeAt(0);
@@ -746,23 +800,34 @@ document.addEventListener("mouseup", (event) => {
     return;
   }
   const anchor = getSelectionAnchorRect(range, wrap.getBoundingClientRect());
-  showBubble(anchor, text);
+  if (isAutoTranslateOn()) {
+    openTranslatePanel(anchor, text);
+  } else {
+    bubble.hidden = true;
+    cancelTranslate();
+    showTranslateChip(anchor, text);
+  }
 });
 
 wrap.addEventListener("scroll", scheduleRepositionBubble, { passive: true });
 window.addEventListener("resize", scheduleRepositionBubble);
 
+translateChip.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const rect = currentSelectionRect() || bubbleSelectionRect;
+  if (!rect || !selectedText) return;
+  openTranslatePanel(rect, selectedText);
+});
+
 $("btn-bubble-close").addEventListener("click", hideBubble);
 $("btn-translate-cancel").addEventListener("click", () => {
   translateAbort?.abort();
-  $("translate-status").hidden = true;
-  $("btn-translate-cancel").hidden = true;
+  setBubbleStreaming(false);
 });
 $("btn-copy").addEventListener("click", async () => {
   const copy = $("translate-result").textContent?.trim() || selectedText;
   if (copy) await navigator.clipboard.writeText(copy);
 });
-$("btn-translate").addEventListener("click", () => runTranslate());
 
 const modelPicker = wireModelPicker({
   input: $("setting-model"),
@@ -793,6 +858,7 @@ $("btn-settings").addEventListener("click", () => {
   $("setting-base").value = settings.apiBaseUrl;
   $("setting-model").value = settings.model;
   $("setting-lang").value = settings.targetLang;
+  $("setting-auto-translate").checked = settings.autoTranslateOnSelect !== false;
   $("settings-modal").hidden = false;
   modelPicker.refresh();
 });
@@ -805,6 +871,7 @@ $("btn-settings-save").addEventListener("click", () => {
     apiBaseUrl: $("setting-base").value.trim(),
     model: $("setting-model").value.trim() || "openai/gpt-4o-mini",
     targetLang: $("setting-lang").value,
+    autoTranslateOnSelect: $("setting-auto-translate").checked,
   });
   $("settings-modal").hidden = true;
 });

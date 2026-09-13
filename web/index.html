@@ -18,11 +18,11 @@
           <div class="divider"></div>
           <div class="page-nav">
             <button id="btn-page-prev" class="btn icon tiny" type="button" title="上一页 (↑ / Page Up)" disabled>↑</button>
-            <label class="page-box">
-              <input id="page-input" type="number" min="1" value="1" />
-              <span>/ <b id="page-count">0</b></span>
-            </label>
             <button id="btn-page-next" class="btn icon tiny" type="button" title="下一页 (↓ / Page Down)" disabled>↓</button>
+            <label class="page-box">
+              <input id="page-input" class="page-input" type="text" inputmode="numeric" pattern="[0-9]*" value="1" aria-label="当前页码" />
+              <span class="page-total">/ <b id="page-count">0</b></span>
+            </label>
           </div>
         </div>
         <div class="toolbar-center">
@@ -77,11 +77,12 @@
       </div>
     </div>
 
+    <button id="translate-chip" class="translate-chip" type="button" hidden title="翻译选中文本">译</button>
+
     <div id="translate-bubble" class="translate-bubble" hidden>
       <div class="bubble-actions">
-        <span id="translate-status" class="bubble-status" hidden>翻译中…</span>
-        <button id="btn-translate" class="btn primary tiny" title="重新翻译">翻译</button>
         <button id="btn-translate-cancel" class="btn tiny" hidden>取消</button>
+        <span class="bubble-actions-spacer"></span>
         <button id="btn-copy" class="btn tiny">复制</button>
         <button id="btn-bubble-close" class="btn icon tiny" title="关闭 (Esc)">×</button>
       </div>
@@ -129,6 +130,10 @@
             <ul id="setting-model-menu" class="model-menu" hidden></ul>
             <div id="setting-model-status" class="model-picker-status" hidden></div>
           </div>
+        </label>
+        <label class="setting-checkbox">
+          <input id="setting-auto-translate" type="checkbox" checked />
+          划词后自动翻译
         </label>
         <label>
           目标语言

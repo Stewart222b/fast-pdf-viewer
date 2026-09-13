@@ -145,7 +145,11 @@ select {
 .page-nav {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.page-nav .btn.icon.tiny {
   flex: 0 0 auto;
 }
 
@@ -159,20 +163,28 @@ select {
   white-space: nowrap;
 }
 
-.page-box input {
-  width: 52px;
+.page-box .page-input {
+  width: 3.2em;
+  min-width: 2.5em;
+  text-align: right;
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 6px 8px;
+  padding: 6px 6px;
+  font: inherit;
+  color: inherit;
   -moz-appearance: textfield;
   appearance: textfield;
 }
 
-.page-box input::-webkit-outer-spin-button,
-.page-box input::-webkit-inner-spin-button {
+.page-box .page-input::-webkit-outer-spin-button,
+.page-box .page-input::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
+}
+
+.page-total {
+  color: var(--muted);
 }
 
 #zoom-select {
@@ -527,6 +539,50 @@ select {
   display: flex;
   gap: 6px;
   align-items: center;
+  justify-content: flex-end;
+}
+
+.bubble-actions-spacer {
+  flex: 1 1 auto;
+  min-width: 4px;
+}
+
+.translate-chip {
+  position: fixed;
+  z-index: 19;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #2a3140;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+
+.translate-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.translate-chip[hidden] {
+  display: none !important;
+}
+
+.setting-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  font-size: 14px;
+}
+
+.setting-checkbox input {
+  width: auto;
 }
 
 .bubble-source,

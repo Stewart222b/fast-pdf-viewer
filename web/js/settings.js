@@ -5,11 +5,15 @@ const defaults = {
   apiBaseUrl: "https://openrouter.ai/api/v1",
   model: "openai/gpt-4o-mini",
   targetLang: "zh-CN",
+  autoTranslateOnSelect: true,
 };
 
 export function loadSettings() {
   try {
-    return { ...defaults, ...JSON.parse(localStorage.getItem(KEY) || "{}") };
+    const stored = JSON.parse(localStorage.getItem(KEY) || "{}");
+    const merged = { ...defaults, ...stored };
+    if (stored.autoTranslateOnSelect === undefined) merged.autoTranslateOnSelect = true;
+    return merged;
   } catch {
     return { ...defaults };
   }
