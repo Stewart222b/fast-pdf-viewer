@@ -13,14 +13,14 @@ function layer() {
   return { ownerDocument: { createRange: () => ({ setStart() {}, setEnd() {}, getClientRects: () => [{left:10,top:700,width:10,height:10}] }) }, getBoundingClientRect: () => ({left:0,top:0}), children: [], style: { setProperty() {} }, replaceWith() {}, replaceChildren() { this.children = []; }, appendChild(el) { this.children.push(el); } };
 }
 function pageElement() {
-  const layers = { '.hlLayer': layer(), '.textLayer': layer(), '.linkLayer': layer(), canvas: { style: {}, getContext() { return {}; } } };
+  const layers = { '.hlLayer': layer(), '.textLayer': layer(), '.linkLayer': layer(), canvas: { style: {}, replaceWith(canvas) { layers.canvas = canvas; }, getContext() { return {}; } } };
   return { dataset: {}, style: { setProperty() {} }, offsetTop: 100, offsetLeft: 0, querySelector: name => layers[name] };
 }
 async function setup(load = () => { throw new Error('unexpected load'); }) {
   const context = vm.createContext({
     URL, console, setTimeout, clearTimeout,
     window: { devicePixelRatio: 1 },
-    document: { createElement: () => ({ style: {}, addEventListener() {}, href: '' }) },
+    document: { createElement: () => ({ style: {}, getContext() { return {}; }, addEventListener() {}, href: '' }) },
     requestAnimationFrame: f => f(),
   });
   const mock = new vm.SyntheticModule(['getDocument', 'GlobalWorkerOptions', 'TextLayer', 'TextLayerBuilder', 'setLayerDimensions'], function () {
@@ -573,4 +573,30 @@ test('showHits and jumpToHit do not batch over all hit pages', async () => {
   assert.equal(/Promise\.all/.test(showHits), false);
   assert.equal(/this\.hits\.map/.test(jumpToHit), false);
   assert.equal(/Promise\.all/.test(jumpToHit), false);
+});
+
+
+test('zoom redraw keeps the old bitmap until the new render completes', async () => {
+  const { viewer } = await setup();
+  const rendered = deferred();
+  const started = deferred();
+  const page = {
+    getViewport: () => viewport,
+    render() { started.resolve(); return { promise: rendered.promise, cancel() {} }; },
+    getTextContent: async () => content('ABC'),
+    getAnnotations: async () => [],
+  };
+  viewer.pdf = { getPage: async () => page };
+  viewer.pageEls = [pageElement()];
+  const original = viewer.pageEls[0].querySelector('canvas');
+  original.width = 600;
+  original.height = 800;
+  const job = viewer.renderPage(1, true);
+  await started.promise;
+  assert.equal(viewer.pageEls[0].querySelector('canvas'), original);
+  assert.equal(original.width, 600);
+  assert.equal(original.height, 800);
+  rendered.resolve();
+  await job;
+  assert.notEqual(viewer.pageEls[0].querySelector('canvas'), original);
 });

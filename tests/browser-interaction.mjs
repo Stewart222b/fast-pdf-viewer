@@ -73,6 +73,16 @@ try {
   await send('Page.navigate', { url: `http://127.0.0.1:${fixtures.port}/` });
   await until(`document.querySelector('.page')?.dataset.renderedZoom`);
 
+  const layerGeometry = await evaluate(`(() => {
+    const page = document.querySelector('.page');
+    const rect = el => {const r = el.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height};};
+    return {canvas:rect(page.querySelector('canvas')), text:rect(page.querySelector('.textLayer')), border:getComputedStyle(page).borderWidth};
+  })()`);
+  console.log('layer geometry', layerGeometry);
+  for (const key of ['x', 'y', 'width', 'height']) {
+    assert.ok(Math.abs(layerGeometry.canvas[key] - layerGeometry.text[key]) <= 1, 'canvas and text must share ' + key);
+  }
+
   const linkLayerPe = await evaluate(`getComputedStyle(document.querySelector('.linkLayer')).pointerEvents`);
   assert.equal(linkLayerPe, 'none');
 
@@ -110,8 +120,67 @@ try {
     return { width, middle, end };
   })()`);
   console.log('sidebar motion', motion);
+  const pinch = await evaluate(`(async () => {
+    const wrap = document.querySelector('.viewer-wrap');
+    const page = document.querySelector('.page');
+    const before = page.getBoundingClientRect().width;
+    const rect = wrap.getBoundingClientRect();
+    wrap.dispatchEvent(new WheelEvent('wheel', {ctrlKey:true, deltaY:-1,
+      clientX:rect.left + 200, clientY:rect.top + 200, bubbles:true, cancelable:true}));
+    await new Promise(r => setTimeout(r, 50));
+    const during = page.getBoundingClientRect().width;
+    await new Promise(r => setTimeout(r, 300));
+    return { before, during, after:page.getBoundingClientRect().width };
+  })()`);
+  console.log('pinch motion', pinch);
   assert.ok(motion.middle > motion.width * 0.1 && motion.middle < motion.width * 0.95, 'collapse must have an intermediate width');
   assert.ok(motion.end <= 1);
+  assert.ok(pinch.during > pinch.before && pinch.during < pinch.before * 1.03, 'tiny pinch must produce a small continuous scale change');
+  assert.ok(Math.abs(pinch.after - pinch.during) < 1, 'preview and final scale must agree');
+
+  const burst = await evaluate(`(async () => {
+    const wrap = document.querySelector('.viewer-wrap');
+    const page = document.querySelector('.page');
+    wrap.scrollTop = 300;
+    await new Promise(r => setTimeout(r, 200));
+    const rect = wrap.getBoundingClientRect();
+    const anchorY = rect.top + 220;
+    const before = page.getBoundingClientRect();
+    const fraction = (anchorY - before.top) / before.height;
+    const canvas = page.querySelector('canvas');
+    for (let i = 0; i < 10; i++) {
+      wrap.dispatchEvent(new WheelEvent('wheel', {ctrlKey:true, deltaY:-1,
+        clientX:rect.left + 220, clientY:anchorY, bubbles:true, cancelable:true}));
+      await new Promise(r => setTimeout(r, 16));
+    }
+    const during = page.getBoundingClientRect();
+    const sameCanvas = canvas === page.querySelector('canvas');
+    const previewError = Math.abs(during.top + fraction * during.height - anchorY);
+    await new Promise(r => setTimeout(r, 450));
+    const after = page.getBoundingClientRect();
+    const finalError = Math.abs(after.top + fraction * after.height - anchorY);
+    const customOptions = document.querySelectorAll('option[data-custom-zoom]').length;
+    return {sameCanvas, previewError, finalError, ratio:after.width / before.width, customOptions};
+  })()`);
+  console.log('pinch burst', burst);
+  assert.ok(burst.sameCanvas, 'gesture must reuse the bitmap without rendering');
+  assert.ok(burst.previewError < 1 && burst.finalError < 1, 'reading point must stay anchored');
+  assert.ok(Math.abs(burst.ratio - Math.exp(0.1)) < 0.001, 'all gesture deltas must accumulate');
+
+  const nativePinch = await evaluate(`(async () => {
+    const wrap = document.querySelector('.viewer-wrap');
+    const page = document.querySelector('.page');
+    const before = page.getBoundingClientRect().width;
+    const rect = wrap.getBoundingClientRect();
+    for (const [type, scale] of [['gesturestart', 1], ['gesturechange', 0.9], ['gestureend', 0.9]]) {
+      const event = new Event(type, {bubbles:true, cancelable:true});
+      Object.assign(event, {scale, clientX:rect.left + 220, clientY:rect.top + 220});
+      wrap.dispatchEvent(event);
+    }
+    await new Promise(r => setTimeout(r, 350));
+    return page.getBoundingClientRect().width / before;
+  })()`);
+  assert.ok(Math.abs(nativePinch - 0.9) < 0.001, 'native WebView gesture must scale continuously');
 
   const outlineCount = await evaluate(`document.querySelectorAll('.outline-item').length`);
   if (outlineCount > 0) {

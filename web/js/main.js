@@ -537,12 +537,34 @@ wrap.addEventListener("drop", async (event) => {
   if (file) await openFile(file);
 });
 
+let nativeGestureScale = null;
+wrap.addEventListener("gesturestart", (event) => {
+  if (!viewer.pdf) return;
+  event.preventDefault();
+  nativeGestureScale = event.scale || 1;
+}, { passive: false });
+wrap.addEventListener("gesturechange", (event) => {
+  if (nativeGestureScale == null || !(event.scale > 0)) return;
+  event.preventDefault();
+  viewer.pinchZoom({
+    deltaY: -100 * Math.log(event.scale / nativeGestureScale),
+    deltaMode: 0, clientX: event.clientX, clientY: event.clientY,
+  });
+  nativeGestureScale = event.scale;
+}, { passive: false });
+wrap.addEventListener("gestureend", (event) => {
+  if (nativeGestureScale == null) return;
+  event.preventDefault();
+  nativeGestureScale = null;
+  viewer.finishPinch();
+}, { passive: false });
+
 wrap.addEventListener(
   "wheel",
   (event) => {
     if (!event.ctrlKey && !event.metaKey) return;
     event.preventDefault();
-    $("zoom-select").value = viewer.bumpZoom(event.deltaY < 0 ? 1 : -1);
+    if (nativeGestureScale == null) viewer.pinchZoom(event);
   },
   { passive: false },
 );

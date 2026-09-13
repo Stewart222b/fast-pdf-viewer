@@ -153,6 +153,7 @@ export class PdfViewer {
   }
 
   close() {
+    this.cancelPinch();
     this.generation += 1;
     this.hitGeneration += 1;
     this.navigationGeneration += 1;
@@ -303,6 +304,7 @@ export class PdfViewer {
   }
 
   setZoom(mode, { silent = false, keepPage = true } = {}) {
+    this.cancelPinch();
     const page = this.currentPage;
     this.zoomMode = String(mode);
     this.zoom = this.computeZoom();
@@ -322,6 +324,61 @@ export class PdfViewer {
       this.renderVisible(true);
     }
     this.notify();
+  }
+
+  // Keep the raster and text together on the compositor during a gesture.
+  // Layout and PDF rendering happen only once the input stream settles.
+  pinchZoom(event) {
+    if (!this.pdf || !this.pageEls.length || !Number.isFinite(event.deltaY) || !event.deltaY) return;
+    if (!this.pinch) {
+      const rect = this.wrapEl.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const contentY = this.wrapEl.scrollTop + y;
+      const page = this.pageEls.find(el => el.offsetTop + el.offsetHeight >= contentY)
+        || this.pageEls[this.pageEls.length - 1];
+      this.pinch = {
+        zoom: this.zoom, target: this.zoom, x, y, page,
+        pageX: (this.wrapEl.scrollLeft + x - page.offsetLeft) / this.zoom,
+        pageY: (contentY - page.offsetTop) / this.zoom,
+      };
+      clearTimeout(this.zoomTimer);
+      for (const task of this.tasks.values()) task.cancel();
+      this.pagesEl.style.transformOrigin = `${this.wrapEl.scrollLeft + x}px ${contentY}px`;
+      this.pagesEl.style.willChange = "transform";
+    }
+    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? this.wrapEl.clientHeight : 1);
+    this.pinch.target = Math.min(5, Math.max(0.25, this.pinch.target * Math.exp(-delta / 100)));
+    if (!this.pinchFrame) {
+      this.pinchFrame = requestAnimationFrame(() => {
+        this.pinchFrame = null;
+        if (this.pinch) {
+          this.pagesEl.style.transform = `scale(${this.pinch.target / this.pinch.zoom})`;
+        }
+      });
+    }
+    clearTimeout(this.pinchTimer);
+    this.pinchTimer = setTimeout(() => this.finishPinch(), 160);
+  }
+
+  cancelPinch() {
+    clearTimeout(this.pinchTimer);
+    if (this.pinchFrame) cancelAnimationFrame(this.pinchFrame);
+    this.pinchFrame = null;
+    if (!this.pinch) return;
+    this.pinch = null;
+    this.pagesEl.style.transform = "";
+    this.pagesEl.style.transformOrigin = "";
+    this.pagesEl.style.willChange = "";
+  }
+
+  finishPinch() {
+    const pinch = this.pinch;
+    if (!pinch) return;
+    this.cancelPinch();
+    this.setZoom(String(pinch.target * 100), { keepPage: false });
+    this.wrapEl.scrollLeft = pinch.page.offsetLeft + pinch.pageX * this.zoom - pinch.x;
+    this.wrapEl.scrollTop = pinch.page.offsetTop + pinch.pageY * this.zoom - pinch.y;
   }
 
   bumpZoom(delta) {
@@ -395,6 +452,7 @@ export class PdfViewer {
   }
 
   renderPage(pageNumber, force = false) {
+    if (this.pinch) return Promise.resolve();
     if (this.bench) this.bench.renderPageCalls += 1;
     const el = this.pageEls[pageNumber - 1];
     const pdf = this.pdf;
@@ -412,7 +470,7 @@ export class PdfViewer {
     const generation = this.generation;
     const job = { key };
     const current = () => generation === this.generation &&
-      this.renderJobs.get(pageNumber) === job && this.zoom === zoom;
+      this.renderJobs.get(pageNumber) === job && this.zoom === zoom && !this.pinch;
     const prevTask = this.tasks.get(pageNumber);
     if (prevTask) {
       if (this.bench) this.bench.renderTaskCancels += 1;
@@ -424,7 +482,7 @@ export class PdfViewer {
     if (this.bench) this.bench.renderJobsPeak = Math.max(this.bench.renderJobsPeak, this.renderJobs.size);
     job.promise = (async () => {
       try {
-        // A canvas cannot be used by two pdf.js render tasks concurrently.
+        // Let the previous job settle before replacing its layers.
         await previous?.promise.catch(() => {});
         if (!current()) return;
         const page = await pdf.getPage(pageNumber);
@@ -436,16 +494,18 @@ export class PdfViewer {
         const viewport = page.getViewport({ scale: zoom * outputScale });
         el.style.width = `${cssViewport.width}px`;
         el.style.height = `${cssViewport.height}px`;
-        const canvas = el.querySelector("canvas");
+        const previousCanvas = el.querySelector("canvas");
+        const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d", { alpha: false });
         canvas.width = Math.floor(viewport.width);
         canvas.height = Math.floor(viewport.height);
-        canvas.style.width = `${cssViewport.width}px`;
-        canvas.style.height = `${cssViewport.height}px`;
+
         const task = page.render({ canvasContext: ctx, canvas, viewport, intent: "display" });
         this.tasks.set(pageNumber, task);
         await task.promise;
         if (!current()) return;
+        // Keep the scaled old bitmap visible until its replacement is complete.
+        previousCanvas.replaceWith(canvas);
         const textContent = this.textContents.get(pageNumber) || await page.getTextContent({ includeMarkedContent: true, disableNormalization: true });
         if (!current()) return;
         this.textContents.set(pageNumber, textContent);
