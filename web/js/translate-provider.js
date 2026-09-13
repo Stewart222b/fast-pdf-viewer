@@ -74,12 +74,37 @@ export function latin1HeaderValue(value, fallback = "") {
   return /^[\x00-\xff]*$/.test(text) ? text : fallback;
 }
 
-export function buildTranslationMessages(text, targetLang) {
+/** @param {'term' | 'passage'} mode */
+export function buildTranslationMessages(text, targetLang, mode = "passage") {
   const language = LANG_NAME[targetLang] || targetLang;
+  if (mode === "term") {
+    return [
+      {
+        role: "system",
+        content: [
+          `You are a concise bilingual dictionary for ${language}.`,
+          "The user selected a short word or term from a PDF.",
+          "Reply in " + language + " only, compact dictionary-card style (no markdown fences):",
+          "1) Headword line (original term if helpful)",
+          "2) 词性 / part of speech",
+          "3) 1–3 brief definitions",
+          "4) 1–2 short example sentences",
+          "Keep the whole answer short enough for a small popup.",
+        ].join(" "),
+      },
+      { role: "user", content: text },
+    ];
+  }
   return [
     {
       role: "system",
-      content: `You are a precise translator. Translate the user's text into ${language}. Preserve numbers, names, and line breaks. Return only the translation.`,
+      content: [
+        `Translate the user's passage into ${language}.`,
+        "The text is from a PDF: soft line wraps are already removed; blank lines mark real paragraphs.",
+        "Translate as coherent paragraphs matching those boundaries.",
+        "Do not split into one sentence per line or preserve PDF wrap breaks.",
+        "Return only the translation.",
+      ].join(" "),
     },
     { role: "user", content: text },
   ];
@@ -165,7 +190,7 @@ async function readStreamingTranslation(response, { onDelta, signal } = {}) {
 export async function translateWithProvider(
   text,
   settings,
-  { signal, timeoutMs = 60_000, onDelta } = {},
+  { signal, timeoutMs = 60_000, onDelta, mode = "passage" } = {},
 ) {
   if (!settings?.apiKey) {
     throw new Error("还没有填写 API Key，请先打开设置。");
@@ -205,7 +230,7 @@ export async function translateWithProvider(
         model: settings.model || DEFAULT_MODEL,
         temperature: 0.1,
         stream: true,
-        messages: buildTranslationMessages(trimmed, settings.targetLang),
+        messages: buildTranslationMessages(trimmed, settings.targetLang, mode),
       }),
       signal: controller.signal,
     });

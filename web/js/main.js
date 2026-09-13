@@ -8,7 +8,13 @@ import {
 import { highlightSnippet, searchDocument } from "./search.js";
 import { loadSettings, saveSettings } from "./settings.js";
 import { wireModelPicker } from "./model-picker.js";
+import {
+  readBubblePlainText,
+  renderBubbleSource,
+  renderBubbleTranslation,
+} from "./bubble-text-render.js";
 import { getSelectionAnchorFromSelection, getSelectionAnchorRect } from "./selection-anchor.js";
+import { prepareSelectionForTranslation } from "./selection-text.js";
 import { applyBubblePlacement } from "./translate-bubble-placement.js";
 import { MAX_TRANSLATE_CHARS, translateText } from "./translate.js";
 import { PasswordResponses } from "../vendor/pdfjs/build/pdf.mjs";
@@ -602,6 +608,7 @@ window.addEventListener("keydown", (event) => {
 const bubble = $("translate-bubble");
 const translateChip = $("translate-chip");
 let selectedText = "";
+let selectedTranslationMode = "passage";
 let bubbleSelectionRect = null;
 
 function isAutoTranslateOn() {
@@ -682,22 +689,8 @@ function showTranslateChip(selectionRect, text) {
 
 function showStreamingCaret(result) {
   result.hidden = false;
-  result.classList.remove("error");
   result.classList.add("streaming");
-  result.replaceChildren();
-  const caret = document.createElement("span");
-  caret.className = "translate-caret";
-  caret.setAttribute("aria-hidden", "true");
-  result.append(caret);
-}
-
-function setStreamingTranslation(text, result) {
-  result.replaceChildren();
-  if (text) result.append(document.createTextNode(text));
-  const caret = document.createElement("span");
-  caret.className = "translate-caret";
-  caret.setAttribute("aria-hidden", "true");
-  result.append(caret);
+  renderBubbleTranslation(result, "", selectedTranslationMode, { streaming: true });
 }
 
 function openTranslatePanel(selectionRect, text, { startTranslate = true } = {}) {
@@ -705,10 +698,12 @@ function openTranslatePanel(selectionRect, text, { startTranslate = true } = {})
   const selectionId = ++bubbleSelectionId;
   selectedText = text;
   bubbleSelectionRect = selectionRect;
-  $("translate-source").textContent = text.length > 240 ? `${text.slice(0, 240)}…` : text;
-  $("translate-result").hidden = true;
-  $("translate-result").classList.remove("error");
-  $("translate-result").textContent = "";
+  const source = $("translate-source");
+  renderBubbleSource(source, text, selectedTranslationMode);
+  const result = $("translate-result");
+  result.hidden = true;
+  result.classList.remove("error", "streaming");
+  result.replaceChildren();
   bubble.hidden = false;
   setBubbleStreaming(false);
   repositionBubble();
@@ -756,16 +751,17 @@ async function runTranslate(selectionId = bubbleSelectionId) {
   try {
     const translated = await translateText(text, loadSettings(), {
       signal: controller.signal,
+      mode: selectedTranslationMode,
       onDelta: (partial) => {
         if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
-        setStreamingTranslation(partial, result);
+        renderBubbleTranslation(result, partial, selectedTranslationMode, { streaming: true });
         scheduleRepositionBubble();
       },
     });
     if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
     setBubbleStreaming(false);
     result.classList.remove("streaming");
-    result.textContent = translated;
+    renderBubbleTranslation(result, translated, selectedTranslationMode);
     translateAbort = null;
     scheduleRepositionBubble();
   } catch (error) {
@@ -781,7 +777,8 @@ async function runTranslate(selectionId = bubbleSelectionId) {
 document.addEventListener("mouseup", (event) => {
   if (bubble.contains(event.target) || translateChip.contains(event.target)) return;
   const selection = window.getSelection();
-  const text = selection?.toString().trim() || "";
+  const prepared = selection?.rangeCount ? prepareSelectionForTranslation(selection) : null;
+  const text = prepared?.text || "";
   if (!text || !selection.rangeCount) {
     if (
       !event.target.closest("#translate-bubble") &&
@@ -799,6 +796,7 @@ document.addEventListener("mouseup", (event) => {
     hideBubble();
     return;
   }
+  selectedTranslationMode = prepared.mode;
   const anchor = getSelectionAnchorRect(range, wrap.getBoundingClientRect());
   if (isAutoTranslateOn()) {
     openTranslatePanel(anchor, text);
@@ -825,7 +823,7 @@ $("btn-translate-cancel").addEventListener("click", () => {
   setBubbleStreaming(false);
 });
 $("btn-copy").addEventListener("click", async () => {
-  const copy = $("translate-result").textContent?.trim() || selectedText;
+  const copy = readBubblePlainText($("translate-result")) || selectedText;
   if (copy) await navigator.clipboard.writeText(copy);
 });
 

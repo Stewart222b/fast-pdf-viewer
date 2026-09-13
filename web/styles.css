@@ -601,7 +601,25 @@ select {
   margin-top: 8px;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.bubble-source.bubble-term,
+.bubble-result.bubble-term,
+.bubble-result.streaming {
   white-space: pre-wrap;
+}
+
+.bubble-source.bubble-passage,
+.bubble-result.bubble-passage {
+  white-space: normal;
+}
+
+.bubble-passage p {
+  margin: 0 0 0.65em;
+}
+
+.bubble-passage p:last-child {
+  margin-bottom: 0;
 }
 
 .bubble-source {

@@ -92,7 +92,9 @@ async function setup() {
     if (
       spec === './search.js' ||
       spec === './translate-bubble-placement.js' ||
-      spec === './selection-anchor.js'
+      spec === './selection-anchor.js' ||
+      spec === './selection-text.js' ||
+      spec === './bubble-text-render.js'
     ) {
       return new vm.SourceTextModule(await readFile(new URL(`../web/js/${spec.slice(2)}`, import.meta.url), 'utf8'), { context });
     }
