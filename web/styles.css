@@ -454,14 +454,38 @@ select {
   padding: 10px 10px 4px;
 }
 
-.sidebar-title {
+.sidebar-tabs {
+  display: flex;
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  gap: 2px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.sidebar-tab {
+  flex: 1 1 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
   color: var(--muted);
+  font: inherit;
   font-size: 12px;
+  padding: 5px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sidebar-tab:hover {
+  color: var(--text);
+}
+
+.sidebar-tab.active,
+.sidebar-tab[aria-selected="true"] {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 
 .search-pane-bar {
@@ -813,26 +837,14 @@ select {
   border-top: 1px solid var(--line);
 }
 
-/* Quiet by default; actions surface on hover for pointer users. */
+/* Actions stay legible: hierarchy comes from type size and muted source,
+   never from fading interactive controls. */
 .bubble-close {
   color: var(--muted);
-  opacity: 0.55;
 }
 
 .bubble-close:hover {
-  opacity: 1;
   color: var(--text);
-}
-
-@media (hover: hover) {
-  .translate-bubble .bubble-actions {
-    opacity: 0.55;
-  }
-
-  .translate-bubble:hover .bubble-actions,
-  .translate-bubble:focus-within .bubble-actions {
-    opacity: 1;
-  }
 }
 
 .bubble-actions-spacer {
@@ -915,6 +927,62 @@ select {
 .bubble-source.bubble-passage,
 .bubble-result.bubble-passage {
   white-space: normal;
+}
+
+.bubble-source.collapsed {
+  max-height: 72px;
+  overflow: hidden;
+}
+
+.source-toggle {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.settings-advanced {
+  margin: 4px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.settings-advanced summary {
+  cursor: pointer;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.settings-advanced .hint.compact {
+  margin: 8px 0;
+}
+
+.settings-advanced label:last-child {
+  margin-bottom: 0;
+}
+
+.viewer-status {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  background: var(--bg);
+}
+
+.viewer-status[hidden] {
+  display: none !important;
+}
+
+.viewer-status-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  max-width: 420px;
+  overflow-wrap: anywhere;
 }
 
 .bubble-passage p {
@@ -1096,4 +1164,113 @@ select {
 ::-webkit-scrollbar-thumb {
   background: #3a4254;
   border-radius: 6px;
+}
+
+/* Page box reads as an editable control; — / — when no document is open. */
+.page-box .page-input:disabled {
+  opacity: 0.7;
+  border-color: transparent;
+  background: transparent;
+  cursor: default;
+}
+
+/* Narrow search toggle: hidden on wide chrome, entry point on tight chrome. */
+#btn-search-toggle[hidden] {
+  display: none !important;
+}
+
+/* ---- Tight chrome: keep toolbar on one row, sidebar becomes overlay ---- */
+.workspace {
+  position: relative;
+}
+
+@media (max-width: 1020px) {
+  .toolbar-center {
+    display: none;
+  }
+  .toolbar {
+    gap: 8px;
+    padding: 0 10px;
+  }
+  .toolbar-left,
+  .toolbar-right {
+    gap: 8px;
+  }
+}
+
+@media (max-width: 900px) {
+  /* Overlay panel: never squeezes the page to 90px. */
+  .sidebar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 15;
+    box-shadow: var(--shadow);
+  }
+  .workspace.sidebar-collapsed .sidebar {
+    visibility: hidden;
+  }
+  #btn-forward {
+    display: none;
+  }
+  .search-box input {
+    width: 96px;
+  }
+}
+
+@media (max-width: 620px) {
+  #btn-search-toggle {
+    display: inline-flex !important;
+  }
+  #btn-search-toggle[hidden] {
+    display: inline-flex !important;
+  }
+  .toolbar .search-box {
+    display: none;
+  }
+  .toolbar.search-expanded .search-box {
+    display: flex;
+    position: absolute;
+    top: calc(var(--toolbar-h) - 6px);
+    right: 8px;
+    z-index: 26;
+    width: min(280px, calc(100vw - 16px));
+    flex: none;
+    box-shadow: var(--shadow);
+  }
+  .toolbar.search-expanded .search-box input {
+    width: auto;
+  }
+  /* Tightest chrome: drop one-shot controls, keep one path per job. */
+  #btn-back {
+    display: none;
+  }
+  #btn-zoom-in,
+  #btn-zoom-out {
+    display: none;
+  }
+  .toolbar .tb-divider {
+    display: none;
+  }
+  .toolbar .btn {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .toolbar-left,
+  .toolbar-right {
+    gap: 4px;
+  }
+  .toolbar > * {
+    min-width: 0;
+  }
+  #zoom-button {
+    min-width: 0;
+  }
+  #zoom-button .chevron {
+    display: none;
+  }
+  .page-box .page-input {
+    width: 2.6em;
+  }
 }

@@ -65,14 +65,14 @@
           </span>
           <span class="tb-divider" aria-hidden="true"></span>
           <span class="tb-group" role="group" aria-label="页码">
-            <label class="page-box">
-              <input id="page-input" class="page-input" type="text" inputmode="numeric" pattern="[0-9]*" value="1" aria-label="当前页码" />
-              <span class="page-total">/ <b id="page-count">0</b></span>
+            <label class="page-box" title="输入页码后回车跳转">
+              <input id="page-input" class="page-input" type="text" inputmode="numeric" pattern="[0-9]*" value="—" aria-label="当前页码" disabled />
+              <span class="page-total">/ <b id="page-count">—</b></span>
             </label>
           </span>
         </div>
         <div class="toolbar-center">
-          <span id="doc-title" class="doc-title">未打开文件</span>
+          <span id="doc-title" class="doc-title" title="未打开文件">未打开文件</span>
         </div>
         <div class="toolbar-right">
           <span class="tb-group" role="group" aria-label="缩放">
@@ -96,7 +96,8 @@
           </span>
           <span class="tb-divider" aria-hidden="true"></span>
           <span class="tb-group" role="group" aria-label="搜索">
-            <span class="search-box">
+            <button id="btn-search-toggle" class="btn toolbar-ghost icon" type="button" title="搜索 (Ctrl+F)" aria-label="搜索" aria-expanded="false" hidden><svg class="icon" aria-hidden="true"><use href="#i-search" /></svg></button>
+            <span class="search-box" id="search-box">
               <svg class="icon search-icon" aria-hidden="true"><use href="#i-search" /></svg>
               <input id="search-input" type="search" placeholder="搜索文档 (Ctrl+F)" aria-label="搜索文档" autocomplete="off" />
               <button id="search-clear" class="search-clear" type="button" title="清除搜索" aria-label="清除搜索" hidden><svg class="icon" aria-hidden="true"><use href="#i-x" /></svg></button>
@@ -110,10 +111,13 @@
       </header>
 
       <div class="workspace">
-        <aside id="sidebar" class="sidebar" aria-hidden="true">
+        <aside id="sidebar" class="sidebar" aria-hidden="true" inert>
           <div class="sidebar-inner">
             <div class="sidebar-head">
-              <span id="sidebar-title" class="sidebar-title">目录</span>
+              <div class="sidebar-tabs" role="tablist" aria-label="侧栏模式">
+                <button id="sidebar-tab-outline" class="sidebar-tab" type="button" role="tab" aria-selected="true">目录</button>
+                <button id="sidebar-tab-search" class="sidebar-tab" type="button" role="tab" aria-selected="false">搜索</button>
+              </div>
               <button id="btn-sidebar-close" class="btn toolbar-ghost icon tiny" type="button" title="关闭侧栏" aria-label="关闭侧栏"><svg class="icon" aria-hidden="true"><use href="#i-x" /></svg></button>
             </div>
             <div id="outline-pane" class="sidebar-pane active"></div>
@@ -130,6 +134,10 @@
           </div>
         </aside>
         <main id="viewer-wrap" class="viewer-wrap">
+          <div id="viewer-status" class="viewer-status" hidden>
+            <p id="viewer-status-text" class="viewer-status-text" role="status"></p>
+            <button id="viewer-status-action" class="btn primary" type="button" hidden>重新选择文件</button>
+          </div>
           <div id="drop-hint" class="drop-hint">
             <div class="empty-state">
               <h1>速览</h1>
@@ -152,6 +160,7 @@
     <div id="translate-bubble" class="translate-bubble" hidden>
       <div class="bubble-body">
         <div id="translate-source" class="bubble-source"></div>
+        <button id="btn-source-toggle" class="link-btn source-toggle" type="button" hidden>展开原文</button>
         <div id="translate-result" class="bubble-result" hidden></div>
       </div>
       <div class="bubble-actions">
@@ -163,8 +172,8 @@
     </div>
 
     <div id="pdf-password-modal" class="modal" hidden>
-      <div class="modal-card">
-        <h2>需要 PDF 密码</h2>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="pdf-password-title">
+        <h2 id="pdf-password-title">需要 PDF 密码</h2>
         <p class="hint">此文档已加密，请输入打开密码。</p>
         <p id="pdf-password-error" class="hint error" hidden></p>
         <label>
@@ -179,16 +188,8 @@
     </div>
 
     <div id="settings-modal" class="modal" hidden>
-      <div class="modal-card">
-        <h2>翻译设置</h2>
-        <p class="hint">
-          API Key 与 Base URL 仅保存在本机浏览器的 <code>localStorage</code> 中，不会经过我们的服务器。
-          翻译时，选中文本与你的设置会直接从本机发往你配置的 API 端点（默认 OpenRouter）。
-        </p>
-        <label>
-          API Base URL（OpenAI 兼容）
-          <input id="setting-base" type="url" autocomplete="off" placeholder="https://openrouter.ai/api/v1" />
-        </label>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <h2 id="settings-title">翻译设置</h2>
         <label>
           API Key
           <input id="setting-key" type="password" autocomplete="off" placeholder="sk-or-v1-..." />
@@ -201,10 +202,6 @@
             <div id="setting-model-status" class="model-picker-status" hidden></div>
           </div>
         </label>
-        <label class="setting-checkbox" for="setting-auto-translate">
-          <input id="setting-auto-translate" type="checkbox" checked />
-          <span class="setting-checkbox-label">划词后自动翻译</span>
-        </label>
         <label>
           目标语言
           <select id="setting-lang">
@@ -214,6 +211,18 @@
             <option value="ja">日本語</option>
           </select>
         </label>
+        <label class="setting-checkbox" for="setting-auto-translate">
+          <input id="setting-auto-translate" type="checkbox" checked />
+          <span class="setting-checkbox-label">划词后自动翻译</span>
+        </label>
+        <details class="settings-advanced">
+          <summary>高级</summary>
+          <p class="hint compact">Base URL 与 Key 只保存在本机浏览器中；翻译直接从本机发往你配置的端点。</p>
+          <label>
+            API Base URL（OpenAI 兼容）
+            <input id="setting-base" type="url" autocomplete="off" placeholder="https://openrouter.ai/api/v1" />
+          </label>
+        </details>
         <div class="modal-actions">
           <button id="btn-settings-cancel" class="btn">取消</button>
           <button id="btn-settings-save" class="btn primary">保存</button>
