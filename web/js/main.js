@@ -721,10 +721,18 @@ function scheduleRepositionBubble() {
   });
 }
 
+function clearStreamingResult() {
+  const result = $("translate-result");
+  result.classList.remove("streaming");
+  result.replaceChildren();
+  result.hidden = true;
+}
+
 function cancelTranslate() {
   translateAbort?.abort();
   translateAbort = null;
   setBubbleStreaming(false);
+  clearStreamingResult();
 }
 
 function hideTranslateChip() {
@@ -850,6 +858,7 @@ async function runTranslate(selectionId = bubbleSelectionId) {
     if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
     if (controller.signal.aborted) {
       setBubbleStreaming(false);
+      clearStreamingResult();
       return;
     }
     setTranslateError(error.message || String(error), selectionId);
@@ -860,6 +869,17 @@ document.addEventListener("mouseup", (event) => {
   if (bubble.contains(event.target) || translateChip.contains(event.target)) return;
   const selection = window.getSelection();
   const prepared = selection?.rangeCount ? prepareSelectionForTranslation(selection) : null;
+  if (prepared?.tooLong) {
+    const range = selection.getRangeAt(0);
+    const anchor = getSelectionAnchorRect(range, wrap.getBoundingClientRect(), selection);
+    selectedTranslationMode = "passage";
+    const selectionId = openTranslatePanel(anchor, "", { startTranslate: false });
+    setTranslateError(
+      `选中文本过长（${prepared.charCount} 字），请缩短到 ${MAX_TRANSLATE_CHARS} 字以内。`,
+      selectionId,
+    );
+    return;
+  }
   const text = prepared?.text || "";
   if (!text || !selection.rangeCount) {
     if (
@@ -879,7 +899,7 @@ document.addEventListener("mouseup", (event) => {
     return;
   }
   selectedTranslationMode = prepared.mode;
-  const anchor = getSelectionAnchorRect(range, wrap.getBoundingClientRect());
+  const anchor = getSelectionAnchorRect(range, wrap.getBoundingClientRect(), selection);
   if (isAutoTranslateOn()) {
     openTranslatePanel(anchor, text);
   } else {

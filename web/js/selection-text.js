@@ -1,9 +1,12 @@
 /** @typedef {'term' | 'passage'} TranslationMode */
 
+import { MAX_TRANSLATE_CHARS } from "./translate-provider.js";
+
 const SENTENCE_END = /[.!?…][)"'»」】]?\s*$/;
 const HYPHEN_BREAK = /-\s*$/;
 const BULLET_START = /^(?:[•●◦\-–—*]|\d+[.)])\s+/;
 const PARA_START = /^(?:If|When|The|This|These|For|In|On|At|A|An|However|Note)\b/;
+const SPAN_GAP_PX = 2;
 
 /**
  * PDF.js text layers emit one DOM line per visual wrap; Selection#toString() joins with `\n`.
@@ -27,42 +30,56 @@ export function extractLogicalLines(raw, range = null) {
 }
 
 function linesFromRangeGeometry(range) {
-  const rects = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0);
-  if (!rects.length) return null;
+  const fragments = collectRangeCharacterFragments(range);
+  if (!fragments.length) return null;
 
-  const bands = groupRectsByLine(rects);
-  bands.sort((a, b) => a.top - b.top || a.left - b.left);
-
-  const lines = [];
-  for (const band of bands) {
-    const line = extractRangeTextInBand(range, band);
-    if (line.trim()) lines.push(line.trim());
-  }
+  const lineGroups = groupFragmentsByLine(fragments);
+  lineGroups.sort((a, b) => a.top - b.top);
+  const lines = lineGroups
+    .map((group) => joinFragmentsWithSpanGaps(group.fragments))
+    .filter((line) => line.trim());
   return lines.length ? lines : null;
 }
 
-function groupRectsByLine(rects, slop = 3) {
-  const bands = [];
-  for (const rect of rects) {
-    const last = bands[bands.length - 1];
-    if (!last || Math.abs(rect.top - last.top) > slop) {
-      bands.push({
-        top: rect.top,
-        bottom: rect.bottom,
-        left: rect.left,
-        right: rect.right,
-      });
-      continue;
+/** @param {{ char: string, left: number, right: number, top: number, bottom: number }[]} fragments */
+export function joinFragmentsWithSpanGaps(fragments) {
+  const sorted = [...fragments].sort((a, b) => a.left - b.left || a.top - b.top);
+  let out = "";
+  let prevRight = null;
+  for (const piece of sorted) {
+    if (piece.char === "\n") continue;
+    if (
+      prevRight != null &&
+      piece.left - prevRight > SPAN_GAP_PX &&
+      out &&
+      !out.endsWith(" ") &&
+      !/^\s/.test(piece.char)
+    ) {
+      out += " ";
     }
-    last.top = Math.min(last.top, rect.top);
-    last.bottom = Math.max(last.bottom, rect.bottom);
-    last.left = Math.min(last.left, rect.left);
-    last.right = Math.max(last.right, rect.right);
+    out += piece.char;
+    prevRight = piece.right;
   }
-  return bands;
+  return out.replace(/\s+/g, " ").trim();
 }
 
-function extractRangeTextInBand(range, band) {
+function groupFragmentsByLine(fragments, slop = 3) {
+  const lines = [];
+  for (const fragment of fragments) {
+    const midY = (fragment.top + fragment.bottom) / 2;
+    let line = lines.find((row) => Math.abs(midY - row.midY) <= slop);
+    if (!line) {
+      line = { midY, top: fragment.top, fragments: [] };
+      lines.push(line);
+    }
+    line.fragments.push(fragment);
+    line.midY = (line.midY + midY) / 2;
+    line.top = Math.min(line.top, fragment.top);
+  }
+  return lines;
+}
+
+function collectRangeCharacterFragments(range) {
   const walker = document.createTreeWalker(
     range.commonAncestorContainer,
     NodeFilter.SHOW_TEXT,
@@ -75,7 +92,7 @@ function extractRangeTextInBand(range, band) {
     },
   );
 
-  let out = "";
+  const fragments = [];
   while (walker.nextNode()) {
     const node = walker.currentNode;
     const text = node.nodeValue || "";
@@ -91,13 +108,16 @@ function extractRangeTextInBand(range, band) {
       if (sub.compareBoundaryPoints(Range.START_TO_END, range) >= 0) continue;
       const r = sub.getBoundingClientRect();
       if (!r.width && !r.height) continue;
-      const midY = (r.top + r.bottom) / 2;
-      if (midY >= band.top - 2 && midY <= band.bottom + 2) {
-        out += text[i];
-      }
+      fragments.push({
+        char: text[i],
+        left: r.left,
+        right: r.right,
+        top: r.top,
+        bottom: r.bottom,
+      });
     }
   }
-  return out.replace(/\s+/g, " ").trim();
+  return fragments;
 }
 
 export function reflowLinesToParagraphs(lines) {
@@ -140,6 +160,15 @@ function shouldStartNewParagraph(prev, next) {
  */
 export function prepareSelectionForTranslation(selection) {
   const raw = selection?.toString() || "";
+  if (raw.length > MAX_TRANSLATE_CHARS) {
+    return {
+      text: "",
+      mode: "passage",
+      raw,
+      tooLong: true,
+      charCount: raw.length,
+    };
+  }
   const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
   const text = normalizePdfSelectionText(raw, range).trim();
   const mode = classifyTranslationMode(text);

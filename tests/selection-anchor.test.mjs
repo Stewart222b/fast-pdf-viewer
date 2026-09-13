@@ -17,6 +17,24 @@ function mockRange(clientRects, union, endRects = []) {
   };
 }
 
+test("anchors at selection focus endpoint for backward drags", () => {
+  const focusLine = { left: 80, top: 820, right: 420, bottom: 840, width: 340, height: 20 };
+  const range = mockRange(
+    [
+      { left: 80, top: 200, right: 420, bottom: 220, width: 340, height: 20 },
+      focusLine,
+    ],
+    { left: 80, top: 200, right: 420, bottom: 840, width: 340, height: 640 },
+    [focusLine],
+  );
+  const selection = {
+    focusNode: {},
+    focusOffset: 3,
+  };
+  const anchor = getSelectionAnchorRect(range, viewport, selection);
+  assert.equal(anchor.bottom, 840);
+});
+
 test("prefers collapsed end range client rect over earlier visible lines", () => {
   const endLine = { left: 80, top: 820, right: 420, bottom: 840, width: 340, height: 20 };
   const range = mockRange(

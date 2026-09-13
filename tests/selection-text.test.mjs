@@ -3,9 +3,12 @@ import test from "node:test";
 import {
   buildTranslationMessages,
 } from "../web/js/translate-provider.js";
+import { MAX_TRANSLATE_CHARS } from "../web/js/translate-provider.js";
 import {
   classifyTranslationMode,
+  joinFragmentsWithSpanGaps,
   normalizePdfSelectionText,
+  prepareSelectionForTranslation,
   reflowLinesToParagraphs,
 } from "../web/js/selection-text.js";
 
@@ -20,6 +23,33 @@ test("reflow joins PDF wrap lines and keeps paragraph breaks", () => {
   const out = reflowLinesToParagraphs(lines);
   assert.equal(out.split("\n\n").length, 2);
   assert.match(out, /Region \(EER\)\.\n\nWhen the SIR/);
+});
+
+test("joinFragmentsWithSpanGaps inserts spaces between separated spans", () => {
+  const out = joinFragmentsWithSpanGaps([
+    { char: "h", left: 0, right: 8, top: 0, bottom: 10 },
+    { char: "e", left: 8, right: 16, top: 0, bottom: 10 },
+    { char: "l", left: 16, right: 24, top: 0, bottom: 10 },
+    { char: "l", left: 24, right: 32, top: 0, bottom: 10 },
+    { char: "o", left: 32, right: 40, top: 0, bottom: 10 },
+    { char: "w", left: 52, right: 60, top: 0, bottom: 10 },
+    { char: "o", left: 60, right: 68, top: 0, bottom: 10 },
+    { char: "r", left: 68, right: 76, top: 0, bottom: 10 },
+    { char: "l", left: 76, right: 84, top: 0, bottom: 10 },
+    { char: "d", left: 84, right: 92, top: 0, bottom: 10 },
+  ]);
+  assert.equal(out, "hello world");
+});
+
+test("prepareSelectionForTranslation rejects raw length before geometry", () => {
+  const long = "x".repeat(MAX_TRANSLATE_CHARS + 1);
+  const prepared = prepareSelectionForTranslation({
+    toString: () => long,
+    rangeCount: 1,
+    getRangeAt: () => ({}),
+  });
+  assert.equal(prepared.tooLong, true);
+  assert.equal(prepared.text, "");
 });
 
 test("normalizePdfSelectionText handles hyphenation across wraps", () => {

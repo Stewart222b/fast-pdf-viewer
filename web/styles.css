@@ -595,7 +595,8 @@ select {
 .translate-bubble {
   position: fixed;
   z-index: 20;
-  width: min(420px, calc(100vw - 24px));
+  width: min(420px, 100%);
+  max-width: 420px;
   max-height: min(70vh, 480px);
   display: flex;
   flex-direction: column;

@@ -28,9 +28,28 @@ function pickLastVisibleOrLast(rects, viewportRect) {
   return pool[pool.length - 1];
 }
 
-export function getSelectionAnchorRect(range, viewportRect = null) {
-  const endRange = range.cloneRange();
-  endRange.collapse(false);
+function focusEndpointRange(range, selection = null) {
+  const focusNode = selection?.focusNode;
+  const focusOffset = selection?.focusOffset;
+  if (typeof document === "undefined" || !focusNode || typeof focusOffset !== "number") {
+    const endRange = range.cloneRange();
+    endRange.collapse(false);
+    return endRange;
+  }
+  const focusRange = document.createRange();
+  try {
+    focusRange.setStart(focusNode, focusOffset);
+    focusRange.collapse(true);
+    return focusRange;
+  } catch {
+    const endRange = range.cloneRange();
+    endRange.collapse(false);
+    return endRange;
+  }
+}
+
+export function getSelectionAnchorRect(range, viewportRect = null, selection = null) {
+  const endRange = focusEndpointRange(range, selection);
   const endRects = [...endRange.getClientRects()].filter(isValidRect);
   const endAnchor = pickLastVisibleOrLast(endRects, viewportRect);
   if (endAnchor) return endAnchor;
@@ -63,5 +82,5 @@ export function getSelectionAnchorFromSelection(selection, viewportRect = null) 
     range.endContainer?.parentElement?.closest?.(".textLayer") ||
     range.startContainer?.parentElement?.closest?.(".textLayer");
   if (!endInLayer) return null;
-  return getSelectionAnchorRect(range, viewportRect);
+  return getSelectionAnchorRect(range, viewportRect, selection);
 }

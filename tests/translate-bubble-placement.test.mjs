@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { computeBubblePlacement } from "../web/js/translate-bubble-placement.js";
+import {
+  computeBubblePlacement,
+  maxBubbleWidthForViewport,
+} from "../web/js/translate-bubble-placement.js";
 
 const viewport = { left: 200, top: 48, right: 1720, bottom: 1032, width: 1520, height: 984 };
 
@@ -50,6 +53,20 @@ test("horizontal position clamps inside viewport", () => {
   const { left } = computeBubblePlacement(selection, viewport, bubbleW, bubbleH);
   assert.ok(left >= viewport.left + 8);
   assert.ok(left + bubbleW <= viewport.right - 8);
+});
+
+test("narrow viewport clamps bubble left inside viewer when wider than scrollport", () => {
+  const narrow = { left: 320, top: 48, right: 520, bottom: 1032, width: 200, height: 984 };
+  const bubbleW = maxBubbleWidthForViewport(narrow);
+  assert.ok(bubbleW < 420);
+  const { left } = computeBubblePlacement(
+    { left: 100, top: 400, right: 200, bottom: 420, width: 100, height: 20 },
+    narrow,
+    bubbleW,
+    120,
+  );
+  assert.ok(left >= narrow.left + 8);
+  assert.ok(left + bubbleW <= narrow.right - 8);
 });
 
 test("maxHeight keeps bubble inside viewport", () => {
