@@ -5,24 +5,36 @@
 </p>
 
 <p align="center">
-  <img src="docs/media/hero-reading.png" alt="速览阅读界面（深色主题）" width="760" />
+  <a href="https://stewart222b.github.io/fast-pdf-viewer/">在线体验 Web 阅读器</a>
+  ·
+  <a href="https://github.com/Stewart222b/fast-pdf-viewer">GitHub</a>
 </p>
 
-> 默认采用深色阅读界面与紧凑工具栏，侧栏整合目录与搜索，开箱即用。克隆仓库后运行 `fast-pdf` 或 `python desktop/app.py` 即可体验。
+<p align="center">
+  <img src="docs/media/ui-search-dark.png" alt="速览深色主题与侧栏搜索" width="760" />
+</p>
+
+> 默认采用深色阅读界面与紧凑工具栏，侧栏整合目录与搜索，开箱即用。克隆仓库后运行 `fast-pdf` 或 `python desktop/app.py` 即可体验；也可直接打开 [GitHub Pages 上的 Web 版](https://stewart222b.github.io/fast-pdf-viewer/) 在浏览器中选择本地 PDF。
 
 ---
 
 ## 界面预览
 
-| 深色模式与侧栏搜索 | 浅色模式阅读 |
-| :---: | :---: |
-| <img src="docs/media/ui-search-dark.png" alt="深色模式侧栏搜索" width="380" /> | <img src="docs/media/ui-reading-light.png" alt="浅色模式阅读" width="380" /> |
+| 深色模式侧栏搜索 | 浅色模式阅读 | 窄屏侧栏搜索 |
+| :---: | :---: | :---: |
+| <img src="docs/media/ui-search-dark.png" alt="深色模式侧栏搜索" width="240" /> | <img src="docs/media/ui-reading-light.png" alt="浅色模式阅读" width="240" /> | <img src="docs/media/ui-search-narrow.png" alt="窄屏侧栏搜索" width="240" /> |
+
+浅色主题下的侧栏搜索：
+
+<p align="center">
+  <img src="docs/media/ui-search-light.png" alt="浅色模式侧栏搜索" width="520" />
+</p>
 
 ---
 
 ## 为什么选择速览？
 
-现代浏览器（Edge / Chrome）内置的 PDF 预览在处理技术手册时常有痛点：
+现代浏览器（Edge / Chrome 等）内置的 PDF 预览在处理技术手册时常有痛点：
 
 - **长文档负担重**：数百页芯片手册或工程指南打开较慢，滚动不够流畅。
 - **跳转易迷失**：从目录或搜索结果跳转后，**难以原路返回**刚才阅读的段落。
@@ -46,18 +58,39 @@
 | **双主题切换** | 预置深色（Dark）与浅色（Light）两种阅读主题，切换即时生效，本地记住偏好且启动防白屏闪烁。 |
 | **阅读进度记忆** | 记录每个文档的上次阅读页码与滚动偏移（存放在本机 `localStorage`），再次打开自动复原。 |
 | **划词 AI 翻译** | 选中文本即出翻译气泡，支持流式输出、取消与重试；提供模型联想筛选，仅在聚焦模型项时按需展示。 |
-| **桌面与 Web 兼备** | 桌面端基于 Python + WebView2；无桌面环境时自动降级为本地浏览器服务，**PDF 文件完全在本地处理，绝不上传**。 |
+| **桌面与 Web 兼备** | 桌面端为 Python + 可选 `pywebview` 原生窗口；亦可 `--browser` 或 GitHub Pages Web 版。**PDF 文件完全在本地处理，绝不上传**。 |
 
 ---
 
 ## 快速开始
 
+### 在线体验（无需安装）
+
+在浏览器中打开 **[https://stewart222b.github.io/fast-pdf-viewer/](https://stewart222b.github.io/fast-pdf-viewer/)**，点击打开文件或将 PDF 拖入窗口即可。页面由仓库 `web/` 目录经 GitHub Pages 发布，与本地 `--browser` 模式同一套前端。
+
+若 Pages 暂不可用，可在仓库根目录执行：
+
+```bash
+python desktop/app.py --browser
+```
+
+然后在浏览器访问终端提示的本地地址（默认 `http://127.0.0.1:17831/`）。
+
 ### 推荐运行环境
 
-- 系统：Windows 10 / 11
-- 环境：Python 3.10+
+| 平台 | 说明 |
+| :--- | :--- |
+| **Windows** | 10 / 11 |
+| **macOS** | 12 及以上（Apple Silicon / Intel） |
+| **Linux** | 常见桌面发行版（需图形界面与系统浏览器） |
 
-```powershell
+共用要求：
+
+- Python 3.10+
+- 现代浏览器（Chrome、Edge、Firefox、Safari 等）
+- 可选：`pywebview` 用于原生桌面窗口（Windows 为 WebView2；macOS / Linux 为各自 WebKit 后端）
+
+```bash
 # 1. 克隆代码仓库
 git clone https://github.com/Stewart222b/fast-pdf-viewer.git
 cd fast-pdf-viewer
@@ -71,13 +104,13 @@ fast-pdf
 
 打开指定 PDF 文件：
 
-```powershell
-fast-pdf D:\docs\manual.pdf
+```bash
+fast-pdf /path/to/manual.pdf
 ```
 
-若环境中未安装 `pywebview`（或需要直接在浏览器中使用），使用 `--browser` 参数通过系统默认浏览器打开：
+若未安装 `pywebview`，或希望直接在浏览器中使用，可加 `--browser`：
 
-```powershell
+```bash
 fast-pdf --browser
 ```
 
@@ -100,15 +133,15 @@ fast-pdf --browser
 
 | 操作类别 | 操作描述 | 快捷键 / 鼠标动作 |
 | :--- | :--- | :--- |
-| **文件操作** | 打开本地 PDF 文件 | `Ctrl+O`，或直接拖拽文件至窗口内 |
+| **文件操作** | 打开本地 PDF 文件 | `Ctrl+O`（macOS 为 `Cmd+O`），或直接拖拽文件至窗口内 |
 | **页面导航** | 返回上一个阅读位置 | 鼠标侧键（后退）、`Alt+←`、`Backspace` |
 | | 前进到下一个跳转位置 | 鼠标侧键（前进）、`Alt+→` |
 | | 快速跳页 | 点击页码输入框，输入目标页码后按 `Enter` |
-| **全文搜索** | 展开侧栏搜索 / 聚焦搜索框 | `Ctrl+F`，或点击顶部搜索图标 |
+| **全文搜索** | 展开侧栏搜索 / 聚焦搜索框 | `Ctrl+F`（macOS 为 `Cmd+F`），或点击顶部搜索图标 |
 | | 定位至上一个匹配结果 | `Shift+Enter`，或点击侧栏 `▲` 按钮 |
 | | 定位至下一个匹配结果 | `Enter`，或点击侧栏 `▼` 按钮 |
 | | 关闭侧栏搜索 | `Esc` |
-| **视图缩放** | 放大 / 缩小 | `Ctrl + 滚轮`、`Ctrl+=` / `Ctrl+-` |
+| **视图缩放** | 放大 / 缩小 | `Ctrl + 滚轮`、`Ctrl+=` / `Ctrl+-`（macOS 将 `Ctrl` 换为 `Cmd`） |
 | | 缩放预设 | 展开缩放菜单选择「适合宽度」「适合页面」或百分比 |
 | **弹窗与气泡** | 关闭设置弹窗 / 取消划词翻译气泡 | `Esc` |
 
@@ -178,8 +211,8 @@ node tests/render-benchmark.mjs
 
 - **Reader Core (`web/js/`)**：`viewer.js`（pdf.js 渲染与视口调度）、`outline-active.js`（目录视口坐标精确高亮）、`search.js`（全文索引与匹配）、`history.js`（双向跳转栈）。
 - **Theme Engine (`web/js/theme.js`)**：无缝深浅色切换机制，在 CSS 解析前优先应用主题属性。
-- **Platform Adapter (`web/js/platform/`)**：抹平桌面宿主（WebView2 / `/api/startup`）与现代 Web（File API / 拖拽）差异。
-- **Desktop Host (`desktop/app.py`)**：轻量本地 HTTP 服务，支持分块 Range 下载与多端口自适应，调起 pywebview 窗口。
+- **Platform Adapter (`web/js/platform/`)**：抹平桌面宿主（`/api/startup` 与 pywebview）与现代 Web（File API / 拖拽）差异。
+- **Desktop Host (`desktop/app.py`)**：轻量本地 HTTP 服务，支持分块 Range 下载与多端口自适应，调起 pywebview 窗口或系统浏览器。
 
 ---
 
