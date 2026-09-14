@@ -235,17 +235,32 @@ function updateOutlineActive(page) {
   }
   // Before the first section, keep the first entry highlighted.
   active = active || ranked[0];
-  for (const { btn } of ranked) btn.classList.toggle("active", btn === active.btn);
+  for (const { btn } of ranked) {
+    const selected = btn === active.btn;
+    btn.classList.toggle("active", selected);
+    if (selected) btn.setAttribute("aria-current", "true");
+    else btn.removeAttribute("aria-current");
+    btn.closest?.(".outline-node")?.setAttribute("aria-selected", String(selected));
+  }
   // Expand the active branch so continuous reading keeps context.
   let node = active.btn.closest(".outline-node");
   while (node) {
-    const branch = node.querySelector(":scope > .outline-branch");
-    const toggle = node.querySelector(":scope > .outline-row > .outline-toggle");
-    if (branch) {
-      branch.classList.add("expanded");
-      toggle?.setAttribute("aria-expanded", "true");
-    }
+    setOutlineNodeExpanded(node, true);
     node = node.parentElement?.closest(".outline-node");
+  }
+}
+
+// Toggle a rendered outline node (DOM-based, for live page changes).
+// Mount-time expansion uses entry references instead (see renderOutline).
+function setOutlineNodeExpanded(node, expanded) {
+  const branch = node.querySelector(":scope > .outline-branch");
+  const toggle = node.querySelector(":scope > .outline-row > .outline-toggle");
+  if (branch) {
+    branch.classList.toggle("expanded", expanded);
+    toggle?.setAttribute("aria-expanded", String(expanded));
+  }
+  if (node.getAttribute("role") === "treeitem" && node.hasAttribute("aria-expanded")) {
+    node.setAttribute("aria-expanded", String(expanded));
   }
 }
 
@@ -343,6 +358,8 @@ async function renderOutline(request) {
   const generation = viewer.generation;
   if (!pdf || !outline?.length) {
     pane.replaceChildren();
+    pane.removeAttribute("role");
+    pane.removeAttribute("aria-label");
     if (!outline?.length) {
       pane.innerHTML = '<div class="empty-side">这份 PDF 没有目录。</div>';
       // Late outline with no entries must not kick the user out of search.
@@ -353,50 +370,117 @@ async function renderOutline(request) {
     }
     return;
   }
+  await attachOutlinePages(outline, { request, pdf, generation });
+  if (request !== openGeneration || viewer.generation !== generation || viewer.pdf !== pdf) return;
+  // Some producers wrap the whole outline in one destination-less container
+  // (e.g. a lone "system" node). Promoting its children restores a real tree.
+  let roots = outline;
+  while (
+    roots?.length === 1 &&
+    roots[0]?.items?.length &&
+    roots[0]?.dest == null &&
+    roots[0]?.pageNumber == null
+  ) {
+    roots = roots[0].items;
+  }
   pane.replaceChildren();
-  const mount = (items, depth, container) => {
+  pane.setAttribute("role", "tree");
+  pane.setAttribute("aria-label", "文档目录");
+  // Flat entries in mount order with parent links, so the active path can be
+  // revealed without DOM tree-walking.
+  const entries = [];
+  const setEntryExpanded = (entry, expanded) => {
+    entry.branch?.classList.toggle("expanded", expanded);
+    entry.toggle?.setAttribute("aria-expanded", String(expanded));
+    if (entry.hasChildren) entry.node?.setAttribute("aria-expanded", String(expanded));
+  };
+  const mount = (items, depth, container, parentEntry) => {
     for (const item of items) {
+      const title = item.title || "未命名";
+      const hasChildren = Boolean(item.items?.length);
       const node = document.createElement("div");
       node.className = "outline-node";
+      node.setAttribute("role", "treeitem");
+      node.setAttribute("aria-level", String(depth + 1));
       const row = document.createElement("div");
       row.className = "outline-row";
-      const hasChildren = Boolean(item.items?.length);
+      if (depth > 0) row.style.paddingLeft = `${depth * 16}px`;
       const toggle = document.createElement("button");
       toggle.type = "button";
       toggle.className = "outline-toggle";
-      toggle.setAttribute("aria-expanded", "false");
-      toggle.hidden = !hasChildren;
-      toggle.title = hasChildren ? "展开/折叠" : "";
+      // Leaves keep a reserved (invisible) toggle so sibling titles align.
+      toggle.tabIndex = -1;
+      if (hasChildren) {
+        toggle.setAttribute("aria-expanded", depth === 0 ? "true" : "false");
+        toggle.setAttribute("aria-label", `展开/折叠 ${title}`);
+        toggle.title = "展开/折叠";
+      } else {
+        toggle.classList.add("is-leaf");
+        toggle.setAttribute("aria-hidden", "true");
+      }
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "outline-item";
-      btn.style.paddingLeft = `${4 + depth * 12}px`;
-      btn.textContent = item.title || "未命名";
-      if (item.pageNumber) {
-        btn.dataset.page = String(item.pageNumber);
-        btn.title = `第 ${item.pageNumber} 页 · ${item.title || "未命名"}`;
+      // One line + ellipsis via CSS; title carries the full heading.
+      btn.textContent = title;
+      btn.title = title;
+      const page = Number(item.pageNumber);
+      if (Number.isFinite(page) && page > 0) {
+        btn.dataset.page = String(page);
+        btn.setAttribute("aria-description", `第 ${page} 页`);
       }
       btn.addEventListener("click", () => viewer.goToDest(item.dest, true));
       row.append(toggle, btn);
       node.append(row);
+      const entry = { node, branch: null, toggle, btn, parent: parentEntry, hasChildren, page };
       if (hasChildren) {
         const branch = document.createElement("div");
         branch.className = "outline-branch";
+        branch.setAttribute("role", "group");
+        entry.branch = branch;
+        const expanded = depth === 0;
+        if (expanded) setEntryExpanded(entry, true);
+        else {
+          branch.classList.toggle("expanded", false);
+          node.setAttribute("aria-expanded", "false");
+        }
         toggle.addEventListener("click", (event) => {
           event.stopPropagation();
-          const expanded = branch.classList.toggle("expanded");
-          toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+          setEntryExpanded(entry, !branch.classList.contains("expanded"));
         });
-        mount(item.items, depth + 1, branch);
+        btn.addEventListener("keydown", (event) => {
+          if (event.key === "ArrowRight" && !branch.classList.contains("expanded")) {
+            event.preventDefault();
+            setEntryExpanded(entry, true);
+          } else if (event.key === "ArrowLeft" && branch.classList.contains("expanded")) {
+            event.preventDefault();
+            setEntryExpanded(entry, false);
+          }
+        });
+        mount(item.items, depth + 1, branch, entry);
         node.append(branch);
       }
+      entries.push(entry);
       container.appendChild(node);
     }
   };
-  await attachOutlinePages(outline, { request, pdf, generation });
-  if (request !== openGeneration || viewer.generation !== generation || viewer.pdf !== pdf) return;
-  mount(outline, 0, pane);
+  mount(roots, 0, pane, null);
+  // Default-expand enough to show the current section: top level plus the
+  // active entry's ancestor chain, then keep the row in view.
+  const ranked = entries
+    .filter((entry) => Number.isFinite(entry.page) && entry.page > 0)
+    .sort((a, b) => a.page - b.page);
+  let activeEntry = null;
+  for (const entry of ranked) {
+    if (entry.page <= viewer.currentPage) activeEntry = entry;
+    else break;
+  }
+  activeEntry = activeEntry || ranked[0] || null;
+  for (let entry = activeEntry; entry; entry = entry.parent) {
+    if (entry.hasChildren) setEntryExpanded(entry, true);
+  }
   updateOutlineActive(viewer.currentPage);
+  activeEntry?.btn.scrollIntoView?.({ block: "nearest" });
 }
 
 async function attachOutlinePages(items, ctx) {

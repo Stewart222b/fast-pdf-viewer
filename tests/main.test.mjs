@@ -33,9 +33,10 @@ async function setup() {
       },
       querySelectorAll(sel) {
         const out = [];
+        const cls = sel.startsWith('.') ? sel.slice(1) : null;
         const walk = (nodes) => {
           for (const node of nodes) {
-            if (sel === '.outline-item' && node.className === 'outline-item') out.push(node);
+            if (cls && String(node.className || '').split(/\s+/).includes(cls)) out.push(node);
             if (node.children?.length) walk(node.children);
           }
         };
@@ -279,6 +280,118 @@ test('collapsed sidebar leaves the tab order via inert', async () => {
   app.click('btn-sidebar');
   assert.equal(sidebar.attrs['aria-hidden'], 'true');
   assert.equal(sidebar.inert, true);
+});
+
+test('outline renders as a one-line tree with disclosure state', async () => {
+  const app = await setup();
+  app.viewer.pdf = {
+    async getDestination(dest) {
+      return dest;
+    },
+    async getPageIndex(ref) {
+      return ref;
+    },
+  };
+  // Current page sits on the deep child: its ancestor chain must expand.
+  app.viewer.currentPage = 12;
+  const longTitle = '5.4.2.4. Z Classification Norm with a very long heading that must not wrap';
+  app.viewer.outlinePromise = Promise.resolve([
+    { title: 'Chapter 5', dest: [0, 'XYZ', null, null], items: [
+      { title: longTitle, dest: [10, 'XYZ', null, null], items: [
+        { title: 'Deep child', dest: [11, 'XYZ', null, null] },
+      ] },
+      { title: 'Sibling leaf', dest: [12, 'XYZ', null, null] },
+    ] },
+  ]);
+  app.fileInput.files = [{ name: 'doc.pdf', arrayBuffer: async () => new ArrayBuffer(0) }];
+  await app.fileInput.listeners.change();
+  await new Promise((resolve) => setImmediate(resolve));
+  const pane = app.get('outline-pane');
+  assert.equal(pane.attrs.role, 'tree');
+  const nodes = pane.querySelectorAll('.outline-node');
+  assert.equal(nodes.length, 4);
+  assert.deepEqual(
+    nodes.map((node) => node.attrs['aria-level']),
+    ['1', '2', '3', '2'],
+  );
+  for (const node of nodes) assert.equal(node.attrs.role, 'treeitem');
+  const groups = pane.querySelectorAll('.outline-branch');
+  assert.equal(groups.length, 2);
+  for (const group of groups) assert.equal(group.attrs.role, 'group');
+  // Long headings stay on one line: full text in title, no wrapping span.
+  const longBtn = pane.querySelectorAll('.outline-item').find((btn) => btn.textContent === longTitle);
+  assert.ok(longBtn);
+  assert.equal(longBtn.title, longTitle);
+  // Parents expose disclosure state; leaves reserve alignment space instead.
+  const parentToggle = nodes[1].querySelector('.outline-toggle');
+  assert.equal(parentToggle.attrs['aria-expanded'], 'true');
+  assert.equal(nodes[1].attrs['aria-expanded'], 'true');
+  const leafToggle = nodes[2].querySelector('.outline-toggle');
+  assert.equal(leafToggle.attrs['aria-hidden'], 'true');
+  assert.equal(leafToggle.attrs['aria-expanded'], undefined);
+  // Off-path branches stay collapsed; the active deep child highlights.
+  assert.equal(nodes[3].attrs['aria-expanded'], undefined);
+  const deepBtn = nodes[2].querySelector('.outline-item');
+  assert.equal(deepBtn.toggles.active, true);
+  assert.equal(deepBtn.attrs['aria-current'], 'true');
+});
+
+test('outline toggle expands and collapses its branch', async () => {
+  const app = await setup();
+  app.viewer.pdf = {
+    async getDestination(dest) {
+      return dest;
+    },
+    async getPageIndex(ref) {
+      return ref;
+    },
+  };
+  app.viewer.outlinePromise = Promise.resolve([
+    { title: 'Chapter 5', dest: [0, 'XYZ', null, null], items: [
+      { title: 'Child', dest: [1, 'XYZ', null, null] },
+    ] },
+  ]);
+  app.fileInput.files = [{ name: 'doc.pdf', arrayBuffer: async () => new ArrayBuffer(0) }];
+  await app.fileInput.listeners.change();
+  await new Promise((resolve) => setImmediate(resolve));
+  const node = app.get('outline-pane').querySelectorAll('.outline-node')[0];
+  const toggle = node.querySelector('.outline-toggle');
+  assert.equal(toggle.attrs['aria-expanded'], 'true');
+  toggle.listeners.click({ stopPropagation() {} });
+  assert.equal(toggle.attrs['aria-expanded'], 'false');
+  assert.equal(node.attrs['aria-expanded'], 'false');
+  toggle.listeners.click({ stopPropagation() {} });
+  assert.equal(toggle.attrs['aria-expanded'], 'true');
+});
+
+test('lone destination-less root is pruned from the outline tree', async () => {
+  const app = await setup();
+  app.viewer.pdf = {
+    async getDestination(dest) {
+      return dest;
+    },
+    async getPageIndex(ref) {
+      return ref;
+    },
+  };
+  app.viewer.outlinePromise = Promise.resolve([
+    { title: 'system', items: [
+      { title: 'A section', dest: [0, 'XYZ', null, null] },
+      { title: 'B section', dest: [1, 'XYZ', null, null] },
+    ] },
+  ]);
+  app.fileInput.files = [{ name: 'doc.pdf', arrayBuffer: async () => new ArrayBuffer(0) }];
+  await app.fileInput.listeners.change();
+  await new Promise((resolve) => setImmediate(resolve));
+  const pane = app.get('outline-pane');
+  assert.deepEqual(
+    pane.querySelectorAll('.outline-item').map((btn) => btn.textContent),
+    ['A section', 'B section'],
+  );
+  assert.deepEqual(
+    pane.querySelectorAll('.outline-node').map((node) => node.attrs['aria-level']),
+    ['1', '1'],
+  );
 });
 
 test('open failure surfaces in the viewer with a reselect action', async () => {

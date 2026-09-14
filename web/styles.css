@@ -564,7 +564,9 @@ select {
 }
 
 .outline-item.active {
-  color: var(--accent);
+  background: var(--bg-hover);
+  box-shadow: inset 2px 0 0 var(--accent);
+  color: var(--text);
 }
 
 .outline-node {
@@ -573,20 +575,20 @@ select {
 
 .outline-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 2px;
 }
 
 .outline-toggle {
-  flex: 0 0 24px;
-  width: 24px;
-  height: 32px;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 28px;
   border: 0;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  border-radius: 6px;
-  font-size: 11px;
+  border-radius: 4px;
+  font-size: 10px;
   line-height: 1;
   padding: 0;
 }
@@ -596,8 +598,10 @@ select {
   color: var(--text);
 }
 
-.outline-toggle[hidden] {
-  display: none;
+/* Leaves keep a reserved (invisible) toggle so sibling titles align. */
+.outline-toggle.is-leaf {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .outline-toggle[aria-expanded="false"]::before {
@@ -606,6 +610,7 @@ select {
 
 .outline-toggle[aria-expanded="true"]::before {
   content: "▾";
+  color: var(--text);
 }
 
 .outline-branch {
@@ -620,6 +625,19 @@ select {
   display: block;
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.45;
+}
+
+.outline-item:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.outline-item:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 
 .search-hit {
