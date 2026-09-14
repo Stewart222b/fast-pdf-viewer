@@ -97,6 +97,27 @@ test('getReadingPoint maps scroll offset to PDF Y on the visible page', async ()
   assert.equal(lower.pdfY, 792 - (100 + 64) / 2);
 });
 
+test('restoreScrollAnchor keeps the PDF reading point when zoom changes', async () => {
+  const { viewer, wrapEl } = await setup();
+  viewer.zoom = 1;
+  viewer.pageSizes = [{
+    width: 612,
+    height: 792,
+    viewBox: [0, 0, 612, 792],
+    rotation: 0,
+    userUnit: 1,
+  }];
+  viewer.pageEls = [{ offsetTop: 0, offsetLeft: 0, dataset: { pageNumber: '1' } }];
+  wrapEl.clientWidth = 800;
+  wrapEl.scrollTop = 240;
+  wrapEl.scrollLeft = 0;
+  const anchor = viewer.captureScrollAnchor();
+  viewer.zoom = 1.75;
+  viewer.restoreScrollAnchor(anchor);
+  const point = viewer.getReadingPoint();
+  assert.ok(Math.abs(point.pdfY - anchor.pdfY) < 0.5);
+});
+
 test('latest open wins when an earlier loading task finishes late', async () => {
   const a = deferred(), b = deferred();
   let destroyed = 0, call = 0;

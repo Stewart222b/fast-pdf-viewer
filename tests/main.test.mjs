@@ -16,7 +16,7 @@ async function setup() {
   let nextBlob = 0;
   function element() {
     const el = { value: '', textContent: '', children: [], options: [], listeners: {}, style: {}, toggles: {}, attrs: {}, dataset: {},
-      hidden: false, disabled: false, title: '', inert: false,
+      hidden: false, disabled: false, title: '', inert: false, tabIndex: 0,
       classList: { toggle(name, on) { el.toggles[name] = on; }, add() {}, remove() {},
         contains(name) { return Boolean(el.toggles[name]); } },
       addEventListener(name, fn) { this.listeners[name] = fn; }, replaceChildren() { this.children = []; },
@@ -33,10 +33,19 @@ async function setup() {
       },
       querySelectorAll(sel) {
         const out = [];
-        const cls = sel.startsWith('.') ? sel.slice(1) : null;
+        const parts = String(sel).split(',').map((part) => part.trim());
         const walk = (nodes) => {
           for (const node of nodes) {
-            if (cls && String(node.className || '').split(/\s+/).includes(cls)) out.push(node);
+            for (const part of parts) {
+              if (part.startsWith('.')) {
+                const cls = part.slice(1);
+                if (String(node.className || '').split(/\s+/).includes(cls)) out.push(node);
+              } else if (part === 'button' && String(node.tagName || '').toUpperCase() === 'BUTTON') {
+                out.push(node);
+              } else if (part.startsWith('input') && String(node.tagName || '').toUpperCase() === 'INPUT') {
+                out.push(node);
+              }
+            }
             if (node.children?.length) walk(node.children);
           }
         };
@@ -70,7 +79,12 @@ async function setup() {
     console, fetch: async () => ({ ok: false }),
     document: {
       getElementById: get,
-      createElement: tag => { const el = element(); if (tag === 'input') fileInput = el; return el; },
+      createElement: tag => {
+        const el = element();
+        el.tagName = String(tag || '').toUpperCase();
+        if (tag === 'input') fileInput = el;
+        return el;
+      },
       createTextNode: text => ({ textContent: text }),
       body: element(),
       activeElement: null,
@@ -348,6 +362,18 @@ test('collapsed sidebar leaves the tab order via inert', async () => {
   app.click('btn-sidebar');
   assert.equal(sidebar.attrs['aria-hidden'], 'true');
   assert.equal(sidebar.inert, true);
+});
+
+test('collapsed sidebar removes focusable controls from tab order', async () => {
+  const app = await setup();
+  const sidebar = app.get('sidebar');
+  const tab = app.get('sidebar-tab-outline');
+  tab.tagName = 'BUTTON';
+  sidebar.children.push(tab);
+  app.click('btn-sidebar');
+  app.click('btn-sidebar');
+  assert.equal(tab.tabIndex, -1);
+  assert.equal(tab.attrs['aria-hidden'], 'true');
 });
 
 test('outline renders as a one-line tree with disclosure state', async () => {

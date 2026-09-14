@@ -5,6 +5,7 @@ import {
 } from "../vendor/pdfjs/build/pdf.mjs";
 import { TextLayerBuilder } from "../vendor/pdfjs/web/pdf_viewer.mjs";
 import { buildTextIndex, buildTextMapping, matchRects } from "./search.js";
+import { convertCssToPdfPoint, convertPdfToCssPoint } from "./pdf-viewport.js";
 
 GlobalWorkerOptions.workerSrc = new URL(
   "../vendor/pdfjs/build/pdf.worker.mjs",
@@ -162,11 +163,56 @@ export class PdfViewer {
         el = pageEl;
       } else break;
     }
-    const { height } = this.pageLayout(page);
+    const layout = this.pageLayout(page);
     const zoom = this.zoom || 1;
+    const cssX = this.wrapEl.scrollLeft + this.wrapEl.clientWidth / 2 - (el?.offsetLeft || 0);
     const cssY = probe - (el?.offsetTop || 0);
-    const pdfY = height > 0 && zoom > 0 ? height - cssY / zoom : NaN;
+    const [, pdfY] = convertCssToPdfPoint(layout, zoom, cssX, cssY);
+    if (!Number.isFinite(pdfY)) {
+      const { height } = layout;
+      return { page, pdfY: height > 0 && zoom > 0 ? height - cssY / zoom : NaN };
+    }
     return { page, pdfY };
+  }
+
+  captureScrollAnchor() {
+    const point = this.getReadingPoint();
+    const el = this.pageEls[point.page - 1];
+    if (!el) {
+      return {
+        page: point.page,
+        scrollTop: this.wrapEl.scrollTop,
+        scrollLeft: this.wrapEl.scrollLeft,
+      };
+    }
+    const probe = this.wrapEl.scrollTop + DEST_SCROLL_OFFSET;
+    const cssX = this.wrapEl.scrollLeft + this.wrapEl.clientWidth / 2 - el.offsetLeft;
+    const cssY = probe - el.offsetTop;
+    const layout = this.pageLayout(point.page);
+    const zoom = this.zoom || 1;
+    const [pdfX, pdfY] = convertCssToPdfPoint(layout, zoom, cssX, cssY);
+    return {
+      page: point.page,
+      pdfX,
+      pdfY,
+      scrollTop: this.wrapEl.scrollTop,
+      scrollLeft: this.wrapEl.scrollLeft,
+    };
+  }
+
+  restoreScrollAnchor(anchor) {
+    const el = this.pageEls[anchor.page - 1];
+    if (!el) return;
+    const layout = this.pageLayout(anchor.page);
+    const zoom = this.zoom || 1;
+    if (Number.isFinite(anchor.pdfX) && Number.isFinite(anchor.pdfY) && layout?.viewBox) {
+      const [cssX, cssY] = convertPdfToCssPoint(layout, zoom, anchor.pdfX, anchor.pdfY);
+      this.wrapEl.scrollTop = Math.max(0, el.offsetTop + cssY - DEST_SCROLL_OFFSET);
+      this.wrapEl.scrollLeft = Math.max(0, el.offsetLeft + cssX - this.wrapEl.clientWidth / 2);
+      return;
+    }
+    this.wrapEl.scrollTop = anchor.scrollTop ?? 0;
+    this.wrapEl.scrollLeft = anchor.scrollLeft ?? 0;
   }
 
   async open(source) {
@@ -263,7 +309,13 @@ export class PdfViewer {
     const page = await pdf.getPage(1);
     if (generation !== this.generation) return;
     const base = page.getViewport({ scale: 1 });
-    this.pageSizes[0] = { width: base.width, height: base.height };
+    this.pageSizes[0] = {
+      width: base.width,
+      height: base.height,
+      viewBox: base.viewBox,
+      rotation: base.rotation,
+      userUnit: base.userUnit,
+    };
     this.baseWidth = base.width;
     this.baseHeight = base.height;
     if (!this.renderJobs.has(1) && !this.renderedPages.has(1)) page.cleanup?.();
@@ -277,7 +329,13 @@ export class PdfViewer {
         const page = await pdf.getPage(i);
         if (generation !== this.generation) return;
         const base = page.getViewport({ scale: 1 });
-        this.setPageSize(i - 1, { width: base.width, height: base.height });
+        this.setPageSize(i - 1, {
+          width: base.width,
+          height: base.height,
+          viewBox: base.viewBox,
+          rotation: base.rotation,
+          userUnit: base.userUnit,
+        });
         if (!this.renderJobs.has(i) && !this.renderedPages.has(i)) page.cleanup?.();
         if (i % 20 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
       }
@@ -366,7 +424,7 @@ export class PdfViewer {
 
   setZoom(mode, { silent = false, keepPage = true } = {}) {
     this.cancelPinch();
-    const page = this.currentPage;
+    const anchor = keepPage ? this.captureScrollAnchor() : null;
     this.zoomMode = String(mode);
     this.zoom = this.computeZoom();
     this.textMappings.clear();
@@ -377,7 +435,7 @@ export class PdfViewer {
       el.querySelector(".hlLayer").replaceChildren();
     }
     this.applyPageLayout();
-    if (keepPage) this.scrollToPage(page, { instant: true });
+    if (anchor) this.restoreScrollAnchor(anchor);
     if (!silent) {
       clearTimeout(this.zoomTimer);
       this.zoomTimer = setTimeout(() => this.renderVisible(true), 80);

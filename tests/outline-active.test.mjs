@@ -32,6 +32,13 @@ test('same-page entries without Y snap to the first heading, not the last', () =
   assert.equal(pickOutlineActive([a, b, c], { page: 11, pdfY: NaN }), a);
 });
 
+test('same-page ties follow outline preorder (parent before children)', () => {
+  const parent = entry('Chapter', 8, NaN);
+  const child = entry('Section', 8, NaN);
+  assert.equal(pickOutlineActive([parent, child], { page: 8, pdfY: NaN }), parent);
+  assert.equal(pickOutlineActive([child, parent], { page: 8, pdfY: NaN }), child);
+});
+
 test('later page still wins over earlier chapters', () => {
   const chapter = entry('1', 10, 100);
   const a = entry('1.1', 11, 700);

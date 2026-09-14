@@ -340,6 +340,7 @@ async function openSource(getSource) {
     const saved = loadReadingPosition(currentFingerprint);
     if (saved) {
       viewer.applyReadingPosition(saved);
+      markZoomTouched();
       hideViewerStatus();
     } else {
       // First open fits the page width; later opens respect the user's zoom.
@@ -465,6 +466,7 @@ async function renderOutline(request) {
       row.append(toggle, btn);
       node.append(row);
       const entry = { node, branch: null, toggle, btn, parent: parentEntry, hasChildren, page, pdfY: Number(item.pdfY) };
+      entries.push(entry);
       btn.addEventListener("click", () => {
         setOutlineActive(entry);
         viewer.goToDest(item.dest, true);
@@ -499,7 +501,6 @@ async function renderOutline(request) {
         mount(item.items, depth + 1, branch, entry);
         node.append(branch);
       }
-      entries.push(entry);
       container.appendChild(node);
     }
   };
@@ -507,6 +508,7 @@ async function renderOutline(request) {
   outlineTreeApi = { entries, setEntryExpanded };
   outlineAutoReveal = true;
   syncOutlineTreeActions();
+  if (isSidebarCollapsed()) syncSidebarTabStops(true);
   // Default-expand the current section's ancestor chain, then keep the row in view.
   updateOutlineActive();
   const activeBtn = pane.querySelector(".outline-item.active");
@@ -689,14 +691,65 @@ function openSearch() {
   $("search-input").focus();
 }
 
+let pageWidthReflowToken = 0;
+
+function runPageWidthReflow() {
+  if (!viewer.pdf || viewer.zoomMode !== "page-width") return;
+  viewer.setZoom("page-width", { silent: true });
+  syncZoom(viewer.zoomMode);
+}
+
 function schedulePageWidthReflow() {
   if (!viewer.pdf || viewer.zoomMode !== "page-width") return;
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      viewer.setZoom("page-width", { silent: true });
-      syncZoom(viewer.zoomMode);
-    });
-  });
+  const sidebar = $("sidebar");
+  const token = ++pageWidthReflowToken;
+  const finish = () => {
+    if (token !== pageWidthReflowToken) return;
+    pageWidthReflowToken += 1;
+    runPageWidthReflow();
+  };
+  const onTransitionEnd = (event) => {
+    if (event.target !== sidebar) return;
+    if (event.propertyName !== "width" && event.propertyName !== "flex-basis") return;
+    sidebar.removeEventListener("transitionend", onTransitionEnd);
+    clearTimeout(fallbackTimer);
+    finish();
+  };
+  sidebar.addEventListener("transitionend", onTransitionEnd);
+  const fallbackTimer = setTimeout(() => {
+    sidebar.removeEventListener("transitionend", onTransitionEnd);
+    finish();
+  }, 220);
+}
+
+function syncSidebarTabStops(collapsed) {
+  const sidebar = $("sidebar");
+  const focusables = sidebar.querySelectorAll(
+    "button, input, select, textarea, a[href], [tabindex]",
+  );
+  for (const el of focusables) {
+    if (collapsed) {
+      if (el.dataset.sidebarTabindex == null) {
+        el.dataset.sidebarTabindex = el.getAttribute("tabindex") ?? "";
+      }
+      el.tabIndex = -1;
+      el.setAttribute("aria-hidden", "true");
+    } else {
+      const prev = el.dataset.sidebarTabindex;
+      if (prev != null) {
+        if (prev === "") el.removeAttribute("tabindex");
+        else el.setAttribute("tabindex", prev);
+        delete el.dataset.sidebarTabindex;
+      } else {
+        el.removeAttribute("tabindex");
+      }
+      if (el.classList.contains("outline-toggle") && el.classList.contains("is-leaf")) {
+        el.setAttribute("aria-hidden", "true");
+      } else {
+        el.removeAttribute("aria-hidden");
+      }
+    }
+  }
 }
 
 function setSidebarCollapsed(collapsed) {
@@ -711,6 +764,7 @@ function setSidebarCollapsed(collapsed) {
   } catch {
     /* inert not supported: aria-hidden still hides it from AT */
   }
+  syncSidebarTabStops(collapsed);
   $("btn-sidebar").classList.toggle("active", !collapsed);
   $("btn-sidebar").setAttribute("aria-pressed", collapsed ? "false" : "true");
   syncSearchButton();
@@ -1111,6 +1165,8 @@ function updateSourceFold() {
   toggle.textContent = expanded ? "收起原文" : "展开原文";
 }
 
+let translateAwaitingKey = false;
+
 function isMissingKeyError(message) {
   try {
     if (!loadSettings().apiKey?.trim()) return true;
@@ -1129,8 +1185,7 @@ function setTranslateError(message, selectionId) {
   result.replaceChildren();
   result.append(document.createTextNode(`${message} `));
   if (isMissingKeyError(message)) {
-    // Missing config gets a direct path to settings; the selection is kept
-    // so saving can return to the same range. Retrying cannot fix this.
+    translateAwaitingKey = true;
     const settingsBtn = document.createElement("button");
     settingsBtn.type = "button";
     settingsBtn.className = "link-btn";
@@ -1145,6 +1200,7 @@ function setTranslateError(message, selectionId) {
     retry.id = "btn-translate-retry";
     retry.textContent = "重试";
     retry.addEventListener("click", () => runTranslate(selectionId));
+    translateAwaitingKey = false;
     result.append(retry);
   }
   setBubbleStreaming(false);
@@ -1390,7 +1446,12 @@ $("btn-settings-save").addEventListener("click", () => {
     targetLang: $("setting-lang").value,
     autoTranslateOnSelect: $("setting-auto-translate").checked,
   });
+  const retryTranslate = translateAwaitingKey && settings.apiKey?.trim();
   closeSettings();
+  if (retryTranslate) {
+    translateAwaitingKey = false;
+    void runTranslate(bubbleSelectionId);
+  }
 });
 
 async function boot() {
