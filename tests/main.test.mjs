@@ -336,6 +336,51 @@ test('outline renders as a one-line tree with disclosure state', async () => {
   assert.equal(deepBtn.attrs['aria-current'], 'true');
 });
 
+test('outline expand-all and collapse-all controls disclosure state', async () => {
+  const app = await setup();
+  app.viewer.pdf = {
+    async getDestination(dest) {
+      return dest;
+    },
+    async getPageIndex(ref) {
+      return ref;
+    },
+  };
+  app.viewer.currentPage = 12;
+  app.viewer.outlinePromise = Promise.resolve([
+    { title: 'Chapter 5', dest: [0, 'XYZ', null, null], items: [
+      { title: 'Section', dest: [10, 'XYZ', null, null], items: [
+        { title: 'Deep', dest: [11, 'XYZ', null, null] },
+      ] },
+      { title: 'Sibling', dest: [12, 'XYZ', null, null] },
+    ] },
+  ]);
+  app.fileInput.files = [{ name: 'doc.pdf', arrayBuffer: async () => new ArrayBuffer(0) }];
+  await app.fileInput.listeners.change();
+  await new Promise((resolve) => setImmediate(resolve));
+  const actions = app.get('outline-tree-actions');
+  assert.equal(actions.hidden, false);
+  const pane = app.get('outline-pane');
+  const expandBtn = app.get('btn-outline-expand-all');
+  const collapseBtn = app.get('btn-outline-collapse-all');
+  assert.equal(expandBtn.title, '全部展开');
+  assert.equal(expandBtn.attrs['aria-label'], '全部展开');
+  assert.equal(collapseBtn.title, '全部折叠（保留顶层）');
+  assert.equal(collapseBtn.attrs['aria-label'], '全部折叠，保留顶层目录');
+  app.click('btn-outline-collapse-all');
+  const nodes = pane.querySelectorAll('.outline-node');
+  assert.equal(nodes[0].querySelector('.outline-toggle').attrs['aria-expanded'], 'true');
+  assert.equal(nodes[1].querySelector('.outline-toggle').attrs['aria-expanded'], 'false');
+  app.click('btn-outline-expand-all');
+  for (const node of nodes) {
+    const toggle = node.querySelector('.outline-toggle');
+    if (toggle.attrs['aria-hidden'] === 'true') continue;
+    assert.equal(toggle.attrs['aria-expanded'], 'true');
+  }
+  app.click('sidebar-tab-search');
+  assert.equal(actions.hidden, true);
+});
+
 test('outline toggle expands and collapses its branch', async () => {
   const app = await setup();
   app.viewer.pdf = {

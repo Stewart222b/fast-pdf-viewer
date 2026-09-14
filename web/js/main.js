@@ -264,6 +264,33 @@ function setOutlineNodeExpanded(node, expanded) {
   }
 }
 
+/** Live outline entries from the last renderOutline mount (cleared when pane resets). */
+let outlineTreeApi = null;
+
+function syncOutlineTreeActions() {
+  const actions = $("outline-tree-actions");
+  if (!actions) return;
+  const hasBranches = Boolean(outlineTreeApi?.entries?.some((entry) => entry.hasChildren));
+  const show = sidebarMode === "outline" && hasBranches;
+  actions.hidden = !show;
+}
+
+function expandAllOutlineNodes() {
+  if (!outlineTreeApi) return;
+  for (const entry of outlineTreeApi.entries) {
+    if (entry.hasChildren) outlineTreeApi.setEntryExpanded(entry, true);
+  }
+}
+
+function collapseAllOutlineNodes() {
+  if (!outlineTreeApi) return;
+  for (const entry of outlineTreeApi.entries) {
+    if (!entry.hasChildren) continue;
+    const level = Number(entry.node?.getAttribute("aria-level")) || 1;
+    outlineTreeApi.setEntryExpanded(entry, level === 1);
+  }
+}
+
 function showViewerStatus(text, { action = false } = {}) {
   const box = $("viewer-status");
   if (!box) return;
@@ -299,6 +326,8 @@ async function openSource(getSource) {
   $("search-clear").hidden = true;
   renderSearchList([], "");
   $("outline-pane").replaceChildren();
+  outlineTreeApi = null;
+  syncOutlineTreeActions();
   hideBubble();
   showViewerStatus("正在打开…");
   try {
@@ -358,6 +387,8 @@ async function renderOutline(request) {
   const generation = viewer.generation;
   if (!pdf || !outline?.length) {
     pane.replaceChildren();
+    outlineTreeApi = null;
+    syncOutlineTreeActions();
     pane.removeAttribute("role");
     pane.removeAttribute("aria-label");
     if (!outline?.length) {
@@ -465,6 +496,8 @@ async function renderOutline(request) {
     }
   };
   mount(roots, 0, pane, null);
+  outlineTreeApi = { entries, setEntryExpanded };
+  syncOutlineTreeActions();
   // Default-expand enough to show the current section: top level plus the
   // active entry's ancestor chain, then keep the row in view.
   const ranked = entries
@@ -626,6 +659,7 @@ function selectSidebar(name) {
   $("sidebar-tab-search")?.setAttribute("aria-selected", String(name === "search"));
   $("sidebar-tab-outline")?.classList.toggle("active", name === "outline");
   $("sidebar-tab-search")?.classList.toggle("active", name === "search");
+  syncOutlineTreeActions();
 }
 
 function isSidebarCollapsed() {
@@ -697,6 +731,18 @@ $("sidebar-tab-search")?.addEventListener("click", () => {
   selectSidebar("search");
   setSidebarCollapsed(false);
 });
+const outlineExpandAllBtn = $("btn-outline-expand-all");
+if (outlineExpandAllBtn) {
+  outlineExpandAllBtn.title = "全部展开";
+  outlineExpandAllBtn.setAttribute("aria-label", "全部展开");
+  outlineExpandAllBtn.addEventListener("click", () => expandAllOutlineNodes());
+}
+const outlineCollapseAllBtn = $("btn-outline-collapse-all");
+if (outlineCollapseAllBtn) {
+  outlineCollapseAllBtn.title = "全部折叠（保留顶层）";
+  outlineCollapseAllBtn.setAttribute("aria-label", "全部折叠，保留顶层目录");
+  outlineCollapseAllBtn.addEventListener("click", () => collapseAllOutlineNodes());
+}
 $("btn-sidebar-close").addEventListener("click", () => setSidebarCollapsed(true));
 // 默认收起：空文档、无目录文档都是全宽页面，目录按需打开。
 selectSidebar("outline");

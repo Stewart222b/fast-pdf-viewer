@@ -488,6 +488,17 @@ select {
   color: var(--text);
 }
 
+.outline-tree-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.outline-tree-actions[hidden] {
+  display: none;
+}
+
 .search-pane-bar {
   display: flex;
   align-items: center;
