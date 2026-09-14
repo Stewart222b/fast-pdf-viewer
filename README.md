@@ -1,163 +1,207 @@
 # 速览 Fast PDF Viewer
 
 <p align="center">
-  <strong>为技术文档而生的轻量 PDF 阅读器</strong> — 快开、连续滚动、浏览器式前进/后退、全文搜索、划词 AI 翻译。
+  <strong>为技术文档而生的轻量 PDF 阅读器</strong> —— 极速打开、连续滚动、层级目录定位、全文侧栏搜索、划词 AI 翻译与双主题切换。
 </p>
 
 <p align="center">
-  <img src="docs/media/hero-reading.png" alt="速览阅读界面示意" width="720" />
+  <a href="https://stewart222b.github.io/fast-pdf-viewer/">在线体验 Web 阅读器</a>
+  ·
+  <a href="https://github.com/Stewart222b/fast-pdf-viewer">GitHub</a>
 </p>
 
-> 示意图：深色阅读界面、侧栏目录与搜索、默认 150% 缩放。克隆仓库后运行 `python desktop/app.py` 即可体验。
+<p align="center">
+  <img src="docs/media/ui-hero.png" alt="速览深色主题：侧栏搜索与划词翻译" width="760" />
+</p>
+
+> 默认采用深色阅读界面与紧凑工具栏，侧栏整合目录与搜索，开箱即用。克隆仓库后运行 `fast-pdf` 或 `python desktop/app.py` 即可体验；也可直接打开 [GitHub Pages 上的 Web 版](https://stewart222b.github.io/fast-pdf-viewer/) 在浏览器中选择本地 PDF。
 
 ---
 
-## Why 速览？
+## 为什么选择速览？
 
-Edge / Chrome 内置 PDF 预览常见问题：
+现代浏览器（Edge / Chrome 等）内置的 PDF 预览在处理技术手册时常有痛点：
 
-- 大文件打开慢、滚动不够顺
-- 从目录或搜索结果跳走后，**很难回到刚才读的位置**
-- 搜索体验弱，缺少「第几条 / 共几条」的结果列表
-- 英文技术文档需要 **划词翻译**，而不是开一个聊天窗口
+- **长文档负担重**：数百页芯片手册或工程指南打开较慢，滚动不够流畅。
+- **跳转易迷失**：从目录或搜索结果跳转后，**难以原路返回**刚才阅读的段落。
+- **搜索体验简陋**：缺少条目式的命中列表，无法清晰感知「当前第几条 / 共几条」。
+- **缺少划词翻译**：阅读英文技术文档时，频繁在阅读器与外部翻译工具之间切换会打断思路。
 
-速览只做 **阅读**：不编辑、不签名、不同步账号、不做 RAG Chat。
-
----
-
-## Features
-
-| 能力 | 说明 |
-| --- | --- |
-| 快速打开 | pdf.js 按需渲染，页缓存默认 8 页（基准验证） |
-| 连续滚动 | IntersectionObserver + 预取，快速滚动约 60 FPS |
-| 缩放 | 适合宽度 / 适合页面 / 50%–500%，Ctrl + 滚轮 |
-| 搜索 | 全文索引、侧栏结果列表、**3 / 47** 计数、Enter / Shift+Enter 跳转 |
-| 目录 | PDF Outline，当前阅读章节高亮 |
-| 导航 | 鼠标侧键、Alt+←/→、Backspace 前进/后退 |
-| 阅读位置 | 同一文档再次打开时恢复页码与滚动（本机 `localStorage`） |
-| 划词翻译 | OpenAI 兼容 API（默认 OpenRouter），选中即译，可取消/重试 |
-| 桌面 + 网页 | 桌面：Python + WebView2；网页：本地选/拖 PDF，**不上传** |
+速览专注于 **纯粹的文档阅读体验**：不改写文档、不加水印签名、不强求云端账号，将屏幕空间与算力全部留给阅读本身。
 
 ---
 
-## Quick Start
+## 核心特性
 
-**Windows · Python 3.10+**（最短可靠路径）
+| 功能模块 | 特性说明 |
+| :--- | :--- |
+| **快速打开** | 基于 pdf.js 按需渲染，采用默认 8 页的动态缓存策略，大文档即开即读。 |
+| **流畅滚动** | 由 IntersectionObserver 驱动预取与动态排版，连续高速滚动保持约 60 FPS。 |
+| **层级目录** | 树状目录展示，支持长标题省略与提示；配备一键「全部展开」与「全部折叠」功能。 |
+| **精准章节定位** | 单页包含多个小节（如 1.1、1.2、1.3）时，根据视口阅读坐标高亮当前小节，不再机械停留在页末。 |
+| **侧栏全文搜索** | 搜索框、结果计数（如 **3 / 47**）与前后翻页整合于侧栏；支持文本摘要高亮和逐项跳转。 |
+| **双向历史导航** | 浏览器式前进与后退，支持鼠标侧键、`Alt+←` / `Alt+→` 与 `Backspace`，跳转后可一键原路返回。 |
+| **双主题切换** | 预置深色（Dark）与浅色（Light）两种阅读主题，切换即时生效，本地记住偏好且启动防白屏闪烁。 |
+| **阅读进度记忆** | 记录每个文档的上次阅读页码与滚动偏移（存放在本机 `localStorage`），再次打开自动复原。 |
+| **划词 AI 翻译** | 选中文本即出翻译气泡，支持流式输出、取消与重试；提供模型联想筛选，仅在聚焦模型项时按需展示。 |
+| **桌面与 Web 兼备** | 桌面端为 Python + 可选 `pywebview` 原生窗口；亦可 `--browser` 或 GitHub Pages Web 版。**PDF 文件完全在本地处理，绝不上传**。 |
 
-```powershell
+---
+
+## 快速开始
+
+### 在线体验（无需安装）
+
+在浏览器中打开 **[https://stewart222b.github.io/fast-pdf-viewer/](https://stewart222b.github.io/fast-pdf-viewer/)**，点击打开文件或将 PDF 拖入窗口即可。页面由仓库 `web/` 目录经 GitHub Pages 发布，与本地 `--browser` 模式同一套前端。
+
+若 Pages 暂不可用，可在仓库根目录执行：
+
+```bash
+python desktop/app.py --browser
+```
+
+然后在浏览器访问终端提示的本地地址（默认 `http://127.0.0.1:17831/`）。
+
+### 推荐运行环境
+
+| 平台 | 说明 |
+| :--- | :--- |
+| **Windows** | 10 / 11 |
+| **macOS** | 12 及以上（Apple Silicon / Intel） |
+| **Linux** | 常见桌面发行版（需图形界面与系统浏览器） |
+
+共用要求：
+
+- Python 3.10+
+- 现代浏览器（Chrome、Edge、Firefox、Safari 等）
+- 可选：`pywebview` 用于原生桌面窗口（Windows 为 WebView2；macOS / Linux 为各自 WebKit 后端）
+
+```bash
+# 1. 克隆代码仓库
 git clone https://github.com/Stewart222b/fast-pdf-viewer.git
 cd fast-pdf-viewer
+
+# 2. 安装本地可编辑包（包含 pywebview 等依赖）
 python -m pip install -e .
+
+# 3. 启动阅读器
 fast-pdf
 ```
 
-打开指定文件：
+打开指定 PDF 文件：
 
-```powershell
-fast-pdf D:\docs\manual.pdf
+```bash
+fast-pdf /path/to/manual.pdf
 ```
 
-无桌面窗口时（或未装 pywebview）自动用系统浏览器：
+若未安装 `pywebview`，或希望直接在浏览器中使用，可加 `--browser`：
 
-```powershell
+```bash
 fast-pdf --browser
 ```
 
-首次启动会自动下载 pdf.js 到 `web/vendor/pdfjs/`。
-
-### 其他安装方式
-
-| 方式 | 命令 | 说明 |
-| --- | --- | --- |
-| 经典 pip | `pip install -r requirements.txt` + `python desktop/app.py` | 与早期文档一致 |
-| pipx（隔离环境） | `pipx install -e .` 或 `pipx run --spec git+https://github.com/Stewart222b/fast-pdf-viewer.git fast-pdf` | 适合不想污染全局 Python |
-| uv | `uv tool install -e .` | 与 pipx 类似，需已安装 [uv](https://github.com/astral-sh/uv) |
-| 网页版（本地） | `python desktop/app.py --browser` 后访问 `http://127.0.0.1:17831/` | 点击打开或拖入 PDF |
-| GitHub Pages | 合并到 `main` 后由 Actions 部署 `web/` | 需先 vendor pdf.js；**PDF 仅在浏览器本地处理** |
-
-Windows 独立 `.exe`：尚未提供；推荐 **pip / pipx + `fast-pdf`** 或 **GitHub Releases 源码包 + `pip install -e .`**。
+首次启动时，程序会自动下载配套的 pdf.js 静态资源至 `web/vendor/pdfjs/` 目录。
 
 ---
 
-## Shortcuts
+### 其他安装与运行方式
 
-| 操作 | 快捷键 |
-| --- | --- |
-| 打开 | Ctrl+O，或拖入 PDF |
-| 后退 | 鼠标后退键、Alt+←、Backspace |
-| 前进 | 鼠标前进键、Alt+→ |
-| 搜索 | Ctrl+F |
-| 缩放 | Ctrl + 滚轮，默认 150% |
-| 关闭翻译气泡 | Esc |
+| 方式 | 运行命令 | 说明 |
+| :--- | :--- | :--- |
+| **经典 pip** | `pip install -r requirements.txt`<br>`python desktop/app.py` | 适合普通 Python 虚拟环境。 |
+| **pipx（独立隔离）** | `pipx install -e .`<br>或 `pipx run --spec git+https://github.com/Stewart222b/fast-pdf-viewer.git fast-pdf` | 适合不想影响系统全局 Python 环境的场景。 |
+| **uv** | `uv tool install -e .` | 使用现代包管理器 [uv](https://github.com/astral-sh/uv) 极速安装与管理工具。 |
+| **纯网页模式** | `python desktop/app.py --browser`<br>打开 `http://127.0.0.1:17831/` | 在网页中点击按钮选择本地文件，或直接将 PDF 拖入窗口。 |
 
 ---
 
-## AI Translation
+## 常用快捷键
 
-1. 点击工具栏 **⚙ 设置**
-2. 填写 **API Base URL**（默认 `https://openrouter.ai/api/v1`）、**API Key**、**模型**（默认 `openai/gpt-4o-mini`）、目标语言
-3. 在正文中 **划词**，气泡会自动请求译文；可 **取消**、**重试**，选区变化会重新翻译
-
-支持任意 **OpenAI Chat Completions 兼容** 端点（OpenRouter、OpenAI、本地代理等）。
-
-单次选中文本上限 **4000** 字符；超时默认 60 秒。
-
----
-
-## Privacy
-
-| 数据 | 存放位置 |
-| --- | --- |
-| API Key、Base URL、模型、语言 | 本机浏览器 `localStorage`（键名 `fast-pdf-viewer-settings`） |
-| 阅读位置（页码/滚动） | 本机 `localStorage`（按文档指纹） |
-| PDF 内容 | 桌面版：本机路径 + 本地 HTTP Range；网页版：**File API / blob URL**，不经过我们的服务器 |
-
-翻译时，**选中文本与你的 API 配置** 从本机直接发往你配置的 API 提供商。我们不会收集或中转 PDF 与密钥。
+| 操作类别 | 操作描述 | 快捷键 / 鼠标动作 |
+| :--- | :--- | :--- |
+| **文件操作** | 打开本地 PDF 文件 | `Ctrl+O`（macOS 为 `Cmd+O`），或直接拖拽文件至窗口内 |
+| **页面导航** | 返回上一个阅读位置 | 鼠标侧键（后退）、`Alt+←`、`Backspace` |
+| | 前进到下一个跳转位置 | 鼠标侧键（前进）、`Alt+→` |
+| | 快速跳页 | 点击页码输入框，输入目标页码后按 `Enter` |
+| **全文搜索** | 展开侧栏搜索 / 聚焦搜索框 | `Ctrl+F`（macOS 为 `Cmd+F`），或点击顶部搜索图标 |
+| | 定位至上一个匹配结果 | `Shift+Enter`，或点击侧栏 `▲` 按钮 |
+| | 定位至下一个匹配结果 | `Enter`，或点击侧栏 `▼` 按钮 |
+| | 关闭侧栏搜索 | `Esc` |
+| **视图缩放** | 放大 / 缩小 | `Ctrl + 滚轮`、`Ctrl+=` / `Ctrl+-`（macOS 将 `Ctrl` 换为 `Cmd`） |
+| | 缩放预设 | 展开缩放菜单选择「适合宽度」「适合页面」或百分比 |
+| **弹窗与气泡** | 关闭设置弹窗 / 取消划词翻译气泡 | `Esc` |
 
 ---
 
-## Development
+## 划词 AI 翻译配置
+
+速览内置轻量划词翻译引擎，选中文本即可就地显示译文气泡：
+
+1. 点击工具栏右上角的 **⚙ 设置** 图标打开配置面板。
+2. 配置服务参数：
+   - **API Base URL**：兼容 OpenAI 标准的服务端点（默认为 `https://openrouter.ai/api/v1`）。
+   - **API Key**：你的服务凭证（如 OpenRouter 的 `sk-or-v1-...`）。
+   - **模型**：输入或从下拉推荐列表中选择模型（默认推荐 `openai/gpt-4o-mini`）。仅在聚焦模型输入框时才会展示过滤列表。
+   - **目标语言**：支持简体中文、繁体中文、English、日本語等。
+3. 在文档中 **鼠标划词**，系统将自动识别单词或段落并请求译文。你可以在气泡中随时点击「取消」「重试」或一键复制结果。
+
+> 单次划词文本上限为 **4000** 个字符，默认请求超时时间为 60 秒。
+
+---
+
+## 隐私与安全
+
+| 数据类别 | 存储位置与处理机制 |
+| :--- | :--- |
+| **API 密钥与服务地址** | 仅保存在本机浏览器的 `localStorage`（键名为 `fast-pdf-viewer-settings`），不会发送给任何第三方中间服务器。 |
+| **阅读位置与进度** | 按文档内容特征计算指纹，仅保存在本机 `localStorage`，不收集阅读行为。 |
+| **PDF 文件内容** | **桌面版**：通过本地 HTTP 服务利用 Range 请求高效按需加载；<br>**网页版**：通过浏览器本地 File API / Blob URL 读取，**全程不经由任何远程服务器流转**。 |
+| **翻译数据** | 划词翻译时，仅将你选中的文本与配置的请求头从本机直接发送至你所指定的 API 端点。 |
+
+---
+
+## 本地开发与测试
+
+### 环境搭建
 
 ```bash
+# 安装可编辑依赖
 python -m pip install -e .
-python desktop/bootstrap_pdfjs.py   # 若 vendor 缺失
+
+# 检查或补全 pdf.js 静态文件
+python desktop/bootstrap_pdfjs.py
+
+# 启动本地开发服务与浏览器验证
 python desktop/app.py --browser samples/demo.pdf
 ```
 
-测试：
+### 运行测试套件
+
+项目具备完备的单元测试，涵盖核心渲染、目录树定位、历史跳转与翻译组件：
 
 ```bash
+# 运行全部前端及核心逻辑单元测试（Node.js 环境）
 node --experimental-vm-modules --test tests/*.test.mjs
+
+# 运行本地 HTTP 范围服务测试（Python）
 python -m unittest tests/test_http.py
-node tests/browser-smoke.mjs      # 需已启动 --browser 服务
-node tests/render-benchmark.mjs   # Phase 1 渲染基准
+
+# 浏览器冒烟测试（需先启动 --browser 服务）
+node tests/browser-smoke.mjs
+
+# 页面渲染性能基准测试
+node tests/render-benchmark.mjs
 ```
 
-架构要点：
+### 核心架构
 
-- **Reader Core**：`web/js/viewer.js`、`search.js`、`history.js` — 渲染与阅读逻辑
-- **Platform**：`web/js/platform/` — 桌面（`/api/startup`、pywebview 选文件）与纯 Web
-- **桌面宿主**：`desktop/app.py` — 静态资源 + Range PDF + WebView2
+- **Reader Core (`web/js/`)**：`viewer.js`（pdf.js 渲染与视口调度）、`outline-active.js`（目录视口坐标精确高亮）、`search.js`（全文索引与匹配）、`history.js`（双向跳转栈）。
+- **Theme Engine (`web/js/theme.js`)**：无缝深浅色切换机制，在 CSS 解析前优先应用主题属性。
+- **Platform Adapter (`web/js/platform/`)**：抹平桌面宿主（`/api/startup` 与 pywebview）与现代 Web（File API / 拖拽）差异。
+- **Desktop Host (`desktop/app.py`)**：轻量本地 HTTP 服务，支持分块 Range 下载与多端口自适应，调起 pywebview 窗口或系统浏览器。
 
 ---
 
-## Install with Agent
+## 许可证
 
-复制以下提示词给 Cursor / Claude / 其他编码 Agent，在 Windows 上安装并打开速览：
-
-```text
-请在我这台 Windows 电脑上安装 GitHub 仓库 Stewart222b/fast-pdf-viewer：
-1. 若未安装 Git，先安装 Git for Windows。
-2. 克隆 https://github.com/Stewart222b/fast-pdf-viewer.git 到用户目录下的 fast-pdf-viewer。
-3. 需要 Python 3.10+；在仓库根目录执行：python -m pip install -e .
-4. 运行 fast-pdf 启动阅读器；若有样例 PDF 可执行 fast-pdf samples/demo.pdf。
-5. 若 pywebview 无法创建窗口，使用 fast-pdf --browser 并告诉我本地 URL。
-6. 划词翻译需在应用内设置 OpenRouter（或 OpenAI 兼容）API Key，密钥只存本机 localStorage。
-```
-
----
-
-## License
-
-MIT — 见 [LICENSE](LICENSE)。
+本项目基于 [MIT 许可证](LICENSE) 开源。

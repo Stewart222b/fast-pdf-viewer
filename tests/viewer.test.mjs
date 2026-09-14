@@ -78,6 +78,46 @@ test('onScroll notifies reading-position hook even when page number is unchanged
   assert.deepEqual(calls, [120]);
 });
 
+test('getReadingPoint maps scroll offset to PDF Y on the visible page', async () => {
+  const { viewer, wrapEl } = await setup();
+  viewer.zoom = 2;
+  viewer.baseHeight = 792;
+  viewer.pageCount = 2;
+  viewer.pageEls = [
+    { offsetTop: 0, dataset: { pageNumber: '1' } },
+    { offsetTop: 1600, dataset: { pageNumber: '2' } },
+  ];
+  wrapEl.scrollTop = 0;
+  const top = viewer.getReadingPoint();
+  assert.equal(top.page, 1);
+  assert.equal(top.pdfY, 792 - 64 / 2);
+  wrapEl.scrollTop = 1600 + 100;
+  const lower = viewer.getReadingPoint();
+  assert.equal(lower.page, 2);
+  assert.equal(lower.pdfY, 792 - (100 + 64) / 2);
+});
+
+test('restoreScrollAnchor keeps the PDF reading point when zoom changes', async () => {
+  const { viewer, wrapEl } = await setup();
+  viewer.zoom = 1;
+  viewer.pageSizes = [{
+    width: 612,
+    height: 792,
+    viewBox: [0, 0, 612, 792],
+    rotation: 0,
+    userUnit: 1,
+  }];
+  viewer.pageEls = [{ offsetTop: 0, offsetLeft: 0, dataset: { pageNumber: '1' } }];
+  wrapEl.clientWidth = 800;
+  wrapEl.scrollTop = 240;
+  wrapEl.scrollLeft = 0;
+  const anchor = viewer.captureScrollAnchor();
+  viewer.zoom = 1.75;
+  viewer.restoreScrollAnchor(anchor);
+  const point = viewer.getReadingPoint();
+  assert.ok(Math.abs(point.pdfY - anchor.pdfY) < 0.5);
+});
+
 test('latest open wins when an earlier loading task finishes late', async () => {
   const a = deferred(), b = deferred();
   let destroyed = 0, call = 0;
@@ -599,4 +639,62 @@ test('zoom redraw keeps the old bitmap until the new render completes', async ()
   rendered.resolve();
   await job;
   assert.notEqual(viewer.pageEls[0].querySelector('canvas'), original);
+});
+
+test('mouse wheel uses preset steps, not a relative 10% of current zoom', async () => {
+  const { viewer, wrapEl } = await setup();
+  viewer.pdf = {};
+  viewer.pagesEl = { style: {} };
+  viewer.pageEls = [pageElement()];
+  wrapEl.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
+  viewer.zoom = 1.5;
+  viewer.zoomMode = '150';
+  viewer.pinchZoom({ deltaY: -100, deltaMode: 0, clientX: 100, clientY: 100 });
+  assert.equal(viewer.pinch.target, 1.75, '150% notch in should match toolbar + to 175%');
+  viewer.pinch = null;
+  viewer.zoom = 3;
+  viewer.zoomMode = '300';
+  viewer.pinchZoom({ deltaY: -100, deltaMode: 0, clientX: 100, clientY: 100 });
+  assert.equal(viewer.pinch.target, 3.25, '300% notch in should add 25pp, not 30 relative');
+  viewer.pinch = null;
+  viewer.zoom = 1.5;
+  viewer.pinchZoom({ deltaY: 120, deltaMode: 0, clientX: 100, clientY: 100 });
+  assert.equal(viewer.pinch.target, 1.25, 'one notch out from 150% should land on 125%');
+  viewer.pinch = null;
+  viewer.zoom = 1.5;
+  viewer.pinchZoom({ deltaY: -1, deltaMode: 0, clientX: 100, clientY: 100 });
+  assert.ok(Math.abs(viewer.pinch.target - 1.5 * Math.exp(0.01)) < 1e-9);
+});
+
+test('finishPinch calls onPinchCommit', async () => {
+  const commits = [];
+  const { viewer, wrapEl } = await setup();
+  viewer.onPinchCommit = () => commits.push(1);
+  viewer.pdf = {};
+  viewer.pagesEl = { style: {} };
+  const page = pageElement();
+  viewer.pageEls = [page];
+  viewer.zoom = 1;
+  viewer.zoomMode = '100';
+  wrapEl.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
+  viewer.pinchZoom({ deltaY: -50, deltaMode: 0, clientX: 100, clientY: 100 });
+  Object.getPrototypeOf(viewer).finishPinch.call(viewer);
+  assert.equal(commits.length, 1);
+});
+
+test('page-width zoom follows viewer-wrap client width', async () => {
+  const { viewer, wrapEl } = await setup();
+  viewer.pdf = {};
+  viewer.pageSizes = [{ width: 600, height: 800 }];
+  viewer.currentPage = 1;
+  wrapEl.clientWidth = 1000;
+  viewer.setZoom = (mode) => {
+    viewer.zoomMode = mode;
+    viewer.zoom = viewer.computeZoom();
+  };
+  viewer.setZoom('page-width', { silent: true });
+  assert.ok(Math.abs(viewer.zoom - (1000 - 48) / 600) < 0.001);
+  wrapEl.clientWidth = 700;
+  viewer.setZoom('page-width', { silent: true });
+  assert.ok(Math.abs(viewer.zoom - (700 - 48) / 600) < 0.001);
 });

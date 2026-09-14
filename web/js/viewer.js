@@ -5,6 +5,7 @@ import {
 } from "../vendor/pdfjs/build/pdf.mjs";
 import { TextLayerBuilder } from "../vendor/pdfjs/web/pdf_viewer.mjs";
 import { buildTextIndex, buildTextMapping, matchRects } from "./search.js";
+import { convertCssToPdfPoint, convertPdfToCssPoint } from "./pdf-viewport.js";
 
 GlobalWorkerOptions.workerSrc = new URL(
   "../vendor/pdfjs/build/pdf.worker.mjs",
@@ -29,13 +30,52 @@ function destTypeName(type) {
   return type.name || "";
 }
 
+const DEST_SCROLL_OFFSET = 64;
+const ZOOM_PRESETS = [50, 75, 100, 125, 150, 175, 200, 250, 300];
+// Mouse notches report ±100/120 px; trackpad nudges are much smaller.
+const WHEEL_COARSE_PX = 40;
+const WHEEL_FINE_PX_CAP = 10;
+
+export function wheelDeltaPixels(deltaY, deltaMode = 0, pageHeight = 800) {
+  if (!Number.isFinite(deltaY)) return 0;
+  let pixels = deltaY;
+  if (deltaMode === 1) pixels *= 16;
+  else if (deltaMode === 2) pixels *= pageHeight || 800;
+  return pixels;
+}
+
+/** One toolbar step in percentage points (not ×1.1 of current zoom). */
+export function stepZoomPercent(currentPercent, direction) {
+  const current = Math.round(currentPercent);
+  let next;
+  if (direction > 0) {
+    next = ZOOM_PRESETS.find((v) => v > current) ?? current + 25;
+  } else {
+    next = [...ZOOM_PRESETS].reverse().find((v) => v < current) ?? Math.max(25, current - 25);
+  }
+  return Math.min(500, Math.max(25, next));
+}
+
+export function applyWheelZoomScale(currentScale, deltaY, deltaMode = 0, pageHeight = 800) {
+  const pixels = wheelDeltaPixels(deltaY, deltaMode, pageHeight);
+  if (!pixels) return currentScale;
+  const clamped = (scale) => Math.min(5, Math.max(0.25, scale));
+  if (Math.abs(pixels) >= WHEEL_COARSE_PX) {
+    const next = stepZoomPercent(currentScale * 100, pixels > 0 ? -1 : 1);
+    return clamped(next / 100);
+  }
+  const capped = Math.max(-WHEEL_FINE_PX_CAP, Math.min(WHEEL_FINE_PX_CAP, pixels));
+  return clamped(currentScale * Math.exp(-capped / 100));
+}
+
 export class PdfViewer {
-  constructor({ pagesEl, wrapEl, history, onState, onZoomPreview, onScrollPosition, onIndex, onPassword }) {
+  constructor({ pagesEl, wrapEl, history, onState, onZoomPreview, onPinchCommit, onScrollPosition, onIndex, onPassword }) {
     this.pagesEl = pagesEl;
     this.wrapEl = wrapEl;
     this.history = history;
     this.onState = onState;
     this.onZoomPreview = onZoomPreview;
+    this.onPinchCommit = onPinchCommit;
     this.onScrollPosition = onScrollPosition;
     this.onIndex = onIndex;
     this.onPassword = onPassword;
@@ -107,6 +147,72 @@ export class PdfViewer {
 
   notify() {
     this.onState?.(this.getState());
+  }
+
+  /** Viewport reading point in PDF user space, aligned with dest jumps. */
+  getReadingPoint() {
+    const pageCount = this.pageCount || this.pageEls.length;
+    const fallbackPage = Math.min(Math.max(1, this.currentPage || 1), pageCount || 1);
+    if (!this.pageEls.length) return { page: fallbackPage, pdfY: NaN };
+    const probe = (this.wrapEl?.scrollTop || 0) + DEST_SCROLL_OFFSET;
+    let page = 1;
+    let el = this.pageEls[0];
+    for (const pageEl of this.pageEls) {
+      if (pageEl.offsetTop <= probe) {
+        page = Number(pageEl.dataset.pageNumber) || page;
+        el = pageEl;
+      } else break;
+    }
+    const layout = this.pageLayout(page);
+    const zoom = this.zoom || 1;
+    const cssX = this.wrapEl.scrollLeft + this.wrapEl.clientWidth / 2 - (el?.offsetLeft || 0);
+    const cssY = probe - (el?.offsetTop || 0);
+    const [, pdfY] = convertCssToPdfPoint(layout, zoom, cssX, cssY);
+    if (!Number.isFinite(pdfY)) {
+      const { height } = layout;
+      return { page, pdfY: height > 0 && zoom > 0 ? height - cssY / zoom : NaN };
+    }
+    return { page, pdfY };
+  }
+
+  captureScrollAnchor() {
+    const point = this.getReadingPoint();
+    const el = this.pageEls[point.page - 1];
+    if (!el) {
+      return {
+        page: point.page,
+        scrollTop: this.wrapEl.scrollTop,
+        scrollLeft: this.wrapEl.scrollLeft,
+      };
+    }
+    const probe = this.wrapEl.scrollTop + DEST_SCROLL_OFFSET;
+    const cssX = this.wrapEl.scrollLeft + this.wrapEl.clientWidth / 2 - el.offsetLeft;
+    const cssY = probe - el.offsetTop;
+    const layout = this.pageLayout(point.page);
+    const zoom = this.zoom || 1;
+    const [pdfX, pdfY] = convertCssToPdfPoint(layout, zoom, cssX, cssY);
+    return {
+      page: point.page,
+      pdfX,
+      pdfY,
+      scrollTop: this.wrapEl.scrollTop,
+      scrollLeft: this.wrapEl.scrollLeft,
+    };
+  }
+
+  restoreScrollAnchor(anchor) {
+    const el = this.pageEls[anchor.page - 1];
+    if (!el) return;
+    const layout = this.pageLayout(anchor.page);
+    const zoom = this.zoom || 1;
+    if (Number.isFinite(anchor.pdfX) && Number.isFinite(anchor.pdfY) && layout?.viewBox) {
+      const [cssX, cssY] = convertPdfToCssPoint(layout, zoom, anchor.pdfX, anchor.pdfY);
+      this.wrapEl.scrollTop = Math.max(0, el.offsetTop + cssY - DEST_SCROLL_OFFSET);
+      this.wrapEl.scrollLeft = Math.max(0, el.offsetLeft + cssX - this.wrapEl.clientWidth / 2);
+      return;
+    }
+    this.wrapEl.scrollTop = anchor.scrollTop ?? 0;
+    this.wrapEl.scrollLeft = anchor.scrollLeft ?? 0;
   }
 
   async open(source) {
@@ -203,7 +309,13 @@ export class PdfViewer {
     const page = await pdf.getPage(1);
     if (generation !== this.generation) return;
     const base = page.getViewport({ scale: 1 });
-    this.pageSizes[0] = { width: base.width, height: base.height };
+    this.pageSizes[0] = {
+      width: base.width,
+      height: base.height,
+      viewBox: base.viewBox,
+      rotation: base.rotation,
+      userUnit: base.userUnit,
+    };
     this.baseWidth = base.width;
     this.baseHeight = base.height;
     if (!this.renderJobs.has(1) && !this.renderedPages.has(1)) page.cleanup?.();
@@ -217,7 +329,13 @@ export class PdfViewer {
         const page = await pdf.getPage(i);
         if (generation !== this.generation) return;
         const base = page.getViewport({ scale: 1 });
-        this.setPageSize(i - 1, { width: base.width, height: base.height });
+        this.setPageSize(i - 1, {
+          width: base.width,
+          height: base.height,
+          viewBox: base.viewBox,
+          rotation: base.rotation,
+          userUnit: base.userUnit,
+        });
         if (!this.renderJobs.has(i) && !this.renderedPages.has(i)) page.cleanup?.();
         if (i % 20 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
       }
@@ -306,7 +424,7 @@ export class PdfViewer {
 
   setZoom(mode, { silent = false, keepPage = true } = {}) {
     this.cancelPinch();
-    const page = this.currentPage;
+    const anchor = keepPage ? this.captureScrollAnchor() : null;
     this.zoomMode = String(mode);
     this.zoom = this.computeZoom();
     this.textMappings.clear();
@@ -317,7 +435,7 @@ export class PdfViewer {
       el.querySelector(".hlLayer").replaceChildren();
     }
     this.applyPageLayout();
-    if (keepPage) this.scrollToPage(page, { instant: true });
+    if (anchor) this.restoreScrollAnchor(anchor);
     if (!silent) {
       clearTimeout(this.zoomTimer);
       this.zoomTimer = setTimeout(() => this.renderVisible(true), 80);
@@ -348,8 +466,12 @@ export class PdfViewer {
       this.pagesEl.style.transformOrigin = `${this.wrapEl.scrollLeft + x}px ${contentY}px`;
       this.pagesEl.style.willChange = "transform";
     }
-    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? this.wrapEl.clientHeight : 1);
-    this.pinch.target = Math.min(5, Math.max(0.25, this.pinch.target * Math.exp(-delta / 100)));
+    this.pinch.target = applyWheelZoomScale(
+      this.pinch.target,
+      event.deltaY,
+      event.deltaMode,
+      this.wrapEl.clientHeight,
+    );
     if (!this.pinchFrame) {
       this.pinchFrame = requestAnimationFrame(() => {
         this.pinchFrame = null;
@@ -382,18 +504,11 @@ export class PdfViewer {
     this.setZoom(String(pinch.target * 100), { keepPage: false });
     this.wrapEl.scrollLeft = pinch.page.offsetLeft + pinch.pageX * this.zoom - pinch.x;
     this.wrapEl.scrollTop = pinch.page.offsetTop + pinch.pageY * this.zoom - pinch.y;
+    this.onPinchCommit?.();
   }
 
   bumpZoom(delta) {
-    const presets = [50, 75, 100, 125, 150, 175, 200, 250, 300];
-    const current = Math.round(this.zoom * 100);
-    let next;
-    if (delta > 0) {
-      next = presets.find((v) => v > current) ?? current + 25;
-    } else {
-      next = [...presets].reverse().find((v) => v < current) ?? Math.max(25, current - 25);
-    }
-    next = Math.min(500, Math.max(25, next));
+    const next = stepZoomPercent(this.zoom * 100, delta > 0 ? 1 : -1);
     this.setZoom(String(next));
     return String(next);
   }
@@ -699,7 +814,7 @@ export class PdfViewer {
     let scrollTop = el.offsetTop - 16;
     let scrollLeft = this.wrapEl.scrollLeft;
     if (top != null && Number.isFinite(top)) {
-      scrollTop = Math.max(0, el.offsetTop + top - 64);
+      scrollTop = Math.max(0, el.offsetTop + top - DEST_SCROLL_OFFSET);
     }
     if (left != null && Number.isFinite(left)) {
       scrollLeft = Math.max(0, el.offsetLeft + left - 32);

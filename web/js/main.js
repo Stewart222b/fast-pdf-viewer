@@ -17,6 +17,7 @@ import { getSelectionAnchorFromSelection, getSelectionAnchorRect } from "./selec
 import { prepareSelectionForTranslation } from "./selection-text.js";
 import { applyBubblePlacement } from "./translate-bubble-placement.js";
 import { MAX_TRANSLATE_CHARS, translateText } from "./translate.js";
+import { destPdfY, pickOutlineActive } from "./outline-active.js";
 import { PasswordResponses } from "../vendor/pdfjs/build/pdf.mjs";
 import { PdfViewer } from "./viewer.js";
 
@@ -34,6 +35,7 @@ const zoomMenuItems = [...$("zoom-select").options].map(option => {
   item.setAttribute("aria-checked", String(option.selected));
   item.addEventListener("click", () => {
     setZoomMenuOpen(false);
+    markZoomTouched();
     viewer.setZoom(option.value);
     $("zoom-button").focus({ preventScroll: true });
   });
@@ -136,7 +138,11 @@ const viewer = new PdfViewer({
   history,
   onState: syncToolbar,
   onZoomPreview: syncZoom,
-  onScrollPosition: scheduleSaveReadingPosition,
+  onPinchCommit: markZoomTouched,
+  onScrollPosition: () => {
+    scheduleSaveReadingPosition();
+    scheduleOutlineActive();
+  },
   onIndex: refreshIndexedSearch,
   onPassword: requestPdfPassword,
 });
@@ -177,17 +183,21 @@ function syncZoom(mode) {
 }
 
 function syncToolbar(state) {
-  $("page-input").value = String(state.page || 1);
-  $("page-count").textContent = String(viewer.pageCount || 0);
+  const hasDoc = Boolean(viewer.pdf);
+  $("page-controls").hidden = !hasDoc;
+  $("page-divider").hidden = !hasDoc;
+  $("page-input").value = hasDoc ? String(state.page || 1) : "—";
+  $("page-input").disabled = !hasDoc;
+  $("page-count").textContent = hasDoc ? String(viewer.pageCount || 0) : "—";
   $("doc-title").textContent = viewer.name || "未打开文件";
-  $("drop-hint").classList.toggle("hidden", Boolean(viewer.pdf));
+  $("doc-title").title = viewer.name || "未打开文件";
+  $("drop-hint").classList.toggle("hidden", hasDoc);
+  // Empty state keeps a primary 打开; once a PDF is open it steps down.
+  $("btn-open").classList.toggle("demoted", hasDoc);
   syncZoom(viewer.pinch ? viewer.pinch.target * 100 : state.zoom);
   $("btn-back").disabled = !history.canBack();
   $("btn-forward").disabled = !history.canForward();
-  const page = state.page || 1;
-  $("btn-page-prev").disabled = !viewer.pdf || page <= 1;
-  $("btn-page-next").disabled = !viewer.pdf || page >= viewer.pageCount;
-  updateOutlineActive(page);
+  updateOutlineActive();
   scheduleSaveReadingPosition();
 }
 
@@ -213,26 +223,91 @@ function flushReadingPosition() {
   saveReadingPosition(currentFingerprint, viewer.getState());
 }
 
-function updateOutlineActive(page) {
-  const pane = $("outline-pane");
-  let found = false;
-  pane.querySelectorAll(".outline-item").forEach((btn) => {
-    const match = Number(btn.dataset.page) === page;
-    btn.classList.toggle("active", match);
-    if (!match) return;
-    found = true;
-    let node = btn.closest(".outline-node");
-    while (node) {
-      const branch = node.querySelector(":scope > .outline-branch");
-      const toggle = node.querySelector(":scope > .outline-row > .outline-toggle");
-      if (branch) {
-        branch.classList.add("expanded");
-        toggle?.setAttribute("aria-expanded", "true");
-      }
-      node = node.parentElement?.closest(".outline-node");
-    }
+function scheduleOutlineActive() {
+  if (typeof requestAnimationFrame !== "function") {
+    updateOutlineActive();
+    return;
+  }
+  if (outlineActiveRaf) return;
+  outlineActiveRaf = requestAnimationFrame(() => {
+    outlineActiveRaf = 0;
+    updateOutlineActive();
   });
-  if (!found) return;
+}
+
+function setOutlineActive(active) {
+  if (!outlineTreeApi?.entries?.length) return;
+  for (const entry of outlineTreeApi.entries) {
+    const selected = entry === active;
+    entry.btn.classList.toggle("active", selected);
+    if (selected) entry.btn.setAttribute("aria-current", "true");
+    else entry.btn.removeAttribute("aria-current");
+    entry.node?.setAttribute("aria-selected", String(selected));
+  }
+  if (outlineAutoReveal && active) {
+    for (let entry = active; entry; entry = entry.parent) {
+      if (entry.hasChildren) outlineTreeApi.setEntryExpanded(entry, true);
+    }
+  }
+}
+
+function updateOutlineActive() {
+  if (!outlineTreeApi?.entries?.length) return;
+  const view = viewer.getReadingPoint?.() || { page: viewer.currentPage || 1, pdfY: NaN };
+  setOutlineActive(pickOutlineActive(outlineTreeApi.entries, view));
+}
+
+/** Live outline entries from the last renderOutline mount (cleared when pane resets). */
+let outlineTreeApi = null;
+/** When false, page changes highlight the current row but do not re-open branches. */
+let outlineAutoReveal = true;
+let outlineActiveRaf = 0;
+
+function pinOutlineDisclosure() {
+  outlineAutoReveal = false;
+}
+
+function syncOutlineTreeActions() {
+  const actions = $("outline-tree-actions");
+  if (!actions) return;
+  const hasBranches = Boolean(outlineTreeApi?.entries?.some((entry) => entry.hasChildren));
+  const show = sidebarMode === "outline" && hasBranches;
+  actions.hidden = !show;
+}
+
+function expandAllOutlineNodes() {
+  if (!outlineTreeApi) return;
+  for (const entry of outlineTreeApi.entries) {
+    if (entry.hasChildren) outlineTreeApi.setEntryExpanded(entry, true);
+  }
+  pinOutlineDisclosure();
+}
+
+function collapseAllOutlineNodes() {
+  if (!outlineTreeApi) return;
+  for (const entry of outlineTreeApi.entries) {
+    if (entry.hasChildren) outlineTreeApi.setEntryExpanded(entry, false);
+  }
+  pinOutlineDisclosure();
+}
+
+function showViewerStatus(text, { action = false } = {}) {
+  const box = $("viewer-status");
+  if (!box) return;
+  $("viewer-status-text").textContent = text;
+  const btn = $("viewer-status-action");
+  if (btn) btn.hidden = !action;
+  box.hidden = false;
+}
+
+function hideViewerStatus() {
+  const box = $("viewer-status");
+  if (box) box.hidden = true;
+}
+
+let userZoomTouched = false;
+function markZoomTouched() {
+  userZoomTouched = true;
 }
 
 async function openSource(getSource) {
@@ -248,9 +323,14 @@ async function openSource(getSource) {
   objectUrl = null;
   currentFingerprint = "";
   $("search-input").value = "";
+  $("search-clear").hidden = true;
   renderSearchList([], "");
   $("outline-pane").replaceChildren();
+  outlineTreeApi = null;
+  outlineAutoReveal = true;
+  syncOutlineTreeActions();
   hideBubble();
+  showViewerStatus("正在打开…");
   try {
     const source = await getSource();
     if (request !== openGeneration) return;
@@ -258,14 +338,24 @@ async function openSource(getSource) {
     if (!opened || request !== openGeneration) return;
     currentFingerprint = readingFingerprint(source);
     const saved = loadReadingPosition(currentFingerprint);
-    if (saved) viewer.applyReadingPosition(saved);
+    if (saved) {
+      viewer.applyReadingPosition(saved);
+      markZoomTouched();
+      hideViewerStatus();
+    } else {
+      // First open fits the page width; later opens respect the user's zoom.
+      if (!userZoomTouched) viewer.setZoom("page-width", { silent: true });
+      hideViewerStatus();
+    }
     await renderOutline(request);
     if (request === openGeneration && $("search-input").value.trim()) {
       await runSearch($("search-input").value);
     }
   } catch (error) {
     if (request === openGeneration) {
-      $("outline-pane").textContent = `打开失败：${error.message || error}`;
+      const message = `打开失败：${error.message || error}`;
+      $("outline-pane").textContent = message;
+      showViewerStatus(message, { action: true });
     }
   }
 }
@@ -299,52 +389,130 @@ async function renderOutline(request) {
   const generation = viewer.generation;
   if (!pdf || !outline?.length) {
     pane.replaceChildren();
+    outlineTreeApi = null;
+    outlineAutoReveal = true;
+    syncOutlineTreeActions();
+    pane.removeAttribute("role");
+    pane.removeAttribute("aria-label");
     if (!outline?.length) {
       pane.innerHTML = '<div class="empty-side">这份 PDF 没有目录。</div>';
+      // Late outline with no entries must not kick the user out of search.
+      if (sidebarMode !== "search") {
+        selectSidebar("outline");
+        setSidebarCollapsed(true);
+      }
     }
     return;
   }
+  await attachOutlinePages(outline, { request, pdf, generation });
+  if (request !== openGeneration || viewer.generation !== generation || viewer.pdf !== pdf) return;
+  // Some producers wrap the whole outline in one destination-less container
+  // (e.g. a lone "system" node). Promoting its children restores a real tree.
+  let roots = outline;
+  while (
+    roots?.length === 1 &&
+    roots[0]?.items?.length &&
+    roots[0]?.dest == null &&
+    roots[0]?.pageNumber == null
+  ) {
+    roots = roots[0].items;
+  }
   pane.replaceChildren();
-  const mount = (items, depth, container) => {
+  pane.setAttribute("role", "tree");
+  pane.setAttribute("aria-label", "文档目录");
+  // Flat entries in mount order with parent links, so the active path can be
+  // revealed without DOM tree-walking.
+  const entries = [];
+  const setEntryExpanded = (entry, expanded) => {
+    entry.branch?.classList.toggle("expanded", expanded);
+    entry.toggle?.setAttribute("aria-expanded", String(expanded));
+    if (entry.hasChildren) entry.node?.setAttribute("aria-expanded", String(expanded));
+  };
+  const mount = (items, depth, container, parentEntry) => {
     for (const item of items) {
+      const title = item.title || "未命名";
+      const hasChildren = Boolean(item.items?.length);
       const node = document.createElement("div");
       node.className = "outline-node";
+      node.setAttribute("role", "treeitem");
+      node.setAttribute("aria-level", String(depth + 1));
       const row = document.createElement("div");
       row.className = "outline-row";
-      const hasChildren = Boolean(item.items?.length);
+      if (depth > 0) row.style.paddingLeft = `${depth * 16}px`;
       const toggle = document.createElement("button");
       toggle.type = "button";
       toggle.className = "outline-toggle";
-      toggle.setAttribute("aria-expanded", "false");
-      toggle.hidden = !hasChildren;
-      toggle.title = hasChildren ? "展开/折叠" : "";
+      // Leaves keep a reserved (invisible) toggle so sibling titles align.
+      toggle.tabIndex = -1;
+      if (hasChildren) {
+        toggle.setAttribute("aria-expanded", depth === 0 ? "true" : "false");
+        toggle.setAttribute("aria-label", `展开/折叠 ${title}`);
+        toggle.title = "展开/折叠";
+      } else {
+        toggle.classList.add("is-leaf");
+        toggle.setAttribute("aria-hidden", "true");
+      }
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "outline-item";
-      btn.style.paddingLeft = `${4 + depth * 12}px`;
-      btn.textContent = item.title || "未命名";
-      if (item.pageNumber) btn.dataset.page = String(item.pageNumber);
-      btn.addEventListener("click", () => viewer.goToDest(item.dest, true));
+      // One line + ellipsis via CSS; title carries the full heading.
+      btn.textContent = title;
+      btn.title = title;
+      const page = Number(item.pageNumber);
+      if (Number.isFinite(page) && page > 0) {
+        btn.dataset.page = String(page);
+        btn.setAttribute("aria-description", `第 ${page} 页`);
+      }
       row.append(toggle, btn);
       node.append(row);
+      const entry = { node, branch: null, toggle, btn, parent: parentEntry, hasChildren, page, pdfY: Number(item.pdfY) };
+      entries.push(entry);
+      btn.addEventListener("click", () => {
+        setOutlineActive(entry);
+        viewer.goToDest(item.dest, true);
+      });
       if (hasChildren) {
         const branch = document.createElement("div");
         branch.className = "outline-branch";
+        branch.setAttribute("role", "group");
+        entry.branch = branch;
+        const expanded = depth === 0;
+        if (expanded) setEntryExpanded(entry, true);
+        else {
+          branch.classList.toggle("expanded", false);
+          node.setAttribute("aria-expanded", "false");
+        }
         toggle.addEventListener("click", (event) => {
           event.stopPropagation();
-          const expanded = branch.classList.toggle("expanded");
-          toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+          pinOutlineDisclosure();
+          setEntryExpanded(entry, !branch.classList.contains("expanded"));
         });
-        mount(item.items, depth + 1, branch);
+        btn.addEventListener("keydown", (event) => {
+          if (event.key === "ArrowRight" && !branch.classList.contains("expanded")) {
+            event.preventDefault();
+            pinOutlineDisclosure();
+            setEntryExpanded(entry, true);
+          } else if (event.key === "ArrowLeft" && branch.classList.contains("expanded")) {
+            event.preventDefault();
+            pinOutlineDisclosure();
+            setEntryExpanded(entry, false);
+          }
+        });
+        mount(item.items, depth + 1, branch, entry);
         node.append(branch);
       }
       container.appendChild(node);
     }
   };
-  await attachOutlinePages(outline, { request, pdf, generation });
-  if (request !== openGeneration || viewer.generation !== generation || viewer.pdf !== pdf) return;
-  mount(outline, 0, pane);
-  updateOutlineActive(viewer.currentPage);
+  mount(roots, 0, pane, null);
+  outlineTreeApi = { entries, setEntryExpanded };
+  outlineAutoReveal = true;
+  syncOutlineTreeActions();
+  if (isSidebarCollapsed()) syncSidebarTabStops(true);
+  // Default-expand the current section's ancestor chain, then keep the row in view.
+  updateOutlineActive();
+  const activeBtn = pane.querySelector(".outline-item.active");
+  activeBtn?.scrollIntoView?.({ block: "nearest" });
 }
 
 async function attachOutlinePages(items, ctx) {
@@ -364,6 +532,7 @@ async function attachOutlinePages(items, ctx) {
           const pageIndex = typeof ref === "object" ? await pdf.getPageIndex(ref) : Number(ref);
           if (!stillValid()) return;
           item.pageNumber = pageIndex + 1;
+          item.pdfY = destPdfY(explicit);
         }
       }
     } catch {
@@ -373,22 +542,24 @@ async function attachOutlinePages(items, ctx) {
   }
 }
 
-function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)) {
+function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50), reveal = false) {
   searchHits = hits;
-  const pane = $("search-pane");
+  const list = $("search-list");
+  const previousScroll = list.scrollTop;
+  let activeButton = null;
   const count = $("search-count");
-  pane.replaceChildren();
+  list.replaceChildren();
   $("search-prev").disabled = hits.length === 0;
   $("search-next").disabled = hits.length === 0;
   if (!query) {
     count.hidden = true;
-    pane.innerHTML = '<div class="empty-side">输入关键词后，这里会列出全部命中。</div>';
+    list.innerHTML = '<div class="empty-side">输入关键词后，这里会列出全部命中。</div>';
     return;
   }
   count.hidden = false;
   if (!hits.length) {
     count.textContent = "0 条";
-    pane.innerHTML = '<div class="empty-side">没有找到匹配。</div>';
+    list.innerHTML = '<div class="empty-side">没有找到匹配。</div>';
     return;
   }
   count.textContent = `${viewer.hitIndex + 1} / ${hits.length}`;
@@ -398,26 +569,37 @@ function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)
     button.className = "btn";
     button.textContent = label;
     button.addEventListener("click", () => renderSearchList(hits, query, nextStart));
-    pane.appendChild(button);
+    list.appendChild(button);
   };
   if (start > 0) moreButton("上一组结果", Math.max(0, start - 200));
   hits.slice(start, end).forEach((hit, localIndex) => {
     const index = start + localIndex;
     const btn = document.createElement("button");
     btn.className = `search-hit${index === viewer.hitIndex ? " active" : ""}`;
+    if (index === viewer.hitIndex) activeButton = btn;
     btn.innerHTML = `<div class="meta">第 ${hit.pageNumber} 页 · ${index + 1}/${hits.length}</div>
       <div class="snippet">${highlightSnippet(hit.snippet, query)}</div>`;
     btn.addEventListener("click", async () => {
       try {
         await viewer.jumpToHit(index, { push: true });
-        if (searchHits === hits && $("search-input").value === query) renderSearchList(hits, query);
+        if (searchHits === hits && $("search-input").value === query) renderSearchList(hits, query, undefined, true);
       } catch (error) {
-        if (searchHits === hits) pane.textContent = `定位失败：${error.message || error}`;
+        if (searchHits === hits) list.textContent = `定位失败：${error.message || error}`;
       }
     });
-    pane.appendChild(btn);
+    list.appendChild(btn);
   });
   if (end < hits.length) moreButton("下一组结果", end);
+  list.scrollTop = previousScroll;
+  if (reveal && activeButton && !isSidebarCollapsed() && sidebarMode === "search") {
+    // Scroll only the results container; never move the PDF or keyboard focus.
+    const bounds = list.getBoundingClientRect?.();
+    const item = activeButton.getBoundingClientRect?.();
+    if (bounds && item) {
+      if (item.top < bounds.top) list.scrollTop += item.top - bounds.top;
+      else if (item.bottom > bounds.bottom) list.scrollTop += item.bottom - bounds.bottom;
+    }
+  }
 }
 
 function refreshIndexedSearch() {
@@ -452,11 +634,14 @@ async function runSearch(query, request = searchGeneration, jump = true) {
       await shown;
       return;
     }
-    renderSearchList(unchanged ? searchHits : hits, query);
+    renderSearchList(unchanged ? searchHits : hits, query, undefined, jump);
     if (globalThis.__PDF_BENCH__) {
       globalThis.__pdfSearchBench.resultListVisibleMs = performance.now() - searchStarted;
     }
-    if (query && jump) selectSidebar("search");
+    if (query && jump) {
+      selectSidebar("search");
+      setSidebarCollapsed(false);
+    }
     if (shown) await shown;
     if (!current()) return;
     if (globalThis.__PDF_BENCH__) {
@@ -467,29 +652,123 @@ async function runSearch(query, request = searchGeneration, jump = true) {
         const warning = document.createElement("div");
         warning.className = "empty-side";
         warning.textContent = "部分页面索引失败，当前仅显示已读取结果。";
-        $("search-pane").appendChild(warning);
+        $("search-list").appendChild(warning);
       } else if (viewer.indexedPages < viewer.pageCount) {
         $("search-count").textContent += ` · 索引 ${viewer.indexedPages}/${viewer.pageCount}`;
       }
     }
   } catch (error) {
-    if (current()) $("search-pane").textContent = `搜索失败：${error.message || error}`;
+    if (current()) $("search-list").textContent = `搜索失败：${error.message || error}`;
   }
 }
 
+let sidebarMode = "outline";
 function selectSidebar(name) {
-  document.querySelectorAll(".tab").forEach((tab) => {
-    tab.classList.toggle("active", tab.dataset.tab === name);
-  });
+  sidebarMode = name;
   $("outline-pane").classList.toggle("active", name === "outline");
   $("search-pane").classList.toggle("active", name === "search");
+  $("sidebar-tab-outline")?.setAttribute("aria-selected", String(name === "outline"));
+  $("sidebar-tab-search")?.setAttribute("aria-selected", String(name === "search"));
+  $("sidebar-tab-outline")?.classList.toggle("active", name === "outline");
+  $("sidebar-tab-search")?.classList.toggle("active", name === "search");
+  syncSearchButton();
+  syncOutlineTreeActions();
+}
+
+function isSidebarCollapsed() {
+  return document.querySelector(".workspace").classList.contains("sidebar-collapsed");
+}
+
+function syncSearchButton() {
+  const open = sidebarMode === "search" && !isSidebarCollapsed();
+  $("btn-search-toggle")?.setAttribute("aria-expanded", String(open));
+  $("btn-search-toggle")?.classList.toggle("active", open);
+}
+
+function openSearch() {
+  selectSidebar("search");
+  setSidebarCollapsed(false);
+  $("search-input").focus();
+}
+
+let pageWidthReflowToken = 0;
+
+function runPageWidthReflow() {
+  if (!viewer.pdf || viewer.zoomMode !== "page-width") return;
+  viewer.setZoom("page-width", { silent: true });
+  syncZoom(viewer.zoomMode);
+}
+
+function schedulePageWidthReflow() {
+  if (!viewer.pdf || viewer.zoomMode !== "page-width") return;
+  const sidebar = $("sidebar");
+  const token = ++pageWidthReflowToken;
+  const finish = () => {
+    if (token !== pageWidthReflowToken) return;
+    pageWidthReflowToken += 1;
+    runPageWidthReflow();
+  };
+  const onTransitionEnd = (event) => {
+    if (event.target !== sidebar) return;
+    if (event.propertyName !== "width" && event.propertyName !== "flex-basis") return;
+    sidebar.removeEventListener("transitionend", onTransitionEnd);
+    clearTimeout(fallbackTimer);
+    finish();
+  };
+  sidebar.addEventListener("transitionend", onTransitionEnd);
+  const fallbackTimer = setTimeout(() => {
+    sidebar.removeEventListener("transitionend", onTransitionEnd);
+    finish();
+  }, 220);
+}
+
+function syncSidebarTabStops(collapsed) {
+  const sidebar = $("sidebar");
+  const focusables = sidebar.querySelectorAll(
+    "button, input, select, textarea, a[href], [tabindex]",
+  );
+  for (const el of focusables) {
+    if (collapsed) {
+      if (el.dataset.sidebarTabindex == null) {
+        el.dataset.sidebarTabindex = el.getAttribute("tabindex") ?? "";
+      }
+      el.tabIndex = -1;
+      el.setAttribute("aria-hidden", "true");
+    } else {
+      const prev = el.dataset.sidebarTabindex;
+      if (prev != null) {
+        if (prev === "") el.removeAttribute("tabindex");
+        else el.setAttribute("tabindex", prev);
+        delete el.dataset.sidebarTabindex;
+      } else {
+        el.removeAttribute("tabindex");
+      }
+      if (el.classList.contains("outline-toggle") && el.classList.contains("is-leaf")) {
+        el.setAttribute("aria-hidden", "true");
+      } else {
+        el.removeAttribute("aria-hidden");
+      }
+    }
+  }
 }
 
 function setSidebarCollapsed(collapsed) {
   document.querySelector(".workspace").classList.toggle("sidebar-collapsed", collapsed);
-  $("sidebar").setAttribute("aria-hidden", collapsed ? "true" : "false");
+  const sidebar = $("sidebar");
+  sidebar.setAttribute("aria-hidden", collapsed ? "true" : "false");
+  // Collapsed sidebar leaves the tab order entirely.
+  try {
+    if (collapsed) sidebar.setAttribute("inert", "");
+    else sidebar.removeAttribute("inert");
+    sidebar.inert = collapsed;
+  } catch {
+    /* inert not supported: aria-hidden still hides it from AT */
+  }
+  syncSidebarTabStops(collapsed);
   $("btn-sidebar").classList.toggle("active", !collapsed);
   $("btn-sidebar").setAttribute("aria-pressed", collapsed ? "false" : "true");
+  syncSearchButton();
+  schedulePageWidthReflow();
 }
 
 async function pickFile() {
@@ -508,23 +787,62 @@ fileInput.addEventListener("change", async () => {
 });
 
 $("btn-open").addEventListener("click", pickFile);
+$("btn-open-empty")?.addEventListener("click", pickFile);
+$("viewer-status-action")?.addEventListener("click", pickFile);
+// 目录 is always outline: open on outline, outline-open toggles shut,
+// search-open flips back to outline without clearing the query.
 $("btn-sidebar").addEventListener("click", () => {
-  setSidebarCollapsed(!document.querySelector(".workspace").classList.contains("sidebar-collapsed"));
+  if (isSidebarCollapsed()) {
+    selectSidebar("outline");
+    setSidebarCollapsed(false);
+  } else if (sidebarMode === "outline") {
+    setSidebarCollapsed(true);
+  } else {
+    selectSidebar("outline");
+  }
 });
-setSidebarCollapsed(false);
+$("sidebar-tab-outline")?.addEventListener("click", () => {
+  selectSidebar("outline");
+  setSidebarCollapsed(false);
+});
+$("sidebar-tab-search")?.addEventListener("click", () => {
+  openSearch();
+});
+const outlineExpandAllBtn = $("btn-outline-expand-all");
+if (outlineExpandAllBtn) {
+  outlineExpandAllBtn.title = "全部展开";
+  outlineExpandAllBtn.setAttribute("aria-label", "全部展开");
+  outlineExpandAllBtn.addEventListener("click", () => expandAllOutlineNodes());
+}
+const outlineCollapseAllBtn = $("btn-outline-collapse-all");
+if (outlineCollapseAllBtn) {
+  outlineCollapseAllBtn.title = "全部折叠";
+  outlineCollapseAllBtn.setAttribute("aria-label", "全部折叠");
+  outlineCollapseAllBtn.addEventListener("click", () => collapseAllOutlineNodes());
+}
+$("btn-sidebar-close").addEventListener("click", () => setSidebarCollapsed(true));
+// 默认收起：空文档、无目录文档都是全宽页面，目录按需打开。
+selectSidebar("outline");
+setSidebarCollapsed(true);
 $("btn-back").addEventListener("click", () => viewer.back());
 $("btn-forward").addEventListener("click", () => viewer.forward());
 $("btn-zoom-in").addEventListener("click", () => {
+  markZoomTouched();
   $("zoom-select").value = viewer.bumpZoom(1);
 });
 $("btn-zoom-out").addEventListener("click", () => {
+  markZoomTouched();
   $("zoom-select").value = viewer.bumpZoom(-1);
 });
 $("zoom-select").addEventListener("change", (event) => {
+  markZoomTouched();
   viewer.setZoom(event.target.value);
 });
-$("btn-page-prev").addEventListener("click", () => stepPage(-1));
-$("btn-page-next").addEventListener("click", () => stepPage(1));
+// Search opens on demand, including through Ctrl+F.
+$("btn-search-toggle")?.addEventListener("click", () => {
+  if (sidebarMode === "search" && !isSidebarCollapsed()) setSidebarCollapsed(true);
+  else openSearch();
+});
 function pageInputValue(raw) {
   const digits = String(raw || "").replace(/\D/g, "");
   const page = Number(digits);
@@ -536,6 +854,17 @@ $("page-input").addEventListener("change", (event) => {
   if (page) viewer.goToPage(page, { push: true });
 });
 $("page-input").addEventListener("keydown", (event) => {
+  if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+    if (event.target.disabled || !viewer.pageCount) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const current = viewer.currentPage || 1;
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    const next = Math.min(viewer.pageCount, Math.max(1, current + delta));
+    event.target.value = String(next);
+    if (next !== current) viewer.goToPage(next, { push: true });
+    return;
+  }
   if (event.key === "Enter") {
     event.preventDefault();
     const page = pageInputValue(event.target.value);
@@ -543,18 +872,24 @@ $("page-input").addEventListener("keydown", (event) => {
   }
 });
 
-document.querySelectorAll(".tab").forEach((tab) => {
-  tab.addEventListener("click", () => selectSidebar(tab.dataset.tab));
-});
-
 let searchTimer = 0;
 $("search-input").addEventListener("input", (event) => {
   const query = event.target.value;
   const request = ++searchGeneration;
+  $("search-clear").hidden = !query;
   clearTimeout(searchTimer);
   viewer.clearHits();
   renderSearchList([], "");
   searchTimer = setTimeout(() => runSearch(query, request), 180);
+});
+$("search-clear").addEventListener("click", () => {
+  searchGeneration += 1;
+  clearTimeout(searchTimer);
+  viewer.clearHits();
+  $("search-input").value = "";
+  $("search-clear").hidden = true;
+  renderSearchList([], "");
+  $("search-input").focus();
 });
 $("search-input").addEventListener("keydown", async (event) => {
   if (event.key === "Enter") {
@@ -563,7 +898,10 @@ $("search-input").addEventListener("keydown", async (event) => {
     else await moveHit(1);
   }
   if (event.key === "Escape") {
-    event.target.blur();
+    event.preventDefault();
+    event.stopPropagation();
+    setSidebarCollapsed(true);
+    $("btn-search-toggle")?.focus();
   }
 });
 $("search-prev").addEventListener("click", () => moveHit(-1));
@@ -575,9 +913,9 @@ async function moveHit(step) {
   const next = (viewer.hitIndex + step + hits.length) % hits.length;
   try {
     await viewer.jumpToHit(next, { push: true });
-    if (searchHits === hits) renderSearchList(hits, $("search-input").value);
+    if (searchHits === hits) renderSearchList(hits, $("search-input").value, undefined, true);
   } catch (error) {
-    if (searchHits === hits) $("search-pane").textContent = `定位失败：${error.message || error}`;
+    if (searchHits === hits) $("search-list").textContent = `定位失败：${error.message || error}`;
   }
 }
 
@@ -643,6 +981,16 @@ for (const type of ["mousedown", "mouseup", "auxclick", "pointerup"]) {
 }
 
 window.addEventListener("keydown", (event) => {
+  const settingsOpen = !$("settings-modal").hidden;
+  const passwordOpen = !$("pdf-password-modal").hidden;
+  if (settingsOpen || passwordOpen) {
+    // Modals own Escape/Tab; background reading shortcuts stay isolated.
+    if (event.key === "Escape" && settingsOpen) {
+      event.preventDefault();
+      closeSettings();
+    }
+    return;
+  }
   const typing = event.target.matches("input, textarea, select");
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o") {
     event.preventDefault();
@@ -650,15 +998,17 @@ window.addEventListener("keydown", (event) => {
   }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
     event.preventDefault();
-    $("search-input").focus();
+    openSearch();
     $("search-input").select();
   }
   if ((event.ctrlKey || event.metaKey) && (event.key === "=" || event.key === "+")) {
     event.preventDefault();
+    markZoomTouched();
     $("zoom-select").value = viewer.bumpZoom(1);
   }
   if ((event.ctrlKey || event.metaKey) && event.key === "-") {
     event.preventDefault();
+    markZoomTouched();
     $("zoom-select").value = viewer.bumpZoom(-1);
   }
   if (event.altKey && event.key === "ArrowLeft") {
@@ -681,8 +1031,9 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     stepPage(-1);
   }
-  if (event.key === "Escape" && !typing) {
-    hideBubble();
+  if (event.key === "Escape") {
+    if (!$("translate-bubble").hidden) hideBubble();
+    setZoomMenuOpen(false);
     $("settings-modal").hidden = true;
   }
 });
@@ -790,6 +1141,7 @@ function openTranslatePanel(selectionRect, text, { startTranslate = true } = {})
   bubbleSelectionRect = selectionRect;
   const source = $("translate-source");
   renderBubbleSource(source, text, selectedTranslationMode);
+  updateSourceFold();
   const result = $("translate-result");
   result.hidden = true;
   result.classList.remove("error", "streaming");
@@ -801,6 +1153,29 @@ function openTranslatePanel(selectionRect, text, { startTranslate = true } = {})
   return selectionId;
 }
 
+function updateSourceFold() {
+  const source = $("translate-source");
+  const toggle = $("btn-source-toggle");
+  if (!source || !toggle) return;
+  const long = (selectedText || "").length > 400;
+  const expanded = toggle.dataset.expanded === "true";
+  renderBubbleSource(source, selectedText, selectedTranslationMode, { full: expanded });
+  source.classList.toggle("collapsed", long && !expanded);
+  toggle.hidden = !long;
+  toggle.textContent = expanded ? "收起原文" : "展开原文";
+}
+
+let translateAwaitingKey = false;
+
+function isMissingKeyError(message) {
+  try {
+    if (!loadSettings().apiKey?.trim()) return true;
+  } catch {
+    /* fall through to message check */
+  }
+  return /API Key/.test(String(message || ""));
+}
+
 function setTranslateError(message, selectionId) {
   if (selectionId !== bubbleSelectionId) return;
   const result = $("translate-result");
@@ -809,13 +1184,25 @@ function setTranslateError(message, selectionId) {
   result.classList.add("error");
   result.replaceChildren();
   result.append(document.createTextNode(`${message} `));
-  const retry = document.createElement("button");
-  retry.type = "button";
-  retry.className = "link-btn";
-  retry.id = "btn-translate-retry";
-  retry.textContent = "重试";
-  retry.addEventListener("click", () => runTranslate(selectionId));
-  result.append(retry);
+  if (isMissingKeyError(message)) {
+    translateAwaitingKey = true;
+    const settingsBtn = document.createElement("button");
+    settingsBtn.type = "button";
+    settingsBtn.className = "link-btn";
+    settingsBtn.id = "btn-translate-settings";
+    settingsBtn.textContent = "设置翻译";
+    settingsBtn.addEventListener("click", () => openSettings());
+    result.append(settingsBtn);
+  } else {
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "link-btn";
+    retry.id = "btn-translate-retry";
+    retry.textContent = "重试";
+    retry.addEventListener("click", () => runTranslate(selectionId));
+    translateAwaitingKey = false;
+    result.append(retry);
+  }
   setBubbleStreaming(false);
 }
 
@@ -865,8 +1252,17 @@ async function runTranslate(selectionId = bubbleSelectionId) {
   }
 }
 
-document.addEventListener("mouseup", (event) => {
-  if (bubble.contains(event.target) || translateChip.contains(event.target)) return;
+// 划词气泡是选区延伸：点击外部 / Esc 直接关闭，不做迷你聊天。
+document.addEventListener("pointerdown", (event) => {
+  if (bubble.hidden) return;
+  const target = event.target;
+  if (bubble.contains(target) || translateChip.contains(target)) return;
+  if (target.closest?.(".textLayer")) return;
+  if (target.closest?.("#settings-modal, #pdf-password-modal")) return;
+  hideBubble();
+});
+
+document.addEventListener("mouseup", (event) => {  if (bubble.contains(event.target) || translateChip.contains(event.target)) return;
   const selection = window.getSelection();
   const prepared = selection?.rangeCount ? prepareSelectionForTranslation(selection) : null;
   if (prepared?.tooLong) {
@@ -920,6 +1316,12 @@ translateChip.addEventListener("click", (event) => {
 });
 
 $("btn-bubble-close").addEventListener("click", hideBubble);
+$("btn-source-toggle")?.addEventListener("click", () => {
+  const toggle = $("btn-source-toggle");
+  toggle.dataset.expanded = toggle.dataset.expanded === "true" ? "false" : "true";
+  updateSourceFold();
+  scheduleRepositionBubble();
+});
 $("btn-translate-cancel").addEventListener("click", () => {
   translateAbort?.abort();
   setBubbleStreaming(false);
@@ -952,18 +1354,89 @@ const onCredentialInput = () => {
 $("setting-key").addEventListener("input", onCredentialInput);
 $("setting-base").addEventListener("input", onCredentialInput);
 
-$("btn-settings").addEventListener("click", () => {
+let lastSettingsTrigger = null;
+
+function focusableIn(container) {
+  const nodes = container?.querySelectorAll?.(
+    'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  );
+  const list = nodes ? [...nodes] : [];
+  return list.filter((el) => !el.hidden && el.getAttribute?.("aria-hidden") !== "true");
+}
+
+function trapModalTab(event, container) {
+  if (event.key !== "Tab") return;
+  const items = focusableIn(container);
+  if (!items.length) {
+    event.preventDefault();
+    return;
+  }
+  const first = items[0];
+  const last = items[items.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function openSettings() {
   settings = loadSettings();
   $("setting-key").value = settings.apiKey;
   $("setting-base").value = settings.apiBaseUrl;
   $("setting-model").value = settings.model;
   $("setting-lang").value = settings.targetLang;
   $("setting-auto-translate").checked = settings.autoTranslateOnSelect !== false;
+  lastSettingsTrigger = document.activeElement;
   $("settings-modal").hidden = false;
+  try {
+    document.getElementById("app")?.setAttribute("inert", "");
+  } catch {
+    /* ignore */
+  }
+  modelPicker.hideMenu();
   modelPicker.refresh();
+  // Initial focus goes inside the dialog, not the background trigger.
+  ($("setting-key") || $("settings-modal")).focus?.();
+}
+
+function closeSettings(restore = true) {
+  modelPicker.hideMenu();
+  $("settings-modal").hidden = true;
+  try {
+    document.getElementById("app")?.removeAttribute("inert");
+  } catch {
+    /* ignore */
+  }
+  if (restore && lastSettingsTrigger?.focus) {
+    try {
+      lastSettingsTrigger.focus({ preventScroll: true });
+    } catch {
+      lastSettingsTrigger.focus();
+    }
+  }
+  lastSettingsTrigger = null;
+}
+
+$("btn-settings").addEventListener("click", openSettings);
+$("settings-modal").addEventListener("keydown", (event) => {
+  trapModalTab(event, $("settings-modal").querySelector(".modal-card") || $("settings-modal"));
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    closeSettings();
+  }
+  // Keep reading shortcuts from flipping the background PDF.
+  event.stopPropagation();
+});
+$("pdf-password-modal")?.addEventListener("keydown", (event) => {
+  trapModalTab(event, $("pdf-password-modal").querySelector(".modal-card") || $("pdf-password-modal"));
+  event.stopPropagation();
 });
 $("btn-settings-cancel").addEventListener("click", () => {
-  $("settings-modal").hidden = true;
+  closeSettings();
 });
 $("btn-settings-save").addEventListener("click", () => {
   settings = saveSettings({
@@ -973,7 +1446,12 @@ $("btn-settings-save").addEventListener("click", () => {
     targetLang: $("setting-lang").value,
     autoTranslateOnSelect: $("setting-auto-translate").checked,
   });
-  $("settings-modal").hidden = true;
+  const retryTranslate = translateAwaitingKey && settings.apiKey?.trim();
+  closeSettings();
+  if (retryTranslate) {
+    translateAwaitingKey = false;
+    void runTranslate(bubbleSelectionId);
+  }
 });
 
 async function boot() {

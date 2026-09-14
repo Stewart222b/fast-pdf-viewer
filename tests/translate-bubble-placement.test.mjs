@@ -83,3 +83,27 @@ test("maxHeight keeps bubble inside viewport", () => {
   const { top, maxHeight } = computeBubblePlacement(selection, viewport, bubbleW, bubbleH);
   assert.ok(top + maxHeight <= viewport.bottom - 8);
 });
+
+test("mid-text selection is not covered after clamping", () => {
+  // Tall bubble in a short viewport: the first choice clamps over the
+  // selection line, so placement must try the other side.
+  const short = { left: 200, top: 48, right: 1720, bottom: 420, width: 1520, height: 372 };
+  const selection = {
+    left: 400,
+    top: 300,
+    right: 700,
+    bottom: 320,
+    width: 300,
+    height: 20,
+  };
+  const bubbleW = 420;
+  const bubbleH = 300;
+  const { top } = computeBubblePlacement(selection, short, bubbleW, bubbleH);
+  const gap = 8;
+  const overlaps =
+    top < selection.bottom + gap &&
+    top + bubbleH > selection.top - gap &&
+    400 < selection.right &&
+    400 + bubbleW > selection.left;
+  assert.equal(overlaps, false);
+});

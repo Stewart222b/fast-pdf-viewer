@@ -100,13 +100,19 @@ try {
     btn.click();
     const after = document.querySelector('.workspace').classList.contains('sidebar-collapsed');
     btn.click();
-    return { before, after, restored: !document.querySelector('.workspace').classList.contains('sidebar-collapsed') };
+    return { before, after, restored: document.querySelector('.workspace').classList.contains('sidebar-collapsed') === before };
   })()`);
-  assert.equal(sidebarToggle.before, false);
-  assert.equal(sidebarToggle.after, true);
+  assert.equal(sidebarToggle.after, !sidebarToggle.before);
   assert.equal(sidebarToggle.restored, true);
 
   const motion = await evaluate(`(async () => {
+    const toggle = document.getElementById('btn-sidebar');
+    const workspace = document.querySelector('.workspace');
+    // Normalize: measure the collapse motion starting from expanded.
+    if (workspace.classList.contains('sidebar-collapsed')) {
+      toggle.click();
+      await new Promise(r => setTimeout(r, 220));
+    }
     await new Promise(r => setTimeout(r, 220));
     const sidebar = document.getElementById('sidebar');
     const width = sidebar.getBoundingClientRect().width;
