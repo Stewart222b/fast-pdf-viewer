@@ -53,10 +53,13 @@ async function setup() {
     constructor(options = {}) {
       viewer = this; this.generation = 0; this.pageTexts = []; this.hitIndex = -1; this.shown = []; this.query = '';
       this.onIndex = options.onIndex;
+      this.onState = options.onState;
     }
     close() { this.generation++; this.indexPromise = null; this.pageTexts = []; }
-    async open(source) { this.close(); this.source = source; this.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }]; this.pdf = { async getDestination(d) { return d; }, async getPageIndex() { return 0; } }; return this; }
+    async open(source) { this.close(); this.source = source; this.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }]; this.pdf = { async getDestination(d) { return d; },     async getPageIndex() { return 0; } }; return this; }
     async getOutline() { return this.outlinePromise || null; }
+    getReadingPoint() { return { page: this.currentPage || 1, pdfY: this.readingPdfY }; }
+    async goToDest() {}
     setZoom() {}
     bumpZoom() { return '150'; }
     clearHits() { this.shown.push(''); this.hitIndex = -1; this.query = ''; }
@@ -80,7 +83,7 @@ async function setup() {
   });
   const exports = {
     './viewer.js': { PdfViewer: Viewer },
-    './history.js': { ViewHistory: class { onChange() {} } },
+    './history.js': { ViewHistory: class { onChange() {} canBack() { return false; } canForward() { return false; } } },
     './settings.js': { loadSettings: () => ({}), saveSettings: () => ({}) },
     './translate.js': { translateText() {}, MAX_TRANSLATE_CHARS: 4000 },
     './reading-position.js': {
@@ -103,6 +106,7 @@ async function setup() {
   await main.link(async spec => {
     if (
       spec === './search.js' ||
+      spec === './outline-active.js' ||
       spec === './translate-bubble-placement.js' ||
       spec === './selection-anchor.js' ||
       spec === './selection-text.js' ||
@@ -131,6 +135,70 @@ async function setup() {
     click(id) { const el = get(id); el.listeners.click?.({ target: el, preventDefault() {}, stopPropagation() {} }); },
   };
 }
+
+test('search entry, outline switch and Escape preserve query and synchronize button', async () => {
+  const app = await setup();
+  app.click('btn-search-toggle');
+  assert.equal(app.get('sidebar').inert, false);
+  assert.equal(app.get('sidebar-tab-search').attrs['aria-selected'], 'true');
+  assert.equal(app.get('btn-search-toggle').attrs['aria-expanded'], 'true');
+  app.get('search-input').value = 'manual';
+  app.click('btn-sidebar');
+  assert.equal(app.get('btn-search-toggle').attrs['aria-expanded'], 'false');
+  app.click('btn-search-toggle');
+  await app.get('search-input').listeners.keydown({key:'Escape',preventDefault(){},stopPropagation(){}});
+  assert.equal(app.get('sidebar').inert, true);
+  assert.equal(app.get('btn-search-toggle').attrs['aria-expanded'], 'false');
+  assert.equal(app.get('search-input').value, 'manual');
+});
+
+test('page input arrows immediately navigate like reading shortcuts, including bounds', async () => {
+  const app = await setup();
+  const input = app.get('page-input');
+  input.disabled = false;
+  app.viewer.pageCount = 779;
+  app.viewer.currentPage = 644;
+  const jumps = [];
+  app.viewer.goToPage = page => { jumps.push(page); app.viewer.currentPage = page; };
+  const key = key => input.listeners.keydown({key,target:input,preventDefault(){},stopPropagation(){}});
+  input.value = '644';
+  key('ArrowDown'); assert.equal(input.value, '645');
+  key('ArrowUp'); assert.equal(input.value, '644');
+  assert.deepEqual(jumps, [645, 644]);
+  input.value = '700'; key('Enter'); assert.equal(app.viewer.currentPage, 700);
+  input.value = '12'; key('ArrowDown'); assert.equal(input.value, '701');
+  app.viewer.currentPage = 779; key('ArrowDown'); assert.equal(input.value, '779');
+  app.viewer.currentPage = 1; key('ArrowUp'); assert.equal(input.value, '1');
+  assert.deepEqual(jumps, [645, 644, 700, 701]);
+});
+
+test('Enter follows the active search result inside its own scroller, including result batches', async () => {
+  const app = await setup();
+  const list = app.get('search-list');
+  list.scrollTop = 0;
+  list.getBoundingClientRect = () => ({top: 0, bottom: 100});
+  const append = list.appendChild.bind(list);
+  list.appendChild = child => {
+    append(child);
+    child.getBoundingClientRect = () => {
+      const top = list.children.indexOf(child) * 30 - list.scrollTop;
+      return {top, bottom: top + 30};
+    };
+  };
+  app.viewer.jumpToHit = async index => { app.viewer.hitIndex = index; };
+  app.viewer.pageTexts = [{pageNumber: 1, text: 'needle '.repeat(260)}];
+  app.click('btn-search-toggle');
+  app.input('needle'); await app.runTimer();
+  const enter = async shiftKey => app.get('search-input').listeners.keydown({key:'Enter', shiftKey, preventDefault(){}});
+  for (let i = 0; i < 220; i++) await enter(false);
+  const active = () => list.children.find(el => el.className?.includes(' active')).getBoundingClientRect();
+  assert.equal(app.viewer.hitIndex, 220);
+  assert.ok(list.scrollTop > 0);
+  assert.ok(active().top >= 0 && active().bottom <= 100);
+  for (let i = 0; i < 220; i++) await enter(true);
+  assert.equal(app.viewer.hitIndex, 0);
+  assert.ok(active().top >= 0 && active().bottom <= 100);
+});
 
 test('queries show available results without waiting for full indexing', async () => {
   const app = await setup(), waiting = deferred();
@@ -336,6 +404,28 @@ test('outline renders as a one-line tree with disclosure state', async () => {
   assert.equal(deepBtn.attrs['aria-current'], 'true');
 });
 
+test('same-page outline headings highlight the dest at the reading Y, not the last sibling', async () => {
+  const app = await setup();
+  app.viewer.currentPage = 11;
+  app.viewer.readingPdfY = 700;
+  app.viewer.outlinePromise = Promise.resolve([
+    { title: '1.1 Precautions', dest: [10, 'XYZ', 0, 700, null] },
+    { title: '1.2 Emergency', dest: [10, 'XYZ', 0, 500, null] },
+    { title: '1.3 Overview', dest: [10, 'XYZ', 0, 300, null] },
+  ]);
+  app.fileInput.files = [{ name: 'doc.pdf', arrayBuffer: async () => new ArrayBuffer(0) }];
+  await app.fileInput.listeners.change();
+  await new Promise((resolve) => setImmediate(resolve));
+  const items = app.get('outline-pane').querySelectorAll('.outline-item');
+  assert.equal(items[0].textContent, '1.1 Precautions');
+  assert.equal(items[0].toggles.active, true);
+  assert.equal(items[2].toggles.active, false);
+  app.viewer.readingPdfY = 300;
+  app.viewer.onState({ page: 11, zoom: 150 });
+  assert.equal(items[0].toggles.active, false);
+  assert.equal(items[2].toggles.active, true);
+});
+
 test('outline expand-all and collapse-all controls disclosure state', async () => {
   const app = await setup();
   app.viewer.pdf = {
@@ -365,11 +455,19 @@ test('outline expand-all and collapse-all controls disclosure state', async () =
   const collapseBtn = app.get('btn-outline-collapse-all');
   assert.equal(expandBtn.title, '全部展开');
   assert.equal(expandBtn.attrs['aria-label'], '全部展开');
-  assert.equal(collapseBtn.title, '全部折叠（保留顶层）');
-  assert.equal(collapseBtn.attrs['aria-label'], '全部折叠，保留顶层目录');
+  assert.equal(collapseBtn.title, '全部折叠');
+  assert.equal(collapseBtn.attrs['aria-label'], '全部折叠');
   app.click('btn-outline-collapse-all');
   const nodes = pane.querySelectorAll('.outline-node');
-  assert.equal(nodes[0].querySelector('.outline-toggle').attrs['aria-expanded'], 'true');
+  for (const node of nodes) {
+    const toggle = node.querySelector('.outline-toggle');
+    if (toggle.attrs['aria-hidden'] === 'true') continue;
+    assert.equal(toggle.attrs['aria-expanded'], 'false');
+  }
+  // Page follow must not re-open branches after an explicit collapse-all.
+  app.viewer.currentPage = 12;
+  app.viewer.onState({ page: 12, zoom: 150 });
+  assert.equal(nodes[0].querySelector('.outline-toggle').attrs['aria-expanded'], 'false');
   assert.equal(nodes[1].querySelector('.outline-toggle').attrs['aria-expanded'], 'false');
   app.click('btn-outline-expand-all');
   for (const node of nodes) {

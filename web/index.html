@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>速览</title>
+    <script src="./js/theme.js"></script>
     <link rel="stylesheet" href="./vendor/pdfjs/web/pdf_viewer.css" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -30,6 +31,20 @@
       <symbol id="i-chevron-down" viewBox="0 0 24 24">
         <path d="m6 9 6 6 6-6" />
       </symbol>
+      <symbol id="i-list-tree" viewBox="0 0 24 24">
+        <path d="M8 5h13" />
+        <path d="M13 12h8" />
+        <path d="M13 19h8" />
+        <path d="M3 10a2 2 0 0 0 2 2h3" />
+        <path d="M3 5v12a2 2 0 0 0 2 2h3" />
+      </symbol>
+      <symbol id="i-list-collapse" viewBox="0 0 24 24">
+        <path d="m3 10 2.5-2.5L8 10" />
+        <path d="m3 14 2.5 2.5L8 14" />
+        <path d="M13 6h8" />
+        <path d="M13 12h8" />
+        <path d="M13 18h8" />
+      </symbol>
       <symbol id="i-minus" viewBox="0 0 24 24">
         <path d="M5 12h14" />
       </symbol>
@@ -53,21 +68,28 @@
         <path d="M18 6 6 18" />
         <path d="m6 6 12 12" />
       </symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" />
+      </symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24">
+        <path d="M20.5 13A8.5 8.5 0 0 1 11 3.5 8.5 8.5 0 1 0 20.5 13Z" />
+      </symbol>
     </svg>
     <div id="app">
       <header class="toolbar">
         <div class="toolbar-left">
           <span class="tb-group" role="group" aria-label="文件与导航">
-            <button id="btn-open" class="btn primary has-icon" title="打开 PDF (Ctrl+O)"><svg class="icon" aria-hidden="true"><use href="#i-folder-open" /></svg><span>打开</span></button>
+            <button id="btn-open" class="btn toolbar-ghost has-icon" title="打开 PDF (Ctrl+O)"><svg class="icon" aria-hidden="true"><use href="#i-folder-open" /></svg><span>打开</span></button>
             <button id="btn-sidebar" class="btn toolbar-ghost has-icon" title="显示/隐藏目录侧栏" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-panel-left" /></svg><span>目录</span></button>
             <button id="btn-back" class="btn toolbar-ghost icon" title="返回（鼠标侧键 / Alt+← / Backspace）" aria-label="返回" disabled><svg class="icon" aria-hidden="true"><use href="#i-arrow-left" /></svg></button>
             <button id="btn-forward" class="btn toolbar-ghost icon" title="前进（鼠标侧键 / Alt+→）" aria-label="前进" disabled><svg class="icon" aria-hidden="true"><use href="#i-arrow-right" /></svg></button>
           </span>
-          <span class="tb-divider" aria-hidden="true"></span>
-          <span class="tb-group" role="group" aria-label="页码">
+          <span id="page-divider" class="tb-divider" aria-hidden="true" hidden></span>
+          <span id="page-controls" class="tb-group" role="group" aria-label="页码" hidden>
             <label class="page-box" title="输入页码后回车跳转">
               <input id="page-input" class="page-input" type="text" inputmode="numeric" pattern="[0-9]*" value="—" aria-label="当前页码" disabled />
-              <span class="page-total">/ <b id="page-count">—</b></span>
+              <span class="page-total"><span aria-hidden="true">/</span><b id="page-count">—</b></span>
             </label>
           </span>
         </div>
@@ -96,21 +118,17 @@
           </span>
           <span class="tb-divider" aria-hidden="true"></span>
           <span class="tb-group" role="group" aria-label="搜索">
-            <button id="btn-search-toggle" class="btn toolbar-ghost icon" type="button" title="搜索 (Ctrl+F)" aria-label="搜索" aria-expanded="false" hidden><svg class="icon" aria-hidden="true"><use href="#i-search" /></svg></button>
-            <span class="search-box" id="search-box">
-              <svg class="icon search-icon" aria-hidden="true"><use href="#i-search" /></svg>
-              <input id="search-input" type="search" placeholder="搜索文档 (Ctrl+F)" aria-label="搜索文档" autocomplete="off" />
-              <button id="search-clear" class="search-clear" type="button" title="清除搜索" aria-label="清除搜索" hidden><svg class="icon" aria-hidden="true"><use href="#i-x" /></svg></button>
-            </span>
+            <button id="btn-search-toggle" class="btn toolbar-ghost icon" type="button" title="搜索 (Ctrl+F)" aria-label="搜索" aria-controls="search-pane" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-search" /></svg></button>
           </span>
           <span class="tb-divider" aria-hidden="true"></span>
           <span class="tb-group" role="group" aria-label="更多">
+            <button id="btn-theme" class="btn toolbar-ghost icon" type="button" title="切换到浅色主题" aria-label="切换到浅色主题"><svg class="icon" aria-hidden="true"><use id="theme-icon" href="#i-sun" /></svg></button>
             <button id="btn-settings" class="btn toolbar-ghost icon" title="设置" aria-label="设置"><svg class="icon" aria-hidden="true"><use href="#i-settings" /></svg></button>
           </span>
         </div>
       </header>
 
-      <div class="workspace">
+      <div class="workspace sidebar-collapsed">
         <aside id="sidebar" class="sidebar" aria-hidden="true" inert>
           <div class="sidebar-inner">
             <div class="sidebar-head">
@@ -119,19 +137,26 @@
                 <button id="sidebar-tab-search" class="sidebar-tab" type="button" role="tab" aria-selected="false">搜索</button>
               </div>
               <span id="outline-tree-actions" class="outline-tree-actions" hidden>
-                <button id="btn-outline-expand-all" class="btn toolbar-ghost icon tiny" type="button" title="全部展开" aria-label="全部展开"><svg class="icon" aria-hidden="true"><use href="#i-chevron-down" /></svg></button>
-                <button id="btn-outline-collapse-all" class="btn toolbar-ghost icon tiny" type="button" title="全部折叠（保留顶层）" aria-label="全部折叠，保留顶层目录"><svg class="icon" aria-hidden="true"><use href="#i-chevron-up" /></svg></button>
+                <button id="btn-outline-expand-all" class="btn toolbar-ghost icon tiny" type="button" title="全部展开" aria-label="全部展开"><svg class="icon" aria-hidden="true"><use href="#i-list-tree" /></svg></button>
+                <button id="btn-outline-collapse-all" class="btn toolbar-ghost icon tiny" type="button" title="全部折叠" aria-label="全部折叠"><svg class="icon" aria-hidden="true"><use href="#i-list-collapse" /></svg></button>
               </span>
               <button id="btn-sidebar-close" class="btn toolbar-ghost icon tiny" type="button" title="关闭侧栏" aria-label="关闭侧栏"><svg class="icon" aria-hidden="true"><use href="#i-x" /></svg></button>
             </div>
             <div id="outline-pane" class="sidebar-pane active" role="tree" aria-label="文档目录"></div>
             <div id="search-pane" class="sidebar-pane">
+              <div class="search-controls">
+                <div class="search-box" id="search-box">
+                  <svg class="icon search-icon" aria-hidden="true"><use href="#i-search" /></svg>
+                  <input id="search-input" type="search" placeholder="搜索文档" aria-label="搜索文档" autocomplete="off" />
+                  <button id="search-clear" class="search-clear" type="button" title="清除搜索" aria-label="清除搜索" hidden><svg class="icon" aria-hidden="true"><use href="#i-x" /></svg></button>
+                </div>
               <div class="search-pane-bar">
                 <span id="search-count" class="search-count" hidden></span>
                 <span class="search-pane-nav">
                   <button id="search-prev" class="btn toolbar-ghost icon tiny" type="button" title="上一个 (Shift+Enter)" aria-label="上一个" disabled><svg class="icon" aria-hidden="true"><use href="#i-chevron-up" /></svg></button>
                   <button id="search-next" class="btn toolbar-ghost icon tiny" type="button" title="下一个 (Enter)" aria-label="下一个" disabled><svg class="icon" aria-hidden="true"><use href="#i-chevron-down" /></svg></button>
                 </span>
+              </div>
               </div>
               <div id="search-list" class="search-list"></div>
             </div>
@@ -144,14 +169,10 @@
           </div>
           <div id="drop-hint" class="drop-hint">
             <div class="empty-state">
-              <h1>速览</h1>
-              <p>把 PDF 拖到这里，或打开本地文件。</p>
-              <button id="btn-open-empty" class="btn primary" type="button">打开 PDF</button>
-              <ul>
-                <li>鼠标侧键 / Alt+← 返回刚才的位置</li>
-                <li>搜索会列出全部结果，并显示第几条</li>
-                <li>划词即译（OpenAI 兼容 API，默认 OpenRouter）</li>
-              </ul>
+              <h1>打开 PDF 文件</h1>
+              <p>将文件拖到这里开始阅读</p>
+              <button id="btn-open-empty" class="btn" type="button">选择文件…</button>
+              <p class="empty-shortcut">Ctrl+O</p>
             </div>
           </div>
           <div id="pages" class="pages pdfViewer"></div>
@@ -220,7 +241,7 @@
           <span class="setting-checkbox-label">划词后自动翻译</span>
         </label>
         <details class="settings-advanced">
-          <summary>高级</summary>
+          <summary>服务地址与隐私</summary>
           <p class="hint compact">Base URL 与 Key 只保存在本机浏览器中；翻译直接从本机发往你配置的端点。</p>
           <label>
             API Base URL（OpenAI 兼容）

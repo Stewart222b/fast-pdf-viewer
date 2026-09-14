@@ -89,6 +89,10 @@ components:
 
 # Design System: 速览 Fast PDF Viewer
 
+> Current theme/search update: default to neutral dark chrome (#242424 ground, #303030 surfaces, #2b2b2b sidebar); the toolbar sun/moon button switches to the light palette and saves `fast-pdf-viewer-theme` locally. `web/js/theme.js` restores the preference before CSS loads. PDF paper remains unchanged. Search input, hit count and navigation live together at the top of the left search pane; only results scroll. The toolbar search button or Ctrl+F opens this pane, Escape closes it, and switching to outline retains the query/results. This supersedes the floating-search and light-only descriptions below.
+
+> 2026-09-14 UI revision: the current reader uses neutral light chrome, superseding the dark-theme tokens and dark-only rules below. Current implementation tokens live in `web/styles.css`: white toolbar and floating surfaces, #e9e9e9 reading ground, #303030 text, #737373 secondary text, #1769aa interaction accent; 46px toolbar and 272px sidebar. Search opens on demand with its toolbar button or Ctrl+F and closes with Escape. The empty state is a file-opening prompt without branding or feature lists. Sidebar tabs use an underline; translation actions are unframed. Preserve ordinary reader conventions and existing reading/translation behavior; do not add brand motifs or decorative components. The remaining document describes the previous visual version for reference.
+
 ## Overview
 
 **Creative North Star: "安静仪器"**

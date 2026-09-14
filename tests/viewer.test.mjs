@@ -78,6 +78,25 @@ test('onScroll notifies reading-position hook even when page number is unchanged
   assert.deepEqual(calls, [120]);
 });
 
+test('getReadingPoint maps scroll offset to PDF Y on the visible page', async () => {
+  const { viewer, wrapEl } = await setup();
+  viewer.zoom = 2;
+  viewer.baseHeight = 792;
+  viewer.pageCount = 2;
+  viewer.pageEls = [
+    { offsetTop: 0, dataset: { pageNumber: '1' } },
+    { offsetTop: 1600, dataset: { pageNumber: '2' } },
+  ];
+  wrapEl.scrollTop = 0;
+  const top = viewer.getReadingPoint();
+  assert.equal(top.page, 1);
+  assert.equal(top.pdfY, 792 - 64 / 2);
+  wrapEl.scrollTop = 1600 + 100;
+  const lower = viewer.getReadingPoint();
+  assert.equal(lower.page, 2);
+  assert.equal(lower.pdfY, 792 - (100 + 64) / 2);
+});
+
 test('latest open wins when an earlier loading task finishes late', async () => {
   const a = deferred(), b = deferred();
   let destroyed = 0, call = 0;

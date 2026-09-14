@@ -29,6 +29,8 @@ function destTypeName(type) {
   return type.name || "";
 }
 
+const DEST_SCROLL_OFFSET = 64;
+
 export class PdfViewer {
   constructor({ pagesEl, wrapEl, history, onState, onZoomPreview, onPinchCommit, onScrollPosition, onIndex, onPassword }) {
     this.pagesEl = pagesEl;
@@ -108,6 +110,27 @@ export class PdfViewer {
 
   notify() {
     this.onState?.(this.getState());
+  }
+
+  /** Viewport reading point in PDF user space, aligned with dest jumps. */
+  getReadingPoint() {
+    const pageCount = this.pageCount || this.pageEls.length;
+    const fallbackPage = Math.min(Math.max(1, this.currentPage || 1), pageCount || 1);
+    if (!this.pageEls.length) return { page: fallbackPage, pdfY: NaN };
+    const probe = (this.wrapEl?.scrollTop || 0) + DEST_SCROLL_OFFSET;
+    let page = 1;
+    let el = this.pageEls[0];
+    for (const pageEl of this.pageEls) {
+      if (pageEl.offsetTop <= probe) {
+        page = Number(pageEl.dataset.pageNumber) || page;
+        el = pageEl;
+      } else break;
+    }
+    const { height } = this.pageLayout(page);
+    const zoom = this.zoom || 1;
+    const cssY = probe - (el?.offsetTop || 0);
+    const pdfY = height > 0 && zoom > 0 ? height - cssY / zoom : NaN;
+    return { page, pdfY };
   }
 
   async open(source) {
@@ -701,7 +724,7 @@ export class PdfViewer {
     let scrollTop = el.offsetTop - 16;
     let scrollLeft = this.wrapEl.scrollLeft;
     if (top != null && Number.isFinite(top)) {
-      scrollTop = Math.max(0, el.offsetTop + top - 64);
+      scrollTop = Math.max(0, el.offsetTop + top - DEST_SCROLL_OFFSET);
     }
     if (left != null && Number.isFinite(left)) {
       scrollLeft = Math.max(0, el.offsetLeft + left - 32);

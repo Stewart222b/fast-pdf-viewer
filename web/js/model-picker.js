@@ -10,10 +10,14 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
     menu.hidden = true;
   };
 
+  const isModelFieldFocused = () => document.activeElement === input;
+
   const renderMenu = (query) => {
     menu.replaceChildren();
     const matches = models.filter((model) => modelMatchesQuery(model, query)).slice(0, 80);
-    if (!matches.length) {
+    // Only open under the model field. Opening Settings focuses API Key and
+    // refresh() must not dump the list over that input.
+    if (!matches.length || !isModelFieldFocused()) {
       hideMenu();
       return;
     }

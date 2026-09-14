@@ -17,6 +17,7 @@ import { getSelectionAnchorFromSelection, getSelectionAnchorRect } from "./selec
 import { prepareSelectionForTranslation } from "./selection-text.js";
 import { applyBubblePlacement } from "./translate-bubble-placement.js";
 import { MAX_TRANSLATE_CHARS, translateText } from "./translate.js";
+import { destPdfY, pickOutlineActive } from "./outline-active.js";
 import { PasswordResponses } from "../vendor/pdfjs/build/pdf.mjs";
 import { PdfViewer } from "./viewer.js";
 
@@ -138,7 +139,10 @@ const viewer = new PdfViewer({
   onState: syncToolbar,
   onZoomPreview: syncZoom,
   onPinchCommit: markZoomTouched,
-  onScrollPosition: scheduleSaveReadingPosition,
+  onScrollPosition: () => {
+    scheduleSaveReadingPosition();
+    scheduleOutlineActive();
+  },
   onIndex: refreshIndexedSearch,
   onPassword: requestPdfPassword,
 });
@@ -180,6 +184,8 @@ function syncZoom(mode) {
 
 function syncToolbar(state) {
   const hasDoc = Boolean(viewer.pdf);
+  $("page-controls").hidden = !hasDoc;
+  $("page-divider").hidden = !hasDoc;
   $("page-input").value = hasDoc ? String(state.page || 1) : "—";
   $("page-input").disabled = !hasDoc;
   $("page-count").textContent = hasDoc ? String(viewer.pageCount || 0) : "—";
@@ -191,8 +197,7 @@ function syncToolbar(state) {
   syncZoom(viewer.pinch ? viewer.pinch.target * 100 : state.zoom);
   $("btn-back").disabled = !history.canBack();
   $("btn-forward").disabled = !history.canForward();
-  const page = state.page || 1;
-  updateOutlineActive(page);
+  updateOutlineActive();
   scheduleSaveReadingPosition();
 }
 
@@ -218,54 +223,49 @@ function flushReadingPosition() {
   saveReadingPosition(currentFingerprint, viewer.getState());
 }
 
-function updateOutlineActive(page) {
-  const pane = $("outline-pane");
-  const rows = [...pane.querySelectorAll(".outline-item")];
-  if (!rows.length) return;
-  // Section covers its page range: last entry whose start page is at or before current.
-  const ranked = rows
-    .map((btn) => ({ btn, page: Number(btn.dataset.page) }))
-    .filter((row) => Number.isFinite(row.page) && row.page > 0)
-    .sort((a, b) => a.page - b.page);
-  if (!ranked.length) return;
-  let active = null;
-  for (const row of ranked) {
-    if (row.page <= page) active = row;
-    else break;
+function scheduleOutlineActive() {
+  if (typeof requestAnimationFrame !== "function") {
+    updateOutlineActive();
+    return;
   }
-  // Before the first section, keep the first entry highlighted.
-  active = active || ranked[0];
-  for (const { btn } of ranked) {
-    const selected = btn === active.btn;
-    btn.classList.toggle("active", selected);
-    if (selected) btn.setAttribute("aria-current", "true");
-    else btn.removeAttribute("aria-current");
-    btn.closest?.(".outline-node")?.setAttribute("aria-selected", String(selected));
+  if (outlineActiveRaf) return;
+  outlineActiveRaf = requestAnimationFrame(() => {
+    outlineActiveRaf = 0;
+    updateOutlineActive();
+  });
+}
+
+function setOutlineActive(active) {
+  if (!outlineTreeApi?.entries?.length) return;
+  for (const entry of outlineTreeApi.entries) {
+    const selected = entry === active;
+    entry.btn.classList.toggle("active", selected);
+    if (selected) entry.btn.setAttribute("aria-current", "true");
+    else entry.btn.removeAttribute("aria-current");
+    entry.node?.setAttribute("aria-selected", String(selected));
   }
-  // Expand the active branch so continuous reading keeps context.
-  let node = active.btn.closest(".outline-node");
-  while (node) {
-    setOutlineNodeExpanded(node, true);
-    node = node.parentElement?.closest(".outline-node");
+  if (outlineAutoReveal && active) {
+    for (let entry = active; entry; entry = entry.parent) {
+      if (entry.hasChildren) outlineTreeApi.setEntryExpanded(entry, true);
+    }
   }
 }
 
-// Toggle a rendered outline node (DOM-based, for live page changes).
-// Mount-time expansion uses entry references instead (see renderOutline).
-function setOutlineNodeExpanded(node, expanded) {
-  const branch = node.querySelector(":scope > .outline-branch");
-  const toggle = node.querySelector(":scope > .outline-row > .outline-toggle");
-  if (branch) {
-    branch.classList.toggle("expanded", expanded);
-    toggle?.setAttribute("aria-expanded", String(expanded));
-  }
-  if (node.getAttribute("role") === "treeitem" && node.hasAttribute("aria-expanded")) {
-    node.setAttribute("aria-expanded", String(expanded));
-  }
+function updateOutlineActive() {
+  if (!outlineTreeApi?.entries?.length) return;
+  const view = viewer.getReadingPoint?.() || { page: viewer.currentPage || 1, pdfY: NaN };
+  setOutlineActive(pickOutlineActive(outlineTreeApi.entries, view));
 }
 
 /** Live outline entries from the last renderOutline mount (cleared when pane resets). */
 let outlineTreeApi = null;
+/** When false, page changes highlight the current row but do not re-open branches. */
+let outlineAutoReveal = true;
+let outlineActiveRaf = 0;
+
+function pinOutlineDisclosure() {
+  outlineAutoReveal = false;
+}
 
 function syncOutlineTreeActions() {
   const actions = $("outline-tree-actions");
@@ -280,15 +280,15 @@ function expandAllOutlineNodes() {
   for (const entry of outlineTreeApi.entries) {
     if (entry.hasChildren) outlineTreeApi.setEntryExpanded(entry, true);
   }
+  pinOutlineDisclosure();
 }
 
 function collapseAllOutlineNodes() {
   if (!outlineTreeApi) return;
   for (const entry of outlineTreeApi.entries) {
-    if (!entry.hasChildren) continue;
-    const level = Number(entry.node?.getAttribute("aria-level")) || 1;
-    outlineTreeApi.setEntryExpanded(entry, level === 1);
+    if (entry.hasChildren) outlineTreeApi.setEntryExpanded(entry, false);
   }
+  pinOutlineDisclosure();
 }
 
 function showViewerStatus(text, { action = false } = {}) {
@@ -327,6 +327,7 @@ async function openSource(getSource) {
   renderSearchList([], "");
   $("outline-pane").replaceChildren();
   outlineTreeApi = null;
+  outlineAutoReveal = true;
   syncOutlineTreeActions();
   hideBubble();
   showViewerStatus("正在打开…");
@@ -388,6 +389,7 @@ async function renderOutline(request) {
   if (!pdf || !outline?.length) {
     pane.replaceChildren();
     outlineTreeApi = null;
+    outlineAutoReveal = true;
     syncOutlineTreeActions();
     pane.removeAttribute("role");
     pane.removeAttribute("aria-label");
@@ -460,10 +462,13 @@ async function renderOutline(request) {
         btn.dataset.page = String(page);
         btn.setAttribute("aria-description", `第 ${page} 页`);
       }
-      btn.addEventListener("click", () => viewer.goToDest(item.dest, true));
       row.append(toggle, btn);
       node.append(row);
-      const entry = { node, branch: null, toggle, btn, parent: parentEntry, hasChildren, page };
+      const entry = { node, branch: null, toggle, btn, parent: parentEntry, hasChildren, page, pdfY: Number(item.pdfY) };
+      btn.addEventListener("click", () => {
+        setOutlineActive(entry);
+        viewer.goToDest(item.dest, true);
+      });
       if (hasChildren) {
         const branch = document.createElement("div");
         branch.className = "outline-branch";
@@ -477,14 +482,17 @@ async function renderOutline(request) {
         }
         toggle.addEventListener("click", (event) => {
           event.stopPropagation();
+          pinOutlineDisclosure();
           setEntryExpanded(entry, !branch.classList.contains("expanded"));
         });
         btn.addEventListener("keydown", (event) => {
           if (event.key === "ArrowRight" && !branch.classList.contains("expanded")) {
             event.preventDefault();
+            pinOutlineDisclosure();
             setEntryExpanded(entry, true);
           } else if (event.key === "ArrowLeft" && branch.classList.contains("expanded")) {
             event.preventDefault();
+            pinOutlineDisclosure();
             setEntryExpanded(entry, false);
           }
         });
@@ -497,23 +505,12 @@ async function renderOutline(request) {
   };
   mount(roots, 0, pane, null);
   outlineTreeApi = { entries, setEntryExpanded };
+  outlineAutoReveal = true;
   syncOutlineTreeActions();
-  // Default-expand enough to show the current section: top level plus the
-  // active entry's ancestor chain, then keep the row in view.
-  const ranked = entries
-    .filter((entry) => Number.isFinite(entry.page) && entry.page > 0)
-    .sort((a, b) => a.page - b.page);
-  let activeEntry = null;
-  for (const entry of ranked) {
-    if (entry.page <= viewer.currentPage) activeEntry = entry;
-    else break;
-  }
-  activeEntry = activeEntry || ranked[0] || null;
-  for (let entry = activeEntry; entry; entry = entry.parent) {
-    if (entry.hasChildren) setEntryExpanded(entry, true);
-  }
-  updateOutlineActive(viewer.currentPage);
-  activeEntry?.btn.scrollIntoView?.({ block: "nearest" });
+  // Default-expand the current section's ancestor chain, then keep the row in view.
+  updateOutlineActive();
+  const activeBtn = pane.querySelector(".outline-item.active");
+  activeBtn?.scrollIntoView?.({ block: "nearest" });
 }
 
 async function attachOutlinePages(items, ctx) {
@@ -533,6 +530,7 @@ async function attachOutlinePages(items, ctx) {
           const pageIndex = typeof ref === "object" ? await pdf.getPageIndex(ref) : Number(ref);
           if (!stillValid()) return;
           item.pageNumber = pageIndex + 1;
+          item.pdfY = destPdfY(explicit);
         }
       }
     } catch {
@@ -542,10 +540,11 @@ async function attachOutlinePages(items, ctx) {
   }
 }
 
-function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)) {
+function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50), reveal = false) {
   searchHits = hits;
-  const pane = $("search-pane");
   const list = $("search-list");
+  const previousScroll = list.scrollTop;
+  let activeButton = null;
   const count = $("search-count");
   list.replaceChildren();
   $("search-prev").disabled = hits.length === 0;
@@ -575,12 +574,13 @@ function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)
     const index = start + localIndex;
     const btn = document.createElement("button");
     btn.className = `search-hit${index === viewer.hitIndex ? " active" : ""}`;
+    if (index === viewer.hitIndex) activeButton = btn;
     btn.innerHTML = `<div class="meta">第 ${hit.pageNumber} 页 · ${index + 1}/${hits.length}</div>
       <div class="snippet">${highlightSnippet(hit.snippet, query)}</div>`;
     btn.addEventListener("click", async () => {
       try {
         await viewer.jumpToHit(index, { push: true });
-        if (searchHits === hits && $("search-input").value === query) renderSearchList(hits, query);
+        if (searchHits === hits && $("search-input").value === query) renderSearchList(hits, query, undefined, true);
       } catch (error) {
         if (searchHits === hits) list.textContent = `定位失败：${error.message || error}`;
       }
@@ -588,6 +588,16 @@ function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)
     list.appendChild(btn);
   });
   if (end < hits.length) moreButton("下一组结果", end);
+  list.scrollTop = previousScroll;
+  if (reveal && activeButton && !isSidebarCollapsed() && sidebarMode === "search") {
+    // Scroll only the results container; never move the PDF or keyboard focus.
+    const bounds = list.getBoundingClientRect?.();
+    const item = activeButton.getBoundingClientRect?.();
+    if (bounds && item) {
+      if (item.top < bounds.top) list.scrollTop += item.top - bounds.top;
+      else if (item.bottom > bounds.bottom) list.scrollTop += item.bottom - bounds.bottom;
+    }
+  }
 }
 
 function refreshIndexedSearch() {
@@ -622,7 +632,7 @@ async function runSearch(query, request = searchGeneration, jump = true) {
       await shown;
       return;
     }
-    renderSearchList(unchanged ? searchHits : hits, query);
+    renderSearchList(unchanged ? searchHits : hits, query, undefined, jump);
     if (globalThis.__PDF_BENCH__) {
       globalThis.__pdfSearchBench.resultListVisibleMs = performance.now() - searchStarted;
     }
@@ -659,11 +669,24 @@ function selectSidebar(name) {
   $("sidebar-tab-search")?.setAttribute("aria-selected", String(name === "search"));
   $("sidebar-tab-outline")?.classList.toggle("active", name === "outline");
   $("sidebar-tab-search")?.classList.toggle("active", name === "search");
+  syncSearchButton();
   syncOutlineTreeActions();
 }
 
 function isSidebarCollapsed() {
   return document.querySelector(".workspace").classList.contains("sidebar-collapsed");
+}
+
+function syncSearchButton() {
+  const open = sidebarMode === "search" && !isSidebarCollapsed();
+  $("btn-search-toggle")?.setAttribute("aria-expanded", String(open));
+  $("btn-search-toggle")?.classList.toggle("active", open);
+}
+
+function openSearch() {
+  selectSidebar("search");
+  setSidebarCollapsed(false);
+  $("search-input").focus();
 }
 
 function schedulePageWidthReflow() {
@@ -690,6 +713,7 @@ function setSidebarCollapsed(collapsed) {
   }
   $("btn-sidebar").classList.toggle("active", !collapsed);
   $("btn-sidebar").setAttribute("aria-pressed", collapsed ? "false" : "true");
+  syncSearchButton();
   schedulePageWidthReflow();
 }
 
@@ -728,8 +752,7 @@ $("sidebar-tab-outline")?.addEventListener("click", () => {
   setSidebarCollapsed(false);
 });
 $("sidebar-tab-search")?.addEventListener("click", () => {
-  selectSidebar("search");
-  setSidebarCollapsed(false);
+  openSearch();
 });
 const outlineExpandAllBtn = $("btn-outline-expand-all");
 if (outlineExpandAllBtn) {
@@ -739,8 +762,8 @@ if (outlineExpandAllBtn) {
 }
 const outlineCollapseAllBtn = $("btn-outline-collapse-all");
 if (outlineCollapseAllBtn) {
-  outlineCollapseAllBtn.title = "全部折叠（保留顶层）";
-  outlineCollapseAllBtn.setAttribute("aria-label", "全部折叠，保留顶层目录");
+  outlineCollapseAllBtn.title = "全部折叠";
+  outlineCollapseAllBtn.setAttribute("aria-label", "全部折叠");
   outlineCollapseAllBtn.addEventListener("click", () => collapseAllOutlineNodes());
 }
 $("btn-sidebar-close").addEventListener("click", () => setSidebarCollapsed(true));
@@ -761,12 +784,10 @@ $("zoom-select").addEventListener("change", (event) => {
   markZoomTouched();
   viewer.setZoom(event.target.value);
 });
-// Narrow toolbar: search collapses to an entry button.
+// Search opens on demand, including through Ctrl+F.
 $("btn-search-toggle")?.addEventListener("click", () => {
-  const toolbar = document.querySelector(".toolbar");
-  const expanded = toolbar?.classList.toggle("search-expanded");
-  $("btn-search-toggle")?.setAttribute("aria-expanded", String(Boolean(expanded)));
-  if (expanded) $("search-input").focus();
+  if (sidebarMode === "search" && !isSidebarCollapsed()) setSidebarCollapsed(true);
+  else openSearch();
 });
 function pageInputValue(raw) {
   const digits = String(raw || "").replace(/\D/g, "");
@@ -779,6 +800,17 @@ $("page-input").addEventListener("change", (event) => {
   if (page) viewer.goToPage(page, { push: true });
 });
 $("page-input").addEventListener("keydown", (event) => {
+  if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+    if (event.target.disabled || !viewer.pageCount) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const current = viewer.currentPage || 1;
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    const next = Math.min(viewer.pageCount, Math.max(1, current + delta));
+    event.target.value = String(next);
+    if (next !== current) viewer.goToPage(next, { push: true });
+    return;
+  }
   if (event.key === "Enter") {
     event.preventDefault();
     const page = pageInputValue(event.target.value);
@@ -812,7 +844,10 @@ $("search-input").addEventListener("keydown", async (event) => {
     else await moveHit(1);
   }
   if (event.key === "Escape") {
-    event.target.blur();
+    event.preventDefault();
+    event.stopPropagation();
+    setSidebarCollapsed(true);
+    $("btn-search-toggle")?.focus();
   }
 });
 $("search-prev").addEventListener("click", () => moveHit(-1));
@@ -824,7 +859,7 @@ async function moveHit(step) {
   const next = (viewer.hitIndex + step + hits.length) % hits.length;
   try {
     await viewer.jumpToHit(next, { push: true });
-    if (searchHits === hits) renderSearchList(hits, $("search-input").value);
+    if (searchHits === hits) renderSearchList(hits, $("search-input").value, undefined, true);
   } catch (error) {
     if (searchHits === hits) $("search-list").textContent = `定位失败：${error.message || error}`;
   }
@@ -909,9 +944,7 @@ window.addEventListener("keydown", (event) => {
   }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
     event.preventDefault();
-    document.querySelector(".toolbar")?.classList.add("search-expanded");
-    $("btn-search-toggle")?.setAttribute("aria-expanded", "true");
-    $("search-input").focus();
+    openSearch();
     $("search-input").select();
   }
   if ((event.ctrlKey || event.metaKey) && (event.key === "=" || event.key === "+")) {
@@ -1307,12 +1340,14 @@ function openSettings() {
   } catch {
     /* ignore */
   }
+  modelPicker.hideMenu();
   modelPicker.refresh();
   // Initial focus goes inside the dialog, not the background trigger.
   ($("setting-key") || $("settings-modal")).focus?.();
 }
 
 function closeSettings(restore = true) {
+  modelPicker.hideMenu();
   $("settings-modal").hidden = true;
   try {
     document.getElementById("app")?.removeAttribute("inert");
