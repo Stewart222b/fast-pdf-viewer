@@ -7,12 +7,12 @@
   --text: #e8eaef;
   --muted: #9aa3b5;
   --accent: #7aa2ff;
-  --accent-strong: #5b8cff;
+  --accent-strong: #3d64d8;
   --danger: #f07178;
   --page-gap: 18px;
   --toolbar-h: 56px;
   --sidebar-w: 300px;
-  --shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.32);
   font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
@@ -36,6 +36,26 @@ select {
   color: inherit;
 }
 
+.icon-sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+/* Lucide-style stroke icons (sprite stolen from the closed Superdesign pass). */
+.icon {
+  width: 1em;
+  height: 1em;
+  display: block;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .toolbar {
   position: relative;
   z-index: 10;
@@ -55,7 +75,23 @@ select {
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
-  gap: 8px;
+  gap: 12px;
+}
+
+/* Permanent seats are grouped by spacing plus a hairline divider between clusters. */
+.tb-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.tb-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--line);
+  flex: 0 0 auto;
 }
 
 .toolbar-left {
@@ -77,15 +113,16 @@ select {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--muted);
 }
 
 .btn {
   border: 1px solid var(--line);
   background: var(--bg);
   color: var(--text);
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 8px 12px;
   cursor: pointer;
   white-space: nowrap;
@@ -115,6 +152,17 @@ select {
   filter: brightness(1.08);
 }
 
+/* After a PDF is open, 打开 steps down to a normal toolbar control. */
+#btn-open.demoted {
+  background: transparent;
+  border-color: transparent;
+}
+
+#btn-open.demoted:hover:not(:disabled) {
+  background: var(--bg-hover);
+  filter: none;
+}
+
 .btn.active:not(.primary) {
   background: var(--bg-hover);
   border-color: var(--accent);
@@ -125,9 +173,25 @@ select {
   padding: 0;
 }
 
+.btn.has-icon {
+  gap: 6px;
+}
+
+.btn .icon {
+  font-size: 15px;
+}
+
+.btn.icon .icon {
+  font-size: 16px;
+}
+
+.btn.tiny .icon {
+  font-size: 13px;
+}
+
 .btn.tiny {
   padding: 4px 8px;
-  border-radius: 8px;
+  border-radius: 4px;
   font-size: 12px;
   height: 28px;
 }
@@ -137,22 +201,26 @@ select {
   padding: 0;
 }
 
-.divider {
-  width: 1px;
-  height: 22px;
-  background: var(--line);
-  flex: 0 0 auto;
+/* Author display:inline-flex beats the UA [hidden] rule; enforce it. */
+.btn[hidden] {
+  display: none !important;
 }
 
-.page-nav {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex: 0 0 auto;
+/* Toolbar permanent seats stay visible but unframed; spacing groups them. */
+.toolbar .btn.toolbar-ghost {
+  border-color: transparent;
+  background: transparent;
+  height: 36px;
 }
 
-.page-nav .btn.icon.tiny {
-  flex: 0 0 auto;
+.toolbar .btn.toolbar-ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.toolbar .btn.toolbar-ghost.active:not(.primary) {
+  background: var(--bg-hover);
+  color: var(--accent);
+  border-color: transparent;
 }
 
 .page-box {
@@ -169,14 +237,24 @@ select {
   width: 3.2em;
   min-width: 2.5em;
   text-align: right;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
   padding: 6px 6px;
   font: inherit;
-  color: inherit;
+  color: var(--text);
   -moz-appearance: textfield;
   appearance: textfield;
+}
+
+.page-box .page-input:hover {
+  border-color: var(--line);
+}
+
+.page-box .page-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg);
 }
 
 .page-box .page-input::-webkit-outer-spin-button,
@@ -196,12 +274,17 @@ select {
 
 #zoom-button {
   height: 36px;
-  min-width: 104px;
+  min-width: 76px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
   font-variant-numeric: tabular-nums;
+}
+
+#zoom-button .chevron {
+  font-size: 13px;
+  color: var(--muted);
 }
 
 .zoom-menu {
@@ -214,9 +297,8 @@ select {
   overflow-y: auto;
   padding: 4px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--bg-raised);
-  box-shadow: var(--shadow);
 }
 
 .zoom-menu button {
@@ -225,7 +307,7 @@ select {
   width: 100%;
   padding: 7px 12px 7px 28px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   background: transparent;
   color: var(--text);
   font: inherit;
@@ -251,21 +333,65 @@ select {
   display: flex;
   align-items: center;
   gap: 6px;
+  height: 30px;
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 4px 6px 4px 10px;
+  border-radius: 6px;
+  padding: 0 4px 0 8px;
   min-width: 0;
-  flex: 1 1 140px;
+  flex: 0 1 210px;
+}
+
+.search-box:focus-within {
+  border-color: var(--accent);
+}
+
+.search-box .search-icon {
+  font-size: 14px;
+  color: var(--muted);
 }
 
 .search-box input {
-  width: 180px;
+  width: 140px;
   min-width: 0;
   flex: 1 1 auto;
   border: 0;
   background: transparent;
   outline: none;
+  font-size: 13px;
+}
+
+.search-box input::placeholder {
+  color: var(--muted);
+}
+
+.search-box input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.search-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.search-clear[hidden] {
+  display: none !important;
 }
 
 .search-count {
@@ -321,31 +447,77 @@ select {
   transform: translateX(calc(-1 * var(--sidebar-w)));
 }
 
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 4px;
+}
+
 .sidebar-tabs {
   display: flex;
-  padding: 10px;
-  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 2px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px;
 }
 
-.tab {
-  flex: 1;
+.sidebar-tab {
+  flex: 1 1 0;
   border: 0;
+  border-radius: 4px;
   background: transparent;
   color: var(--muted);
-  border-radius: 8px;
-  padding: 8px;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
-.tab.active {
+.sidebar-tab:hover {
+  color: var(--text);
+}
+
+.sidebar-tab.active,
+.sidebar-tab[aria-selected="true"] {
   background: var(--bg-hover);
   color: var(--text);
+}
+
+.search-pane-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px 8px;
+}
+
+.search-pane-bar .search-count {
+  flex: 1 1 auto;
+}
+
+.search-pane-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.search-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
 }
 
 .sidebar-pane {
   display: none;
   overflow: auto;
-  padding: 8px 10px 16px;
+  overflow-x: hidden;
+  padding: 4px 10px 16px;
   min-height: 0;
 }
 
@@ -356,20 +528,39 @@ select {
 .outline-item,
 .search-hit {
   width: 100%;
+  min-width: 0;
   text-align: left;
   border: 0;
   background: transparent;
   color: var(--text);
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 8px 10px;
   cursor: pointer;
 }
 
 .outline-item:hover,
-.search-hit:hover,
-.search-hit.active,
-.outline-item.active {
+.search-hit:hover {
   background: var(--bg-hover);
+}
+
+/* Current hit: thin accent bar on a quiet wash, not a blue card. */
+.search-hit {
+  position: relative;
+}
+
+.search-hit + .search-hit {
+  border-top: 1px solid var(--line);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.search-hit.active {
+  background: var(--bg-hover);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.search-hit.active .meta {
+  color: var(--accent);
 }
 
 .outline-item.active {
@@ -433,13 +624,22 @@ select {
 
 .search-hit {
   display: block;
-  margin-bottom: 6px;
+  overflow: hidden;
 }
 
 .search-hit .meta {
   color: var(--muted);
   font-size: 12px;
   margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-hit .snippet {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.5;
 }
 
 .search-hit .snippet mark {
@@ -460,9 +660,7 @@ select {
   overflow: auto;
   /* Prefetch resizes placeholders manually; disable browser scroll anchoring to avoid double compensation. */
   overflow-anchor: none;
-  background:
-    radial-gradient(1200px 500px at 50% -10%, #1c2333 0%, transparent 55%),
-    var(--bg);
+  background: var(--bg);
 }
 
 .pages {
@@ -577,6 +775,22 @@ select {
   font-size: 16px;
 }
 
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  pointer-events: auto;
+}
+
+#btn-open-empty {
+  margin: 0 0 16px;
+}
+
+.empty-state ul {
+  text-align: left;
+}
+
 .drop-hint ul {
   margin: 0;
   padding-left: 18px;
@@ -603,13 +817,11 @@ select {
   overflow: hidden;
   background: #222733;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: var(--shadow);
+  border-radius: 8px;
   padding: 10px;
 }
 
 .bubble-body {
-  margin-top: 4px;
   min-height: 0;
   flex: 1 1 auto;
   overflow: auto;
@@ -620,6 +832,19 @@ select {
   gap: 6px;
   align-items: center;
   justify-content: flex-end;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+/* Actions stay legible: hierarchy comes from type size and muted source,
+   never from fading interactive controls. */
+.bubble-close {
+  color: var(--muted);
+}
+
+.bubble-close:hover {
+  color: var(--text);
 }
 
 .bubble-actions-spacer {
@@ -634,14 +859,13 @@ select {
   height: 28px;
   padding: 0 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: #2a3140;
   color: var(--text);
   font-size: 13px;
   font-weight: 600;
   line-height: 1;
   cursor: pointer;
-  box-shadow: var(--shadow);
 }
 
 .translate-chip:hover {
@@ -678,9 +902,20 @@ select {
 
 .bubble-source,
 .bubble-result {
-  margin-top: 8px;
-  font-size: 13px;
+  margin-top: 0;
   line-height: 1.5;
+}
+
+/* Source stays quieter than the translation: smaller, dimmer, no titles. */
+.bubble-source {
+  font-size: 12px;
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.bubble-result {
+  margin-top: 8px;
+  font-size: 14px;
 }
 
 .bubble-source.bubble-term,
@@ -694,16 +929,68 @@ select {
   white-space: normal;
 }
 
+.bubble-source.collapsed {
+  max-height: 72px;
+  overflow: hidden;
+}
+
+.source-toggle {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.settings-advanced {
+  margin: 4px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.settings-advanced summary {
+  cursor: pointer;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.settings-advanced .hint.compact {
+  margin: 8px 0;
+}
+
+.settings-advanced label:last-child {
+  margin-bottom: 0;
+}
+
+.viewer-status {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  background: var(--bg);
+}
+
+.viewer-status[hidden] {
+  display: none !important;
+}
+
+.viewer-status-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  max-width: 420px;
+  overflow-wrap: anywhere;
+}
+
 .bubble-passage p {
   margin: 0 0 0.65em;
 }
 
 .bubble-passage p:last-child {
   margin-bottom: 0;
-}
-
-.bubble-source {
-  color: var(--muted);
 }
 
 .bubble-status {
@@ -768,7 +1055,7 @@ select {
   width: min(460px, calc(100vw - 24px));
   background: var(--bg-raised);
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 8px;
   padding: 20px;
 }
 
@@ -800,7 +1087,7 @@ select {
   margin-top: 6px;
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 10px;
 }
 
@@ -834,8 +1121,7 @@ select {
   overflow: auto;
   background: var(--bg-elevated, #1a2030);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: var(--shadow);
+  border-radius: 8px;
   z-index: 20;
   margin: 0;
   padding: 4px;
@@ -853,7 +1139,7 @@ select {
   background: transparent;
   color: var(--text);
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 4px;
   cursor: pointer;
   font-size: 13px;
 }
@@ -877,5 +1163,145 @@ select {
 
 ::-webkit-scrollbar-thumb {
   background: #3a4254;
-  border-radius: 10px;
+  border-radius: 6px;
+}
+
+/* Page box reads as an editable control; — / — when no document is open. */
+.page-box .page-input:disabled {
+  opacity: 0.7;
+  border-color: transparent;
+  background: transparent;
+  cursor: default;
+}
+
+/* Narrow search toggle: hidden on wide chrome, entry point on tight chrome. */
+#btn-search-toggle[hidden] {
+  display: none !important;
+}
+
+/* ---- Tight chrome: keep toolbar on one row, sidebar becomes overlay ---- */
+.workspace {
+  position: relative;
+}
+
+@media (max-width: 1020px) {
+  .toolbar-center {
+    display: none;
+  }
+  .toolbar {
+    gap: 8px;
+    padding: 0 10px;
+  }
+  .toolbar-left,
+  .toolbar-right {
+    gap: 8px;
+  }
+}
+
+@media (max-width: 900px) {
+  /* Overlay panel: never squeezes the page to 90px. */
+  .sidebar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 15;
+    box-shadow: var(--shadow);
+  }
+  .workspace.sidebar-collapsed .sidebar {
+    visibility: hidden;
+  }
+  #btn-forward {
+    display: none;
+  }
+  .search-box input {
+    width: 96px;
+  }
+}
+
+@media (max-width: 360px) {
+  /* 320–360px: keep one-row toolbar; icon-only 打开/目录 if labels still overflow. */
+  #btn-open span,
+  #btn-sidebar span {
+    display: none;
+  }
+  #btn-open,
+  #btn-sidebar {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+  .toolbar {
+    gap: 4px;
+    padding: 0 6px;
+  }
+  .toolbar-left,
+  .toolbar-right {
+    gap: 4px;
+  }
+  .search-box input {
+    width: 72px;
+    min-width: 0;
+  }
+  #zoom-button span:not(.icon):not(.chevron) {
+    max-width: 4.5em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@media (max-width: 620px) {
+  #btn-search-toggle {
+    display: inline-flex !important;
+  }
+  #btn-search-toggle[hidden] {
+    display: inline-flex !important;
+  }
+  .toolbar .search-box {
+    display: none;
+  }
+  .toolbar.search-expanded .search-box {
+    display: flex;
+    position: absolute;
+    top: calc(var(--toolbar-h) - 6px);
+    right: 8px;
+    z-index: 26;
+    width: min(280px, calc(100vw - 16px));
+    flex: none;
+    box-shadow: var(--shadow);
+  }
+  .toolbar.search-expanded .search-box input {
+    width: auto;
+  }
+  /* Tightest chrome: drop one-shot controls, keep one path per job. */
+  #btn-back {
+    display: none;
+  }
+  #btn-zoom-in,
+  #btn-zoom-out {
+    display: none;
+  }
+  .toolbar .tb-divider {
+    display: none;
+  }
+  .toolbar .btn {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .toolbar-left,
+  .toolbar-right {
+    gap: 4px;
+  }
+  .toolbar > * {
+    min-width: 0;
+  }
+  #zoom-button {
+    min-width: 0;
+  }
+  #zoom-button .chevron {
+    display: none;
+  }
+  .page-box .page-input {
+    width: 2.6em;
+  }
 }

@@ -50,13 +50,31 @@ export function computeBubblePlacement(
   const maxTop = viewportRect.bottom - margin - minHeight;
   top = Math.min(Math.max(top, minTop), maxTop);
 
-  let maxHeight = viewportRect.bottom - margin - top;
-  maxHeight = Math.max(maxHeight, minHeight);
-
   const minLeft = viewportRect.left + margin;
   const maxLeft = viewportRect.right - margin - bubbleWidth;
   const left =
     maxLeft < minLeft ? minLeft : Math.min(Math.max(selectionRect.left, minLeft), maxLeft);
+
+  // Clamping can push a tall bubble over the selection line it came from
+  // (mid-text selections). If the bubble covers the anchor, try the other
+  // side once before accepting the overlap.
+  const renderedHeight = (candidateTop) =>
+    Math.min(bubbleHeight, Math.max(viewportRect.bottom - margin - candidateTop, minHeight));
+  const coversSelection = (candidateTop) =>
+    candidateTop < selectionRect.bottom + gap &&
+    candidateTop + renderedHeight(candidateTop) > selectionRect.top - gap &&
+    left < selectionRect.right &&
+    left + bubbleWidth > selectionRect.left;
+  if (coversSelection(top)) {
+    const flipped = placeBelow
+      ? selectionRect.top - gap - effectiveHeight
+      : belowTop;
+    const clampedFlipped = Math.min(Math.max(flipped, minTop), maxTop);
+    if (!coversSelection(clampedFlipped)) top = clampedFlipped;
+  }
+
+  let maxHeight = viewportRect.bottom - margin - top;
+  maxHeight = Math.max(maxHeight, minHeight);
 
   return { left, top, maxHeight, placeBelow };
 }

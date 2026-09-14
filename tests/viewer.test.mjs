@@ -600,3 +600,36 @@ test('zoom redraw keeps the old bitmap until the new render completes', async ()
   await job;
   assert.notEqual(viewer.pageEls[0].querySelector('canvas'), original);
 });
+
+test('finishPinch calls onPinchCommit', async () => {
+  const commits = [];
+  const { viewer, wrapEl } = await setup();
+  viewer.onPinchCommit = () => commits.push(1);
+  viewer.pdf = {};
+  viewer.pagesEl = { style: {} };
+  const page = pageElement();
+  viewer.pageEls = [page];
+  viewer.zoom = 1;
+  viewer.zoomMode = '100';
+  wrapEl.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
+  viewer.pinchZoom({ deltaY: -50, deltaMode: 0, clientX: 100, clientY: 100 });
+  Object.getPrototypeOf(viewer).finishPinch.call(viewer);
+  assert.equal(commits.length, 1);
+});
+
+test('page-width zoom follows viewer-wrap client width', async () => {
+  const { viewer, wrapEl } = await setup();
+  viewer.pdf = {};
+  viewer.pageSizes = [{ width: 600, height: 800 }];
+  viewer.currentPage = 1;
+  wrapEl.clientWidth = 1000;
+  viewer.setZoom = (mode) => {
+    viewer.zoomMode = mode;
+    viewer.zoom = viewer.computeZoom();
+  };
+  viewer.setZoom('page-width', { silent: true });
+  assert.ok(Math.abs(viewer.zoom - (1000 - 48) / 600) < 0.001);
+  wrapEl.clientWidth = 700;
+  viewer.setZoom('page-width', { silent: true });
+  assert.ok(Math.abs(viewer.zoom - (700 - 48) / 600) < 0.001);
+});

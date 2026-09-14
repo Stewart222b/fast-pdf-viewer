@@ -15,25 +15,32 @@ async function setup() {
   const revoked = [];
   let nextBlob = 0;
   function element() {
-    const el = { value: '', children: [], options: [], listeners: {}, style: {}, toggles: {}, attrs: {}, dataset: {},
-      classList: { toggle(name, on) { el.toggles[name] = on; }, add() {}, remove() {} },
+    const el = { value: '', textContent: '', children: [], options: [], listeners: {}, style: {}, toggles: {}, attrs: {}, dataset: {},
+      hidden: false, disabled: false, title: '', inert: false,
+      classList: { toggle(name, on) { el.toggles[name] = on; }, add() {}, remove() {},
+        contains(name) { return Boolean(el.toggles[name]); } },
       addEventListener(name, fn) { this.listeners[name] = fn; }, replaceChildren() { this.children = []; },
       appendChild(child) { this.children.push(child); },
       append(...kids) { for (const kid of kids) this.appendChild(kid); },
       contains() { return false; }, focus() {}, select() {},
+      closest() { return null; },
+      getAttribute(name) { return this.attrs[name]; },
       setAttribute(name, value) { this.attrs[name] = value; },
+      removeAttribute(name) { delete this.attrs[name]; },
       querySelector(sel) {
+        const all = this.querySelectorAll(sel);
+        return all[0] || null;
+      },
+      querySelectorAll(sel) {
+        const out = [];
         const walk = (nodes) => {
           for (const node of nodes) {
-            if (sel === '.outline-item' && node.className === 'outline-item') return node;
-            if (node.children?.length) {
-              const found = walk(node.children);
-              if (found) return found;
-            }
+            if (sel === '.outline-item' && node.className === 'outline-item') out.push(node);
+            if (node.children?.length) walk(node.children);
           }
-          return null;
         };
-        return walk(this.children);
+        walk(this.children);
+        return out;
       },
     };
     return el;
@@ -49,6 +56,8 @@ async function setup() {
     close() { this.generation++; this.indexPromise = null; this.pageTexts = []; }
     async open(source) { this.close(); this.source = source; this.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }]; this.pdf = { async getDestination(d) { return d; }, async getPageIndex() { return 0; } }; return this; }
     async getOutline() { return this.outlinePromise || null; }
+    setZoom() {}
+    bumpZoom() { return '150'; }
     clearHits() { this.shown.push(''); this.hitIndex = -1; this.query = ''; }
     async showHits(hits, query, index = 0, _options) { this.shown.push(query); this.hitIndex = hits.length ? index : -1; this.query = query; }
   }
@@ -58,7 +67,9 @@ async function setup() {
     document: {
       getElementById: get,
       createElement: tag => { const el = element(); if (tag === 'input') fileInput = el; return el; },
+      createTextNode: text => ({ textContent: text }),
       body: element(),
+      activeElement: null,
       querySelector: sel => (sel === '.workspace' ? workspace : null),
       querySelectorAll: () => [],
       addEventListener() {},
@@ -109,10 +120,14 @@ async function setup() {
     }, { context });
   });
   await main.evaluate();
+  // Mirror shipped empty-state chrome: em-dash page readout until a doc opens.
+  get('page-input').value = '—';
+  get('page-count').textContent = '—';
   return { viewer, get, fileInput, revoked,
     dispatch(type, event) { for (const fn of windowListeners[type] || []) fn(event); },
     input(value) { const el = get('search-input'); el.value = value; el.listeners.input({ target: el }); },
     runTimer() { const [id, fn] = [...timers].at(-1); timers.delete(id); return fn(); },
+    click(id) { const el = get(id); el.listeners.click?.({ target: el, preventDefault() {}, stopPropagation() {} }); },
   };
 }
 
@@ -137,6 +152,21 @@ test('file loading uses revocable blob URLs without reading entire files', async
   assert.equal(app.viewer.source.name, 'B');
   assert.equal(app.viewer.source.url, 'blob:test-2');
   assert.deepEqual(app.revoked, ['blob:test-1']);
+});
+
+test('late empty outline does not leave an active search sidebar', async () => {
+  const app = await setup(), waiting = deferred();
+  app.viewer.outlinePromise = waiting.promise;
+  app.fileInput.files = [{ name: 'A', arrayBuffer: async () => new ArrayBuffer(0) }];
+  const opening = app.fileInput.listeners.change();
+  await new Promise(resolve => setImmediate(resolve));
+  app.click('sidebar-tab-search');
+  assert.equal(app.get('search-pane').toggles.active, true);
+  waiting.resolve([]);
+  await opening;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.get('search-pane').toggles.active, true);
+  assert.equal(app.get('outline-pane').toggles.active, false);
 });
 
 test('late outline response cannot overwrite a newer document outline', async () => {
@@ -189,8 +219,8 @@ test('indexing refresh does not switch the sidebar to search', async () => {
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(app.viewer.shown, ['Alpha']);
   assert.equal(app.get('search-count').textContent, '1 / 1');
-  assert.equal(app.get('search-pane').toggles.active, undefined);
-  assert.equal(app.get('outline-pane').toggles.active, undefined);
+  assert.equal(app.get('search-pane').toggles.active, false);
+  assert.equal(app.get('outline-pane').toggles.active, true);
 });
 
 test('user search still selects the search sidebar tab', async () => {
@@ -218,4 +248,49 @@ test('outline entry with numeric dest 0 maps to page 1', async () => {
   await new Promise((resolve) => setImmediate(resolve));
   const item = app.get('outline-pane').querySelector('.outline-item');
   assert.equal(item?.dataset.page, '1');
+});
+
+test('目录 always returns to outline without clearing the search query', async () => {
+  const app = await setup();
+  app.viewer.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }];
+  app.input('Alpha');
+  await app.runTimer();
+  assert.equal(app.get('search-pane').toggles.active, true);
+  // 目录 opens outline even with a live query; query persists for return.
+  app.click('btn-sidebar');
+  assert.equal(app.get('outline-pane').toggles.active, true);
+  assert.equal(app.get('search-pane').toggles.active, false);
+  assert.equal(app.get('search-input').value, 'Alpha');
+  // Sidebar tabs flip back to the preserved search mode.
+  app.click('sidebar-tab-search');
+  assert.equal(app.get('search-pane').toggles.active, true);
+  assert.equal(app.get('search-input').value, 'Alpha');
+});
+
+test('collapsed sidebar leaves the tab order via inert', async () => {
+  const app = await setup();
+  const sidebar = app.get('sidebar');
+  assert.equal(sidebar.attrs['aria-hidden'], 'true');
+  assert.equal(sidebar.inert, true);
+  app.click('btn-sidebar');
+  assert.equal(sidebar.attrs['aria-hidden'], 'false');
+  assert.equal(sidebar.inert, false);
+  // Outline-open 目录 toggles the panel shut again.
+  app.click('btn-sidebar');
+  assert.equal(sidebar.attrs['aria-hidden'], 'true');
+  assert.equal(sidebar.inert, true);
+});
+
+test('open failure surfaces in the viewer with a reselect action', async () => {
+  const app = await setup();
+  app.viewer.open = async () => { throw new Error('bad pdf'); };
+  app.fileInput.files = [{ name: 'broken.pdf', arrayBuffer: async () => new ArrayBuffer(0) }];
+  await app.fileInput.listeners.change();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(app.get('viewer-status').hidden, false);
+  assert.match(app.get('viewer-status-text').textContent, /打开失败/);
+  assert.equal(app.get('viewer-status-action').hidden, false);
+  // Unopened document keeps the em-dash page readout, not 1 / 0.
+  assert.equal(app.get('page-input').value, '—');
+  assert.equal(app.get('page-count').textContent, '—');
 });
