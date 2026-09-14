@@ -620,6 +620,31 @@ test('zoom redraw keeps the old bitmap until the new render completes', async ()
   assert.notEqual(viewer.pageEls[0].querySelector('canvas'), original);
 });
 
+test('mouse wheel uses preset steps, not a relative 10% of current zoom', async () => {
+  const { viewer, wrapEl } = await setup();
+  viewer.pdf = {};
+  viewer.pagesEl = { style: {} };
+  viewer.pageEls = [pageElement()];
+  wrapEl.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
+  viewer.zoom = 1.5;
+  viewer.zoomMode = '150';
+  viewer.pinchZoom({ deltaY: -100, deltaMode: 0, clientX: 100, clientY: 100 });
+  assert.equal(viewer.pinch.target, 1.75, '150% notch in should match toolbar + to 175%');
+  viewer.pinch = null;
+  viewer.zoom = 3;
+  viewer.zoomMode = '300';
+  viewer.pinchZoom({ deltaY: -100, deltaMode: 0, clientX: 100, clientY: 100 });
+  assert.equal(viewer.pinch.target, 3.25, '300% notch in should add 25pp, not 30 relative');
+  viewer.pinch = null;
+  viewer.zoom = 1.5;
+  viewer.pinchZoom({ deltaY: 120, deltaMode: 0, clientX: 100, clientY: 100 });
+  assert.equal(viewer.pinch.target, 1.25, 'one notch out from 150% should land on 125%');
+  viewer.pinch = null;
+  viewer.zoom = 1.5;
+  viewer.pinchZoom({ deltaY: -1, deltaMode: 0, clientX: 100, clientY: 100 });
+  assert.ok(Math.abs(viewer.pinch.target - 1.5 * Math.exp(0.01)) < 1e-9);
+});
+
 test('finishPinch calls onPinchCommit', async () => {
   const commits = [];
   const { viewer, wrapEl } = await setup();

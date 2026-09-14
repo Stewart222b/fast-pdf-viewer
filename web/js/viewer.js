@@ -30,6 +30,42 @@ function destTypeName(type) {
 }
 
 const DEST_SCROLL_OFFSET = 64;
+const ZOOM_PRESETS = [50, 75, 100, 125, 150, 175, 200, 250, 300];
+// Mouse notches report ±100/120 px; trackpad nudges are much smaller.
+const WHEEL_COARSE_PX = 40;
+const WHEEL_FINE_PX_CAP = 10;
+
+export function wheelDeltaPixels(deltaY, deltaMode = 0, pageHeight = 800) {
+  if (!Number.isFinite(deltaY)) return 0;
+  let pixels = deltaY;
+  if (deltaMode === 1) pixels *= 16;
+  else if (deltaMode === 2) pixels *= pageHeight || 800;
+  return pixels;
+}
+
+/** One toolbar step in percentage points (not ×1.1 of current zoom). */
+export function stepZoomPercent(currentPercent, direction) {
+  const current = Math.round(currentPercent);
+  let next;
+  if (direction > 0) {
+    next = ZOOM_PRESETS.find((v) => v > current) ?? current + 25;
+  } else {
+    next = [...ZOOM_PRESETS].reverse().find((v) => v < current) ?? Math.max(25, current - 25);
+  }
+  return Math.min(500, Math.max(25, next));
+}
+
+export function applyWheelZoomScale(currentScale, deltaY, deltaMode = 0, pageHeight = 800) {
+  const pixels = wheelDeltaPixels(deltaY, deltaMode, pageHeight);
+  if (!pixels) return currentScale;
+  const clamped = (scale) => Math.min(5, Math.max(0.25, scale));
+  if (Math.abs(pixels) >= WHEEL_COARSE_PX) {
+    const next = stepZoomPercent(currentScale * 100, pixels > 0 ? -1 : 1);
+    return clamped(next / 100);
+  }
+  const capped = Math.max(-WHEEL_FINE_PX_CAP, Math.min(WHEEL_FINE_PX_CAP, pixels));
+  return clamped(currentScale * Math.exp(-capped / 100));
+}
 
 export class PdfViewer {
   constructor({ pagesEl, wrapEl, history, onState, onZoomPreview, onPinchCommit, onScrollPosition, onIndex, onPassword }) {
@@ -372,8 +408,12 @@ export class PdfViewer {
       this.pagesEl.style.transformOrigin = `${this.wrapEl.scrollLeft + x}px ${contentY}px`;
       this.pagesEl.style.willChange = "transform";
     }
-    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? this.wrapEl.clientHeight : 1);
-    this.pinch.target = Math.min(5, Math.max(0.25, this.pinch.target * Math.exp(-delta / 100)));
+    this.pinch.target = applyWheelZoomScale(
+      this.pinch.target,
+      event.deltaY,
+      event.deltaMode,
+      this.wrapEl.clientHeight,
+    );
     if (!this.pinchFrame) {
       this.pinchFrame = requestAnimationFrame(() => {
         this.pinchFrame = null;
@@ -410,15 +450,7 @@ export class PdfViewer {
   }
 
   bumpZoom(delta) {
-    const presets = [50, 75, 100, 125, 150, 175, 200, 250, 300];
-    const current = Math.round(this.zoom * 100);
-    let next;
-    if (delta > 0) {
-      next = presets.find((v) => v > current) ?? current + 25;
-    } else {
-      next = [...presets].reverse().find((v) => v < current) ?? Math.max(25, current - 25);
-    }
-    next = Math.min(500, Math.max(25, next));
+    const next = stepZoomPercent(this.zoom * 100, delta > 0 ? 1 : -1);
     this.setZoom(String(next));
     return String(next);
   }
