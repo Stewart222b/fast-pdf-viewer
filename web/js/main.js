@@ -72,6 +72,7 @@ $("zoom-menu").addEventListener("keydown", event => {
     zoomMenuItems[next]?.focus();
   } else if (event.key === "Escape") {
     event.preventDefault();
+    event.stopPropagation();
     setZoomMenuOpen(false);
     $("zoom-button").focus({ preventScroll: true });
   }

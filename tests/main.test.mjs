@@ -191,6 +191,24 @@ test('Escape closes search when focus is on a hit, not the search box', async ()
   assert.equal(app.get('search-input').value, 'manual');
 });
 
+test('Escape on the zoom menu closes only the menu while search stays open', async () => {
+  const app = await setup();
+  app.click('btn-search-toggle');
+  app.click('zoom-button');
+  assert.equal(app.get('zoom-menu').hidden, false);
+  assert.equal(app.get('sidebar').inert, false);
+  const event = {
+    key: 'Escape',
+    preventDefault() {},
+    stopPropagation() { this.stopped = true; },
+  };
+  app.get('zoom-menu').listeners.keydown(event);
+  if (!event.stopped) app.dispatch('keydown', event);
+  assert.equal(app.get('zoom-menu').hidden, true);
+  assert.equal(app.get('sidebar').inert, false);
+  assert.equal(app.get('btn-search-toggle').attrs['aria-expanded'], 'true');
+});
+
 test('ArrowDown in the sidebar does not step the PDF page', async () => {
   const app = await setup();
   const jumps = [];
