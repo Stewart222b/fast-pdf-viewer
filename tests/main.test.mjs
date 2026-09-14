@@ -8,7 +8,7 @@ function deferred() {
   const promise = new Promise(r => { resolve = r; });
   return { promise, resolve };
 }
-async function setup() {
+async function setup({ platform = 'Linux x86_64' } = {}) {
   const elements = new Map(), timers = new Map();
   let timerId = 0, viewer, fileInput;
   const windowListeners = {};
@@ -63,6 +63,7 @@ async function setup() {
       viewer = this; this.generation = 0; this.pageTexts = []; this.hitIndex = -1; this.shown = []; this.query = '';
       this.onIndex = options.onIndex;
       this.onState = options.onState;
+      this.onPassword = options.onPassword;
     }
     close() { this.generation++; this.indexPromise = null; this.pageTexts = []; }
     async open(source) { this.close(); this.source = source; this.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }]; this.pdf = { async getDestination(d) { return d; },     async getPageIndex() { return 0; } }; return this; }
@@ -93,6 +94,10 @@ async function setup() {
       addEventListener() {},
     },
     window: { addEventListener(type, fn) { (windowListeners[type] ||= []).push(fn); } },
+    navigator: {
+      platform,
+      userAgent: /Mac|iPhone|iPad/i.test(platform) ? 'Mozilla/5.0 (Macintosh)' : 'Mozilla/5.0 (X11; Linux x86_64)',
+    },
     setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
   });
   const exports = {
@@ -142,6 +147,10 @@ async function setup() {
   // Mirror shipped empty-state chrome: em-dash page readout until a doc opens.
   get('page-input').value = '—';
   get('page-count').textContent = '—';
+  get('translate-bubble').hidden = true;
+  get('settings-modal').hidden = true;
+  get('pdf-password-modal').hidden = true;
+  get('zoom-menu').hidden = true;
   return { viewer, get, fileInput, revoked,
     dispatch(type, event) { for (const fn of windowListeners[type] || []) fn(event); },
     input(value) { const el = get('search-input'); el.value = value; el.listeners.input({ target: el }); },
@@ -164,6 +173,70 @@ test('search entry, outline switch and Escape preserve query and synchronize but
   assert.equal(app.get('sidebar').inert, true);
   assert.equal(app.get('btn-search-toggle').attrs['aria-expanded'], 'false');
   assert.equal(app.get('search-input').value, 'manual');
+});
+
+test('Escape closes search when focus is on a hit, not the search box', async () => {
+  const app = await setup();
+  app.click('btn-search-toggle');
+  app.get('search-input').value = 'manual';
+  app.dispatch('keydown', {
+    key: 'Escape',
+    target: { matches() { return false; } },
+    preventDefault() {},
+  });
+  assert.equal(app.get('sidebar').inert, true);
+  assert.equal(app.get('btn-search-toggle').attrs['aria-expanded'], 'false');
+  assert.equal(app.get('search-input').value, 'manual');
+});
+
+test('empty-state zoom does not skip first-open page-width fit', async () => {
+  const app = await setup();
+  const zooms = [];
+  app.viewer.setZoom = (mode) => { zooms.push(mode); };
+  app.click('btn-zoom-in');
+  app.fileInput.files = [{ name: 'A.pdf', arrayBuffer: async () => new ArrayBuffer(0) }];
+  await app.fileInput.listeners.change();
+  assert.equal(zooms.includes('page-width'), true);
+});
+
+test('a zoom change on an open document is kept for the next unsaved file', async () => {
+  const app = await setup();
+  const zooms = [];
+  app.viewer.setZoom = (mode) => { zooms.push(mode); };
+  app.fileInput.files = [{ name: 'A.pdf', arrayBuffer: async () => new ArrayBuffer(0) }];
+  await app.fileInput.listeners.change();
+  zooms.length = 0;
+  app.click('btn-zoom-in');
+  app.fileInput.files = [{ name: 'B.pdf', arrayBuffer: async () => new ArrayBuffer(0) }];
+  await app.fileInput.listeners.change();
+  assert.equal(zooms.includes('page-width'), false);
+});
+
+test('password dialog Escape cancels from the dialog chrome', async () => {
+  const app = await setup();
+  const pending = app.viewer.onPassword(1);
+  assert.equal(app.get('pdf-password-modal').hidden, false);
+  assert.equal(app.get('app').attrs.inert, '');
+  app.get('pdf-password-modal').listeners.keydown({
+    key: 'Escape',
+    preventDefault() {},
+    stopPropagation() {},
+  });
+  await assert.rejects(pending, /已取消输入密码/);
+  assert.equal(app.get('pdf-password-modal').hidden, true);
+  assert.equal(app.get('app').attrs.inert, undefined);
+});
+
+test('shortcut labels use Ctrl on Linux and Cmd on Mac', async () => {
+  const linux = await setup();
+  assert.match(linux.get('btn-open').title, /Ctrl\+O/);
+  assert.equal(linux.get('empty-shortcut').textContent, 'Ctrl+O');
+  assert.match(linux.get('btn-search-toggle').title, /Ctrl\+F/);
+  const mac = await setup({ platform: 'MacIntel' });
+  assert.match(mac.get('btn-open').title, /Cmd\+O/);
+  assert.equal(mac.get('empty-shortcut').textContent, 'Cmd+O');
+  assert.match(mac.get('btn-search-toggle').title, /Cmd\+F/);
+  assert.match(mac.get('btn-zoom-in').title, /Cmd\+=/);
 });
 
 test('page input arrows immediately navigate like reading shortcuts, including bounds', async () => {
