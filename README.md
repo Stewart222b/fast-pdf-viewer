@@ -11,24 +11,10 @@
 </p>
 
 <p align="center">
-  <img src="docs/media/ui-search-dark.png" alt="速览深色主题与侧栏搜索" width="760" />
+  <img src="docs/media/ui-hero.png" alt="速览深色主题：侧栏搜索与划词翻译" width="760" />
 </p>
 
 > 默认采用深色阅读界面与紧凑工具栏，侧栏整合目录与搜索，开箱即用。克隆仓库后运行 `fast-pdf` 或 `python desktop/app.py` 即可体验；也可直接打开 [GitHub Pages 上的 Web 版](https://stewart222b.github.io/fast-pdf-viewer/) 在浏览器中选择本地 PDF。
-
----
-
-## 界面预览
-
-| 深色模式侧栏搜索 | 浅色模式阅读 | 窄屏侧栏搜索 |
-| :---: | :---: | :---: |
-| <img src="docs/media/ui-search-dark.png" alt="深色模式侧栏搜索" width="240" /> | <img src="docs/media/ui-reading-light.png" alt="浅色模式阅读" width="240" /> | <img src="docs/media/ui-search-narrow.png" alt="窄屏侧栏搜索" width="240" /> |
-
-浅色主题下的侧栏搜索：
-
-<p align="center">
-  <img src="docs/media/ui-search-light.png" alt="浅色模式侧栏搜索" width="520" />
-</p>
 
 ---
 
