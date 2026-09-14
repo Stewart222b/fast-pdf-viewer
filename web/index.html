@@ -101,15 +101,15 @@
             <button id="btn-zoom-out" class="btn toolbar-ghost icon" title="缩小 (Ctrl+-)" aria-label="缩小"><svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg></button>
             <span id="zoom-picker" class="zoom-picker">
               <button id="zoom-button" class="btn toolbar-ghost has-icon" type="button" title="缩放" aria-haspopup="menu" aria-expanded="false" aria-controls="zoom-menu">
-                <span id="zoom-label">150%</span><svg class="icon chevron" aria-hidden="true"><use href="#i-chevron-down" /></svg>
+                <span id="zoom-label">适合宽度</span><svg class="icon chevron" aria-hidden="true"><use href="#i-chevron-down" /></svg>
               </button>
               <span id="zoom-menu" class="zoom-menu" role="menu" aria-label="缩放" hidden></span>
               <select id="zoom-select" title="缩放" hidden>
-                <option value="page-width">适合宽度</option>
+                <option value="page-width" selected>适合宽度</option>
                 <option value="page-fit">适合页面</option>
                 <option value="100">100%</option>
                 <option value="125">125%</option>
-                <option value="150" selected>150%</option>
+                <option value="150">150%</option>
                 <option value="200">200%</option>
                 <option value="250">250%</option>
               </select>

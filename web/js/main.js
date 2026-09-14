@@ -893,7 +893,7 @@ $("search-input").addEventListener("input", (event) => {
   $("search-clear").hidden = !query;
   clearTimeout(searchTimer);
   viewer.clearHits();
-  renderSearchList([], "");
+  if (!query) renderSearchList([], "");
   searchTimer = setTimeout(() => runSearch(query, request), 180);
 });
 $("search-clear").addEventListener("click", () => {
@@ -1006,6 +1006,7 @@ window.addEventListener("keydown", (event) => {
     return;
   }
   const typing = event.target?.matches?.("input, textarea, select");
+  const inReaderChrome = event.target?.closest?.("#sidebar, #zoom-menu, #translate-bubble");
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o") {
     event.preventDefault();
     pickFile();
@@ -1033,15 +1034,15 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     viewer.forward();
   }
-  if (event.key === "Backspace" && !typing) {
+  if (event.key === "Backspace" && !typing && !inReaderChrome) {
     event.preventDefault();
     viewer.back();
   }
-  if (!typing && (event.key === "ArrowDown" || event.key === "PageDown")) {
+  if (!typing && !inReaderChrome && (event.key === "ArrowDown" || event.key === "PageDown")) {
     event.preventDefault();
     stepPage(1);
   }
-  if (!typing && (event.key === "ArrowUp" || event.key === "PageUp")) {
+  if (!typing && !inReaderChrome && (event.key === "ArrowUp" || event.key === "PageUp")) {
     event.preventDefault();
     stepPage(-1);
   }

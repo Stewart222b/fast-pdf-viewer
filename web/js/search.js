@@ -111,9 +111,23 @@ export function matchRects(mapping, layer, offset, length) {
   // Measure the participating text nodes separately so PDF.js's movable
   // endOfContent sentinel (or marked-content wrappers) cannot add a page box.
   for (const entry of entries) {
+    const node = entry.div?.firstChild;
+    if (!node) continue;
     const range = layer.ownerDocument.createRange();
-    range.setStart(entry.div.firstChild, Math.max(0, offset - entry.start));
-    range.setEnd(entry.div.firstChild, Math.min(entry.end, offset + length) - entry.start);
+    const start = Math.max(0, offset - entry.start);
+    const end = Math.min(entry.end, offset + length) - entry.start;
+    try {
+      if (typeof node.nodeValue === "string") {
+        const max = node.nodeValue.length;
+        range.setStart(node, Math.min(start, max));
+        range.setEnd(node, Math.min(Math.max(end, start), max));
+      } else {
+        range.setStart(node, start);
+        range.setEnd(node, end);
+      }
+    } catch {
+      continue;
+    }
     for (const r of range.getClientRects()) {
       if (r.width > 0 && r.height > 0) rects.push({
         left: (r.left - origin.left) / sx, top: (r.top - origin.top) / sy,

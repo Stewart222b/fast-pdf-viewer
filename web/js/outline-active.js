@@ -62,5 +62,5 @@ export function pickOutlineActive(entries, view) {
     const firstOnPage = ranked.find((row) => row.page === page);
     if (firstOnPage) active = firstOnPage.entry;
   }
-  return active || ranked[0].entry;
+  return active;
 }

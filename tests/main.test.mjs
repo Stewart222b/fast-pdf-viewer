@@ -191,6 +191,30 @@ test('Escape closes search when focus is on a hit, not the search box', async ()
   assert.equal(app.get('search-input').value, 'manual');
 });
 
+test('ArrowDown in the sidebar does not step the PDF page', async () => {
+  const app = await setup();
+  const jumps = [];
+  app.viewer.pageCount = 10;
+  app.viewer.currentPage = 3;
+  app.viewer.goToPage = (page) => { jumps.push(page); app.viewer.currentPage = page; };
+  app.dispatch('keydown', {
+    key: 'ArrowDown',
+    target: {
+      matches() { return false; },
+      closest(sel) { return String(sel).includes('#sidebar') ? {} : null; },
+    },
+    preventDefault() {},
+  });
+  assert.deepEqual(jumps, []);
+});
+
+test('typing a query does not flash the empty-keyword search copy', async () => {
+  const app = await setup();
+  app.click('btn-search-toggle');
+  app.input('Alpha');
+  assert.equal(String(app.get('search-list').innerHTML || '').includes('输入关键词'), false);
+});
+
 test('empty-state zoom does not skip first-open page-width fit', async () => {
   const app = await setup();
   const zooms = [];
