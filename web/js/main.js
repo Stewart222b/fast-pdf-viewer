@@ -87,6 +87,8 @@ $("zoom-picker").addEventListener("focusout", event => {
 const history = new ViewHistory();
 let passwordDialog = null;
 
+let dismissPassword = null;
+
 function requestPdfPassword(reason) {
   if (passwordDialog) return passwordDialog;
   const modal = $("pdf-password-modal");
@@ -97,6 +99,12 @@ function requestPdfPassword(reason) {
   passwordDialog = new Promise((resolve, reject) => {
     const cleanup = () => {
       modal.hidden = true;
+      dismissPassword = null;
+      try {
+        document.getElementById("app")?.removeAttribute("inert");
+      } catch {
+        /* ignore */
+      }
       submit.removeEventListener("click", onSubmit);
       cancel.removeEventListener("click", onCancel);
       input.removeEventListener("keydown", onKey);
@@ -124,6 +132,12 @@ function requestPdfPassword(reason) {
     error.textContent = reason === PasswordResponses.INCORRECT_PASSWORD ? "密码错误，请重试。" : "";
     input.value = "";
     modal.hidden = false;
+    dismissPassword = onCancel;
+    try {
+      document.getElementById("app")?.setAttribute("inert", "");
+    } catch {
+      /* ignore */
+    }
     input.focus();
     submit.addEventListener("click", onSubmit);
     cancel.addEventListener("click", onCancel);
@@ -307,7 +321,7 @@ function hideViewerStatus() {
 
 let userZoomTouched = false;
 function markZoomTouched() {
-  userZoomTouched = true;
+  if (viewer.pdf) userZoomTouched = true;
 }
 
 async function openSource(getSource) {
@@ -991,7 +1005,7 @@ window.addEventListener("keydown", (event) => {
     }
     return;
   }
-  const typing = event.target.matches("input, textarea, select");
+  const typing = event.target?.matches?.("input, textarea, select");
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o") {
     event.preventDefault();
     pickFile();
@@ -1032,9 +1046,19 @@ window.addEventListener("keydown", (event) => {
     stepPage(-1);
   }
   if (event.key === "Escape") {
-    if (!$("translate-bubble").hidden) hideBubble();
-    setZoomMenuOpen(false);
-    $("settings-modal").hidden = true;
+    event.preventDefault();
+    if (!$("translate-bubble").hidden) {
+      hideBubble();
+      return;
+    }
+    if (!$("zoom-menu").hidden) {
+      setZoomMenuOpen(false);
+      return;
+    }
+    if (!isSidebarCollapsed() && sidebarMode === "search") {
+      setSidebarCollapsed(true);
+      $("btn-search-toggle")?.focus();
+    }
   }
 });
 
@@ -1433,6 +1457,10 @@ $("settings-modal").addEventListener("keydown", (event) => {
 });
 $("pdf-password-modal")?.addEventListener("keydown", (event) => {
   trapModalTab(event, $("pdf-password-modal").querySelector(".modal-card") || $("pdf-password-modal"));
+  if (event.key === "Escape") {
+    event.preventDefault();
+    dismissPassword?.();
+  }
   event.stopPropagation();
 });
 $("btn-settings-cancel").addEventListener("click", () => {
@@ -1454,7 +1482,42 @@ $("btn-settings-save").addEventListener("click", () => {
   }
 });
 
+function isAppleOs() {
+  const nav = globalThis.navigator;
+  if (!nav) return false;
+  const platformId = `${nav.userAgentData?.platform || ""} ${nav.platform || ""}`;
+  return /Mac|iPhone|iPad|iPod/i.test(platformId);
+}
+
+function shortcutChord(key) {
+  return `${isAppleOs() ? "Cmd" : "Ctrl"}+${key}`;
+}
+
+function applyShortcutLabels() {
+  const open = shortcutChord("O");
+  const find = shortcutChord("F");
+  $("btn-open").title = `打开 PDF (${open})`;
+  const search = $("btn-search-toggle");
+  if (search) {
+    search.title = `搜索 (${find})`;
+    search.setAttribute("aria-label", `搜索 (${find})`);
+  }
+  const zoomOut = $("btn-zoom-out");
+  if (zoomOut) {
+    zoomOut.title = `缩小 (${shortcutChord("-")})`;
+    zoomOut.setAttribute("aria-label", `缩小 (${shortcutChord("-")})`);
+  }
+  const zoomIn = $("btn-zoom-in");
+  if (zoomIn) {
+    zoomIn.title = `放大 (${shortcutChord("=")})`;
+    zoomIn.setAttribute("aria-label", `放大 (${shortcutChord("=")})`);
+  }
+  const hint = $("empty-shortcut");
+  if (hint) hint.textContent = open;
+}
+
 async function boot() {
+  applyShortcutLabels();
   document.body.dataset.platform = platform.id;
   const request = openGeneration;
   const startup = await platform.startupOpen();
