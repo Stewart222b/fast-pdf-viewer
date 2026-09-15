@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>速览隐私说明</title>
+    <link rel="stylesheet" href="./options.css" />
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="page-header">
+        <a class="brand" href="./options.html" aria-label="返回速览设置">
+          <img class="brand-mark" src="./icons/logo.png" alt="" width="48" height="48" />
+          <span class="brand-copy">
+            <span class="brand-name">速览</span>
+            <span class="brand-product">Fast PDF Viewer</span>
+          </span>
+        </a>
+      </header>
+
+      <section class="intro" aria-labelledby="page-title">
+        <h1 id="page-title">隐私说明</h1>
+        <p>这里说明扩展如何处理 PDF、翻译文本、权限和本地数据。</p>
+      </section>
+
+      <section class="privacy-sections" aria-label="隐私信息">
+        <section class="privacy-section" aria-labelledby="files-title">
+          <h2 id="files-title">PDF 与网络请求</h2>
+          <p>
+            PDF 字节在本地解析，扩展不会因为打开 PDF 而把文件上传到速览服务器。打开在线 PDF 时，浏览器仍会向
+            PDF 的原始服务器发起正常请求；原始服务器会按照普通网页请求接收该请求及其自身需要的网络信息。
+          </p>
+        </section>
+
+        <section class="privacy-section" aria-labelledby="translation-title">
+          <h2 id="translation-title">划词翻译</h2>
+          <p>
+            只有在你启用翻译并选中文本后，选中的文本才会发送到你在设置中配置的翻译提供商。速览不代替该提供商处理请求，
+            具体数据处理方式以你选择的提供商为准。
+          </p>
+        </section>
+
+        <section class="privacy-section" aria-labelledby="storage-title">
+          <h2 id="storage-title">本地设置与阅读进度</h2>
+          <ul>
+            <li>API Key 保存在浏览器的 <code>chrome.storage.local</code> 中，未加密，也不会同步到其他设备。</li>
+            <li>扩展不包含分析、广告或遥测代码。</li>
+            <li>扩展内的阅读进度保存在扩展自身同源的 <code>localStorage</code> 中，不与普通网页版共用。</li>
+            <li>卸载扩展会清除扩展设置以及扩展页面保存的本地阅读进度。</li>
+          </ul>
+        </section>
+
+        <section class="privacy-section" aria-labelledby="permission-title">
+          <h2 id="permission-title">自动打开 PDF 与主机权限</h2>
+          <p>
+            支持原生 PDF 接管的浏览器使用浏览器提供的 MIME 处理能力，不需要 <code>webRequest</code> 或所有网站的访问权限。
+            较旧浏览器若不支持原生能力，启用自动打开时才会在用户确认后申请 <code>webRequest</code> 以及
+            <code>http://*/*</code>、<code>https://*/*</code> 主机权限，用于检测 PDF 响应并交给阅读器；该回退路径不读取网页正文。
+          </p>
+        </section>
+      </section>
+
+      <footer class="page-footer">
+        <a class="page-footer-link" href="./options.html">返回扩展设置</a>
+      </footer>
+    </main>
+  </body>
+</html>

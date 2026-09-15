@@ -222,6 +222,8 @@ export class PdfViewer {
       const loading = getDocument({
         url: source.url,
         data: source.data,
+        withCredentials: source.withCredentials === true,
+        isEvalSupported: false,
         cMapUrl: CMAP_URL,
         cMapPacked: true,
         standardFontDataUrl: FONT_URL,

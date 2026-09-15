@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>速览设置</title>
+    <link rel="stylesheet" href="./options.css" />
+    <script src="./options.js" defer></script>
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="page-header">
+        <a class="brand" href="./options.html" aria-label="速览设置首页">
+          <img class="brand-mark" src="./icons/logo.png" alt="" width="48" height="48" />
+          <span class="brand-copy">
+            <span class="brand-name">速览</span>
+            <span class="brand-product">Fast PDF Viewer</span>
+          </span>
+        </a>
+      </header>
+
+      <section class="intro" aria-labelledby="page-title">
+        <h1 id="page-title">扩展设置</h1>
+        <p>让 PDF 链接更快进入速览，也可以随时回到阅读器。</p>
+      </section>
+
+      <section class="settings-panel" aria-labelledby="handling-title">
+        <div class="section-heading">
+          <h2 id="handling-title">PDF 处理</h2>
+          <p>选择浏览器遇到 PDF 时的默认行为。</p>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-copy">
+            <h3>自动打开 PDF</h3>
+            <p id="auto-open-description">检测到 PDF 链接时，自动交给速览阅读。</p>
+          </div>
+          <label class="switch" aria-label="自动打开 PDF">
+            <input
+              id="auto-open-pdf"
+              class="switch-input"
+              type="checkbox"
+              aria-describedby="auto-open-description auto-open-permission"
+            />
+            <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+          </label>
+        </div>
+
+        <div id="auto-open-permission" class="permission-note">
+          <h3>主机访问权限（旧版浏览器回退）</h3>
+          <p>
+            支持原生 PDF 接管的浏览器无需主机访问权限。若当前浏览器不支持这项能力，启用时才会申请
+            <code>http://</code> 和 <code>https://</code> 页面的访问权限，用于检测 PDF 请求；扩展不读取网页正文。
+          </p>
+        </div>
+
+        <p id="settings-status" class="settings-status" role="status" aria-live="polite" aria-atomic="true"></p>
+      </section>
+
+      <nav class="quick-actions" aria-label="快捷操作">
+        <button id="open-reader" class="action action-primary" type="button">打开阅读器</button>
+        <a id="extension-details" class="action action-secondary" href="#">查看扩展详情</a>
+      </nav>
+
+      <footer class="page-footer">
+        <p>PDF 文件仍保留在本机；你可以在浏览器的扩展管理页调整更多权限。</p>
+        <a class="page-footer-link" href="./privacy.html">阅读隐私说明</a>
+      </footer>
+    </main>
+  </body>
+</html>

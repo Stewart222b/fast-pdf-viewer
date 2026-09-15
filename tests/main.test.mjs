@@ -8,7 +8,9 @@ function deferred() {
   const promise = new Promise(r => { resolve = r; });
   return { promise, resolve };
 }
-async function setup({ platform = 'Linux x86_64' } = {}) {
+async function setup({ platform = 'Linux x86_64', startup = null,
+  requestHostAccess = async () => true, saveSettings = () => ({}),
+  loadSettings = () => ({}), initSettings = async () => {} } = {}) {
   const elements = new Map(), timers = new Map();
   let timerId = 0, viewer, fileInput;
   const windowListeners = {};
@@ -105,7 +107,8 @@ async function setup({ platform = 'Linux x86_64' } = {}) {
   const exports = {
     './viewer.js': { PdfViewer: Viewer },
     './history.js': { ViewHistory: class { onChange() {} canBack() { return false; } canForward() { return false; } } },
-    './settings.js': { loadSettings: () => ({}), saveSettings: () => ({}) },
+    './settings.js': { loadSettings, saveSettings, initSettings },
+    './platform/extension.js': { requestHostAccess, fallbackToBrowser: async () => {} },
     './translate.js': { translateText() {}, MAX_TRANSLATE_CHARS: 4000 },
     './reading-position.js': {
       readingFingerprint: () => '',
@@ -115,7 +118,7 @@ async function setup({ platform = 'Linux x86_64' } = {}) {
     './platform/index.js': {
       createPlatform: () => ({
         id: 'test',
-        async startupOpen() { return null; },
+        async startupOpen() { return startup; },
         async pickFile() { return null; },
       }),
     },
@@ -160,6 +163,44 @@ async function setup({ platform = 'Linux x86_64' } = {}) {
     click(id) { const el = get(id); el.listeners.click?.({ target: el, preventDefault() {}, stopPropagation() {} }); },
   };
 }
+
+test('startup forwards MIME bytes and legacy credentials through the real reader entry', async () => {
+  const bytes = new Uint8Array([37, 80, 68, 70]);
+  const app = await setup({ startup: { data: bytes, name: 'paper.pdf', path: 'https://example.org/paper.pdf', withCredentials: true } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.viewer.source.data, bytes);
+  assert.equal(app.viewer.source.path, 'https://example.org/paper.pdf');
+  assert.equal(app.viewer.source.withCredentials, true);
+});
+
+test('boot reloads settings after initSettings', async () => {
+  const afterInit = [];
+  let ready = false;
+  await setup({
+    loadSettings() {
+      afterInit.push(ready);
+      return {};
+    },
+    async initSettings() {
+      ready = true;
+    },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(afterInit.at(-1), true);
+});
+
+test('denied translation host access leaves settings open and never saves credentials', async () => {
+  let saved = false;
+  const app = await setup({ requestHostAccess: async () => false, saveSettings() { saved = true; } });
+  app.get('settings-modal').hidden = false;
+  app.get('setting-key').value = 'test-only';
+  app.get('setting-base').value = 'https://example.org/v1';
+  await app.get('btn-settings-save').listeners.click();
+  assert.equal(saved, false);
+  assert.equal(app.get('settings-modal').hidden, false);
+  assert.equal(app.get('settings-error').hidden, false);
+  assert.equal(app.get('btn-settings-save').disabled, false);
+});
 
 test('search entry, outline switch and Escape preserve query and synchronize button', async () => {
   const app = await setup();

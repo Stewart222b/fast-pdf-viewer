@@ -1,0 +1,33 @@
+name: Build browser extension
+
+on:
+  pull_request:
+  push:
+    branches: [main, codex/browser-extension]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare pinned PDF.js assets
+        run: python desktop/bootstrap_pdfjs.py
+      - name: Reader and extension tests
+        run: node --experimental-vm-modules --test tests/*.test.mjs
+      - name: Package extension
+        run: node scripts/build-extension.mjs --zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fast-pdf-viewer-extension
+          path: dist/browser-extension.zip
+          if-no-files-found: error

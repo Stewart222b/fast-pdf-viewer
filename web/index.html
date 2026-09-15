@@ -215,6 +215,8 @@
     <div id="settings-modal" class="modal" hidden>
       <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <h2 id="settings-title">翻译设置</h2>
+        <button id="btn-extension-options" class="btn" type="button" hidden>扩展选项</button>
+        <button id="btn-original-pdf" class="btn" type="button" hidden>用浏览器打开原始 PDF</button>
         <div class="setting-field">
           <label class="setting-label" for="setting-key">API Key</label>
           <input id="setting-key" type="password" autocomplete="off" placeholder="sk-or-v1-..." />
@@ -252,6 +254,7 @@
           <button id="btn-settings-cancel" class="btn">取消</button>
           <button id="btn-settings-save" class="btn primary">保存</button>
         </div>
+        <p id="settings-error" class="hint error" role="alert" hidden></p>
       </div>
     </div>
 

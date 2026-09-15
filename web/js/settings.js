@@ -1,4 +1,20 @@
 const KEY = "fast-pdf-viewer-settings";
+let extensionSettings = null;
+
+function extensionStorage() {
+  return globalThis.location?.protocol === "chrome-extension:" && globalThis.chrome?.runtime?.id
+    ? globalThis.chrome.storage.local : null;
+}
+
+export async function initSettings() {
+  const storage = extensionStorage();
+  if (!storage) return;
+  const result = await storage.get(KEY);
+  extensionSettings = { ...defaults, ...result[KEY] };
+  globalThis.chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes[KEY]) extensionSettings = { ...defaults, ...changes[KEY].newValue };
+  });
+}
 
 const defaults = {
   apiKey: "",
@@ -9,6 +25,7 @@ const defaults = {
 };
 
 export function loadSettings() {
+  if (extensionStorage()) return { ...defaults, ...extensionSettings };
   try {
     const stored = JSON.parse(localStorage.getItem(KEY) || "{}");
     const merged = { ...defaults, ...stored };
@@ -19,8 +36,12 @@ export function loadSettings() {
   }
 }
 
-export function saveSettings(next) {
+export async function saveSettings(next) {
   const merged = { ...loadSettings(), ...next };
-  localStorage.setItem(KEY, JSON.stringify(merged));
+  const storage = extensionStorage();
+  if (storage) {
+    await storage.set({ [KEY]: merged });
+    extensionSettings = merged;
+  } else localStorage.setItem(KEY, JSON.stringify(merged));
   return merged;
 }

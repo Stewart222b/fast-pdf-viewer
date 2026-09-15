@@ -6,7 +6,8 @@ import {
   saveReadingPosition,
 } from "./reading-position.js";
 import { highlightSnippet, searchDocument } from "./search.js";
-import { loadSettings, saveSettings } from "./settings.js";
+import { loadSettings, saveSettings, initSettings } from "./settings.js";
+import { requestHostAccess, fallbackToBrowser } from "./platform/extension.js";
 import { wireModelPicker } from "./model-picker.js";
 import {
   readBubblePlainText,
@@ -391,6 +392,8 @@ async function openFile(file) {
 async function openFromPlatform(meta) {
   return openSource(() => ({
     url: meta.url,
+    data: meta.data,
+    withCredentials: meta.withCredentials,
     name: meta.name,
     id: meta.id,
     path: meta.path,
@@ -1404,6 +1407,7 @@ function trapModalTab(event, container) {
 }
 
 function openSettings() {
+  $("settings-error").hidden = true;
   settings = loadSettings();
   $("setting-key").value = settings.apiKey;
   $("setting-base").value = settings.apiBaseUrl;
@@ -1463,20 +1467,34 @@ $("pdf-password-modal")?.addEventListener("keydown", (event) => {
 $("btn-settings-cancel").addEventListener("click", () => {
   closeSettings();
 });
-$("btn-settings-save").addEventListener("click", () => {
-  settings = saveSettings({
+$("btn-settings-save").addEventListener("click", async () => {
+  const button = $("btn-settings-save");
+  const error = $("settings-error");
+  const next = {
     apiKey: $("setting-key").value.trim(),
-    apiBaseUrl: $("setting-base").value.trim(),
+    apiBaseUrl: $("setting-base").value.trim() || "https://openrouter.ai/api/v1",
     model: $("setting-model").value.trim() || "openai/gpt-4o-mini",
     targetLang: $("setting-lang").value,
     autoTranslateOnSelect: $("setting-auto-translate").checked,
-  });
-  syncBubbleModel();
-  const retryTranslate = translateAwaitingKey && settings.apiKey?.trim();
-  closeSettings();
-  if (retryTranslate) {
-    translateAwaitingKey = false;
-    void runTranslate(bubbleSelectionId);
+  };
+  try {
+    // Request from the click handler, before yielding the user gesture.
+    const permission = next.apiKey ? requestHostAccess(next.apiBaseUrl) : true;
+    button.disabled = true;
+    if (!await permission) throw new Error("未获得服务地址访问权限，设置尚未保存。");
+    settings = await saveSettings(next);
+    syncBubbleModel();
+    const retryTranslate = translateAwaitingKey && settings.apiKey?.trim();
+    closeSettings();
+    if (retryTranslate) {
+      translateAwaitingKey = false;
+      void runTranslate(bubbleSelectionId);
+    }
+  } catch (reason) {
+    error.textContent = reason.message || "保存失败，请重试。";
+    error.hidden = false;
+  } finally {
+    button.disabled = false;
   }
 });
 
@@ -1517,9 +1535,27 @@ function applyShortcutLabels() {
 async function boot() {
   applyShortcutLabels();
   document.body.dataset.platform = platform.id;
+  if (platform.id === "extension") {
+    $("btn-extension-options").hidden = false;
+    $("btn-extension-options").addEventListener("click", () => chrome.runtime.openOptionsPage());
+    $("btn-original-pdf").addEventListener("click", async () => {
+      try { await fallbackToBrowser(); }
+      catch (error) { showViewerStatus(error.message || "无法打开原始 PDF。", { action: true }); }
+    });
+  }
   const request = openGeneration;
-  const startup = await platform.startupOpen();
-  if (startup && request === openGeneration) await openFromPlatform(startup);
+  try {
+    await initSettings();
+    settings = loadSettings();
+    const startup = await platform.startupOpen();
+    if (startup && request === openGeneration) {
+      if (platform.id === "extension") $("btn-original-pdf").hidden = false;
+      await openFromPlatform(startup);
+    }
+  } catch (error) {
+    showViewerStatus(error.message || "无法打开文档。", { action: true });
+    if (platform.id === "extension") $("btn-original-pdf").hidden = false;
+  }
 }
 
 window.addEventListener("pagehide", flushReadingPosition);

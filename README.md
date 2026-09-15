@@ -34,6 +34,20 @@
 
 ## 快速开始
 
+### Chrome / Edge 扩展
+
+扩展沿用同一套阅读器，可打开本地 PDF，并提供在线 PDF 链接的手动打开入口和可选的自动接管。
+
+```bash
+python desktop/bootstrap_pdfjs.py
+node scripts/build-extension.mjs --zip
+```
+
+在浏览器扩展管理页启用开发者模式，选择“加载已解压的扩展程序”，加载 `dist/browser-extension/`。
+安装后在“扩展设置”中开启“自动打开 PDF”。不同浏览器的接管能力、安装步骤和发布前验证项目见 [扩展说明](docs/browser-extension.md)。
+
+`dist/browser-extension.zip` 是分发包；商店上架需要另外提交和审核。
+
 ### 在线体验（无需安装）
 
 在浏览器中打开 **[https://stewart222b.github.io/fast-pdf-viewer/](https://stewart222b.github.io/fast-pdf-viewer/)**，点击打开文件或将 PDF 拖入窗口即可。页面由仓库 `web/` 目录经 GitHub Pages 发布，与本地 `--browser` 模式同一套前端。

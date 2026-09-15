@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "速览",
+  "version": "0.1.0",
+  "description": "快速、安全地阅读 PDF。",
+  "minimum_chrome_version": "125",
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "storage"
+  ],
+  "optional_permissions": [
+    "webRequest"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "打开速览",
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "options_page": "options.html",
+  "mime_types_handler": {
+    "application/pdf": {
+      "handler_url": "web/index.html",
+      "can_embed": false
+    }
+  }
+}
