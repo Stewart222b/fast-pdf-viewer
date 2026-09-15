@@ -86,8 +86,8 @@ export class PdfViewer {
     this.pdf = null;
     this.pageCount = 0;
     this.currentPage = 1;
-    this.zoomMode = "150";
-    this.zoom = 1.5;
+    this.zoomMode = "page-width";
+    this.zoom = 1;
     this.baseWidth = 612;
     this.baseHeight = 792;
     this.pageSizes = [];

@@ -44,3 +44,11 @@ test('later page still wins over earlier chapters', () => {
   const a = entry('1.1', 11, 700);
   assert.equal(pickOutlineActive([chapter, a], { page: 11, pdfY: 700 }), a);
 });
+
+test('before any destination the outline highlights nothing', () => {
+  const later = entry('Chapter 2', 12, 700);
+  assert.equal(pickOutlineActive([later], { page: 1, pdfY: 400 }), null);
+  const cover = entry('Cover', 3, NaN);
+  const end = entry('Later', 20, NaN);
+  assert.equal(pickOutlineActive([cover, end], { page: 1, pdfY: NaN }), null);
+});

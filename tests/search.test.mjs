@@ -37,3 +37,26 @@ test('snippet highlighting does not corrupt HTML entities or inject markup', () 
   assert.equal(highlightSnippet('x < y & z', '<'), 'x <mark>&lt;</mark> y &amp; z');
   assert.equal(highlightSnippet('<img>', 'img'), '&lt;<mark>img</mark>&gt;');
 });
+
+test('matchRects skips text divs that have no measurable text node', () => {
+  const layer = {
+    clientWidth: 100,
+    clientHeight: 100,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100 }),
+    ownerDocument: {
+      createRange: () => ({
+        setStart(node) {
+          if (!node) throw new TypeError('Range.setStart: node is null');
+        },
+        setEnd(node) {
+          if (!node) throw new TypeError('Range.setEnd: node is null');
+        },
+        getClientRects: () => [{ left: 10, top: 10, width: 20, height: 10 }],
+      }),
+    },
+  };
+  const mapping = {
+    entries: [{ div: { isConnected: true, firstChild: null }, start: 0, end: 5 }],
+  };
+  assert.deepEqual(matchRects(mapping, layer, 0, 3), []);
+});
