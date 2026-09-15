@@ -16,6 +16,7 @@ import {
 import { getSelectionAnchorFromSelection, getSelectionAnchorRect } from "./selection-anchor.js";
 import { prepareSelectionForTranslation } from "./selection-text.js";
 import { applyBubblePlacement } from "./translate-bubble-placement.js";
+import { formatBubbleModelLabel } from "./translate-provider.js";
 import { MAX_TRANSLATE_CHARS, translateText } from "./translate.js";
 import { destPdfY, pickOutlineActive } from "./outline-active.js";
 import { PasswordResponses } from "../vendor/pdfjs/build/pdf.mjs";
@@ -1074,8 +1075,12 @@ function isAutoTranslateOn() {
   return loadSettings().autoTranslateOnSelect !== false;
 }
 
-function setBubbleStreaming(streaming) {
-  $("btn-translate-cancel").hidden = !streaming;
+function syncBubbleModel() {
+  const modelLabel = $("bubble-model");
+  if (!modelLabel) return;
+  const label = formatBubbleModelLabel(loadSettings());
+  modelLabel.textContent = label;
+  modelLabel.title = label;
 }
 
 function currentSelectionRect() {
@@ -1108,7 +1113,6 @@ function clearStreamingResult() {
 function cancelTranslate() {
   translateAbort?.abort();
   translateAbort = null;
-  setBubbleStreaming(false);
   clearStreamingResult();
 }
 
@@ -1143,7 +1147,6 @@ function hideBubble() {
   result.hidden = true;
   result.classList.remove("error", "streaming");
   result.textContent = "";
-  setBubbleStreaming(false);
   cancelTranslate();
 }
 
@@ -1165,6 +1168,7 @@ function openTranslatePanel(selectionRect, text, { startTranslate = true } = {})
   const selectionId = ++bubbleSelectionId;
   selectedText = text;
   bubbleSelectionRect = selectionRect;
+  syncBubbleModel();
   const source = $("translate-source");
   renderBubbleSource(source, text, selectedTranslationMode);
   updateSourceFold();
@@ -1173,7 +1177,6 @@ function openTranslatePanel(selectionRect, text, { startTranslate = true } = {})
   result.classList.remove("error", "streaming");
   result.replaceChildren();
   bubble.hidden = false;
-  setBubbleStreaming(false);
   repositionBubble();
   if (startTranslate) void runTranslate(selectionId);
   return selectionId;
@@ -1229,7 +1232,6 @@ function setTranslateError(message, selectionId) {
     translateAwaitingKey = false;
     result.append(retry);
   }
-  setBubbleStreaming(false);
 }
 
 async function runTranslate(selectionId = bubbleSelectionId) {
@@ -1245,7 +1247,6 @@ async function runTranslate(selectionId = bubbleSelectionId) {
   result.classList.remove("error");
   showStreamingCaret(result);
   scheduleRepositionBubble();
-  setBubbleStreaming(true);
 
   const controller = new AbortController();
   translateAbort = controller;
@@ -1262,7 +1263,6 @@ async function runTranslate(selectionId = bubbleSelectionId) {
       },
     });
     if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
-    setBubbleStreaming(false);
     result.classList.remove("streaming");
     renderBubbleTranslation(result, translated, selectedTranslationMode);
     translateAbort = null;
@@ -1270,7 +1270,6 @@ async function runTranslate(selectionId = bubbleSelectionId) {
   } catch (error) {
     if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
     if (controller.signal.aborted) {
-      setBubbleStreaming(false);
       clearStreamingResult();
       return;
     }
@@ -1347,10 +1346,6 @@ $("btn-source-toggle")?.addEventListener("click", () => {
   toggle.dataset.expanded = toggle.dataset.expanded === "true" ? "false" : "true";
   updateSourceFold();
   scheduleRepositionBubble();
-});
-$("btn-translate-cancel").addEventListener("click", () => {
-  translateAbort?.abort();
-  setBubbleStreaming(false);
 });
 $("btn-copy").addEventListener("click", async () => {
   const copy = readBubblePlainText($("translate-result")) || selectedText;
@@ -1476,6 +1471,7 @@ $("btn-settings-save").addEventListener("click", () => {
     targetLang: $("setting-lang").value,
     autoTranslateOnSelect: $("setting-auto-translate").checked,
   });
+  syncBubbleModel();
   const retryTranslate = translateAwaitingKey && settings.apiKey?.trim();
   closeSettings();
   if (retryTranslate) {

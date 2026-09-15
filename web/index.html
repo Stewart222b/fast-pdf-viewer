@@ -189,7 +189,7 @@
         <div id="translate-result" class="bubble-result" hidden></div>
       </div>
       <div class="bubble-actions">
-        <button id="btn-translate-cancel" class="btn tiny" hidden>取消</button>
+        <span id="bubble-model" class="bubble-model" aria-label="当前翻译模型"></span>
         <span class="bubble-actions-spacer"></span>
         <button id="btn-copy" class="btn tiny has-icon"><svg class="icon" aria-hidden="true"><use href="#i-copy" /></svg>复制</button>
         <button id="btn-bubble-close" class="btn icon tiny bubble-close" title="关闭 (Esc)" aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="#i-x" /></svg></button>
@@ -215,27 +215,27 @@
     <div id="settings-modal" class="modal" hidden>
       <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <h2 id="settings-title">翻译设置</h2>
-        <label>
-          API Key
+        <div class="setting-field">
+          <label class="setting-label" for="setting-key">API Key</label>
           <input id="setting-key" type="password" autocomplete="off" placeholder="sk-or-v1-..." />
-        </label>
-        <label>
-          模型
+        </div>
+        <div class="setting-field">
+          <label class="setting-label" for="setting-model">模型</label>
           <div class="model-picker">
             <input id="setting-model" type="text" autocomplete="off" placeholder="openai/gpt-4o-mini" />
             <ul id="setting-model-menu" class="model-menu" hidden></ul>
             <div id="setting-model-status" class="model-picker-status" hidden></div>
           </div>
-        </label>
-        <label>
-          目标语言
+        </div>
+        <div class="setting-field">
+          <label class="setting-label" for="setting-lang">目标语言</label>
           <select id="setting-lang">
             <option value="zh-CN">简体中文</option>
             <option value="zh-TW">繁体中文</option>
             <option value="en">English</option>
             <option value="ja">日本語</option>
           </select>
-        </label>
+        </div>
         <label class="setting-checkbox" for="setting-auto-translate">
           <input id="setting-auto-translate" type="checkbox" checked />
           <span class="setting-checkbox-label">划词后自动翻译</span>
@@ -243,10 +243,10 @@
         <details class="settings-advanced">
           <summary>服务地址与隐私</summary>
           <p class="hint compact">Base URL 与 Key 只保存在本机浏览器中；翻译直接从本机发往你配置的端点。</p>
-          <label>
-            API Base URL（OpenAI 兼容）
+          <div class="setting-field">
+            <label class="setting-label" for="setting-base">API Base URL（OpenAI 兼容）</label>
             <input id="setting-base" type="url" autocomplete="off" placeholder="https://openrouter.ai/api/v1" />
-          </label>
+          </div>
         </details>
         <div class="modal-actions">
           <button id="btn-settings-cancel" class="btn">取消</button>

@@ -490,8 +490,8 @@ select {
 .sidebar-head {
   display: flex;
   align-items: center;
-  height: 40px;
-  flex: 0 0 40px;
+  height: 32px;
+  flex: 0 0 32px;
   gap: 8px;
   padding: 0 8px;
   border-bottom: 1px solid var(--line);
@@ -515,7 +515,7 @@ select {
   color: var(--muted);
   font: inherit;
   font-size: 12px;
-  padding: 0 8px;
+  padding: 0 8px 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -547,6 +547,7 @@ select {
 
 #btn-sidebar-close {
   margin-left: auto;
+  transform: translateY(-2px);
 }
 
 .outline-tree-actions .btn.icon.tiny {
@@ -605,7 +606,7 @@ select {
 
 .search-controls {
   flex: 0 0 auto;
-  padding-top: 8px;
+  padding-top: 4px;
 }
 
 #search-list {
@@ -924,7 +925,7 @@ select {
   background: var(--bg-raised);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 14px;
+  padding: 14px 14px 6px;
   box-shadow: 0 3px 14px rgb(0 0 0 / 14%);
 }
 
@@ -939,8 +940,8 @@ select {
   gap: 6px;
   align-items: center;
   justify-content: flex-end;
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
   border-top: 1px solid var(--line);
 }
 
@@ -952,6 +953,29 @@ select {
 
 .bubble-close:hover {
   color: var(--text);
+}
+
+.bubble-model {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: calc(100% - 96px);
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.2;
+  opacity: 0.6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bubble-actions .btn.tiny {
+  height: 24px;
+  padding: 3px 7px;
+  font-size: 12px;
+}
+
+.bubble-actions .btn.icon.tiny {
+  width: 24px;
 }
 
 .bubble-actions-spacer {
@@ -985,7 +1009,7 @@ select {
 }
 
 .modal-card label.setting-checkbox {
-  display: flex;
+  display: inline-flex;
   flex-direction: row;
   align-items: center;
   gap: 8px;
@@ -1003,7 +1027,7 @@ select {
 }
 
 .modal-card label.setting-checkbox .setting-checkbox-label {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   line-height: 1.4;
 }
 
@@ -1022,8 +1046,8 @@ select {
 
 .bubble-result {
   margin-top: 8px;
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: 13px;
+  line-height: 1.6;
   overflow-wrap: anywhere;
 }
 
@@ -1064,7 +1088,7 @@ select {
   margin: 8px 0;
 }
 
-.settings-advanced label:last-child {
+.settings-advanced .setting-field:last-child {
   margin-bottom: 0;
 }
 
@@ -1193,6 +1217,16 @@ select {
   color: var(--muted);
 }
 
+.modal-card .setting-field {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.modal-card .setting-label {
+  display: inline-block;
+  margin-bottom: 0;
+}
+
 .modal-card input,
 .modal-card select {
   display: block;
@@ -1226,10 +1260,10 @@ select {
 }
 
 .model-menu {
-  position: absolute;
+  position: fixed;
   left: 0;
-  right: 0;
-  top: calc(100% + 4px);
+  top: 0;
+  width: 0;
   max-height: 220px;
   overflow: auto;
   background: var(--bg-raised);
