@@ -5,6 +5,8 @@ import { readFile } from "node:fs/promises";
 
 function listenerChrome({ native = false, hangContains = true } = {}) {
   const headerListeners = [];
+  const messageListeners = [];
+  const scriptCalls = [];
   let containsCalls = 0;
   let resolveContains;
   const containsPromise = new Promise(resolve => {
@@ -16,7 +18,11 @@ function listenerChrome({ native = false, hangContains = true } = {}) {
       getURL: path => `chrome-extension://id/${path}`,
       onInstalled: { addListener() {} },
       onStartup: { addListener() {} },
-      onMessage: { addListener() {} },
+      onMessage: {
+        addListener(listener) {
+          messageListeners.push(listener);
+        },
+      },
       openOptionsPage: async () => {},
     },
     storage: {
@@ -53,6 +59,13 @@ function listenerChrome({ native = false, hangContains = true } = {}) {
       update: async () => {},
       create: async () => {},
       onRemoved: { addListener() {} },
+      onUpdated: { addListener() {} },
+    },
+    scripting: {
+      executeScript: async details => {
+        scriptCalls.push(details);
+        return [];
+      },
     },
     webRequest: {
       onHeadersReceived: {
@@ -75,6 +88,8 @@ function listenerChrome({ native = false, hangContains = true } = {}) {
   return {
     chrome,
     headerListeners,
+    messageListeners,
+    scriptCalls,
     containsCalls: () => containsCalls,
     resolveContains,
   };
@@ -131,4 +146,22 @@ test("native MIME browsers skip the legacy webRequest listener", async () => {
   const harness = listenerChrome({ native: true, hangContains: true });
   await loadBackground(harness.chrome);
   assert.equal(harness.headerListeners.length, 0);
+});
+
+test("MIME tab titles are written onto the outer page with scripting", async () => {
+  const harness = listenerChrome({ native: true });
+  await loadBackground(harness.chrome);
+  const [onMessage] = harness.messageListeners;
+  const reply = await new Promise(resolve => {
+    const keep = onMessage(
+      { type: "set-tab-title", title: "1706.03762", tabId: 42 },
+      {},
+      resolve,
+    );
+    assert.equal(keep, true);
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(reply)), { ok: true });
+  const call = JSON.parse(JSON.stringify(harness.scriptCalls[0]));
+  assert.equal(call.target.tabId, 42);
+  assert.deepEqual(call.args, ["1706.03762"]);
 });

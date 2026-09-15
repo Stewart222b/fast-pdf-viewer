@@ -3,21 +3,35 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light" />
     <title>速览设置</title>
+    <script src="./web/js/theme.js"></script>
     <link rel="stylesheet" href="./options.css" />
     <script src="./options.js" defer></script>
   </head>
   <body>
+    <svg class="icon-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <symbol id="i-sun" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" />
+      </symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24">
+        <path d="M20.5 13A8.5 8.5 0 0 1 11 3.5 8.5 8.5 0 1 0 20.5 13Z" />
+      </symbol>
+    </svg>
     <main class="page-shell">
       <header class="page-header">
-        <a class="brand" href="./options.html" aria-label="速览设置首页">
-          <img class="brand-mark" src="./icons/logo.png" alt="" width="48" height="48" />
-          <span class="brand-copy">
-            <span class="brand-name">速览</span>
-            <span class="brand-product">Fast PDF Viewer</span>
-          </span>
-        </a>
+        <div class="page-header-row">
+          <a class="brand" href="./options.html" aria-label="速览设置首页">
+            <img class="brand-mark" src="./icons/logo.png" alt="" width="48" height="48" />
+            <span class="brand-copy">
+              <span class="brand-name">速览</span>
+              <span class="brand-product">Fast PDF Viewer</span>
+            </span>
+          </a>
+          <button id="btn-theme" class="theme-toggle" type="button" title="切换到浅色主题" aria-label="切换到浅色主题">
+            <svg class="icon" aria-hidden="true"><use id="theme-icon" href="#i-sun" /></svg>
+          </button>
+        </div>
       </header>
 
       <section class="intro" aria-labelledby="page-title">

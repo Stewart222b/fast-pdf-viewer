@@ -1,6 +1,7 @@
 import {
   AUTO_OPEN_STORAGE_KEY,
   OPEN_ORIGINAL_MESSAGE,
+  SET_TAB_TITLE_MESSAGE,
   authorizedOpenOriginal,
   buildViewerUrl,
   bypassStorageKey,
@@ -24,6 +25,25 @@ const LEGACY_PERMISSIONS = {
 let autoOpenPdf = false;
 let legacyListenerRegistered = false;
 const memoryBypasses = new Map();
+const desiredTabTitles = new Map();
+
+async function applyTabTitle(tabId, title) {
+  const trimmed = String(title || "").trim();
+  if (!Number.isInteger(tabId) || !trimmed) return;
+  desiredTabTitles.set(tabId, trimmed);
+  if (typeof chrome.scripting?.executeScript !== "function") return;
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: nextTitle => {
+        document.title = nextTitle;
+      },
+      args: [trimmed],
+    });
+  } catch (error) {
+    console.warn("Could not set the PDF tab title", error);
+  }
+}
 
 function viewerUrl(originalUrl) {
   return buildViewerUrl(path => chrome.runtime.getURL(path), originalUrl);
@@ -261,6 +281,15 @@ chrome.permissions.onRemoved.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === SET_TAB_TITLE_MESSAGE) {
+    const tabId = Number.isInteger(message.tabId) ? message.tabId : sender?.tab?.id;
+    void applyTabTitle(tabId, message.title).then(
+      () => sendResponse({ ok: true }),
+      error => sendResponse({ ok: false, error: String(error?.message || error) }),
+    );
+    return true;
+  }
+
   if (message?.type !== OPEN_ORIGINAL_MESSAGE) return false;
   const request = authorizedOpenOriginal(message, sender, path => chrome.runtime.getURL(path));
   if (!request) {
@@ -280,8 +309,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  const wanted = desiredTabTitles.get(tabId);
+  if (!wanted || !changeInfo.title || changeInfo.title === wanted) return;
+  void applyTabTitle(tabId, wanted);
+});
+
 chrome.tabs.onRemoved.addListener(tabId => {
   memoryBypasses.delete(tabId);
+  desiredTabTitles.delete(tabId);
   void chrome.storage.session.remove(bypassStorageKey(tabId)).catch(() => {});
 });
 

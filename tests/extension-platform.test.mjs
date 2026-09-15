@@ -13,6 +13,7 @@ function chromeApi(overrides = {}) {
       contains: async () => true,
       request: () => Promise.resolve(true),
     },
+    tabs: { update: async () => undefined },
     ...overrides,
   };
 }
@@ -41,10 +42,48 @@ test("ordinary extension page without a stream or query opens nothing", async ()
   assert.equal(startupFetches, 0);
 });
 
+test("MIME stream fetch works with an unbound global fetch reference", async () => {
+  let fetchCalls = 0;
+  const platform = createExtensionPlatform({
+    chrome: chromeApi({
+      mimeHandler: {
+        getStreamInfo: async () => ({
+          streamUrl: "blob:chrome-extension://extension-id/once",
+          originalUrl: "https://arxiv.org/pdf/1706.03762",
+        }),
+      },
+    }),
+    location: extensionLocation(),
+    fetch: globalThis.fetch,
+    fetchImpl: globalThis.fetch,
+  });
+
+  const prior = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    fetchCalls += 1;
+    assert.equal(url, "blob:chrome-extension://extension-id/once");
+    return {
+      ok: true,
+      async arrayBuffer() {
+        return Uint8Array.from([37, 80, 68, 70]).buffer;
+      },
+    };
+  };
+  try {
+    const opened = await platform.startupOpen();
+    assert.equal(fetchCalls, 1);
+    assert.equal(opened.name, "1706.03762");
+    assert.deepEqual(opened.data, Uint8Array.from([37, 80, 68, 70]));
+  } finally {
+    globalThis.fetch = prior;
+  }
+});
+
 test("MIME stream is fetched and consumed exactly once", async () => {
   let streamInfoCalls = 0;
   let fetchCalls = 0;
   let arrayBufferCalls = 0;
+  let tabTitle;
   const platform = createExtensionPlatform({
     chrome: chromeApi({
       mimeHandler: {
@@ -53,7 +92,16 @@ test("MIME stream is fetched and consumed exactly once", async () => {
           return {
             streamUrl: "blob:chrome-extension://extension-id/once",
             originalUrl: "https://example.com/reports/annual.pdf",
+            tabId: 42,
           };
+        },
+      },
+      runtime: {
+        id: "extension-id",
+        sendMessage: async message => {
+          assert.equal(message.type, "set-tab-title");
+          assert.equal(message.tabId, 42);
+          tabTitle = message.title;
         },
       },
     }),
@@ -83,6 +131,7 @@ test("MIME stream is fetched and consumed exactly once", async () => {
   assert.equal(streamInfoCalls, 1);
   assert.equal(fetchCalls, 1);
   assert.equal(arrayBufferCalls, 1);
+  assert.equal(tabTitle, "annual.pdf");
 });
 
 test("legacy startup rejects unsafe and credentialed URLs", async () => {

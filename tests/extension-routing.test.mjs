@@ -85,7 +85,7 @@ test("bypass session keys are tab-scoped", () => {
   assert.notEqual(bypassStorageKey(3), bypassStorageKey(4));
 });
 
-test("manifest keeps broad network access optional and declares extension contracts", async () => {
+test("manifest declares extension contracts and broad http(s) host access", async () => {
   const manifest = JSON.parse(
     await readFile(new URL("../extension/manifest.json", import.meta.url), "utf8"),
   );
@@ -94,10 +94,12 @@ test("manifest keeps broad network access optional and declares extension contra
   assert.equal(manifest.background.service_worker, "background.js");
   assert.equal(manifest.options_page, "options.html");
   assert.equal(manifest.permissions.includes("activeTab"), true);
+  assert.equal(manifest.permissions.includes("tabs"), true);
+  assert.equal(manifest.permissions.includes("scripting"), true);
   assert.equal(manifest.permissions.includes("webRequest"), false);
-  assert.equal("host_permissions" in manifest, false);
+  assert.deepEqual(manifest.host_permissions, ["http://*/*", "https://*/*"]);
   assert.deepEqual(manifest.optional_permissions, ["webRequest"]);
-  assert.deepEqual(manifest.optional_host_permissions, ["http://*/*", "https://*/*"]);
+  assert.equal("optional_host_permissions" in manifest, false);
   assert.equal(manifest.mime_types_handler["application/pdf"].handler_url, "web/index.html");
   assert.equal(
     manifest.content_security_policy.extension_pages,

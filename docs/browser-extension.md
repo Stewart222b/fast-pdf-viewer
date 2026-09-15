@@ -47,7 +47,7 @@ The extension settings use the browser’s local extension storage. The configur
 
 For translation, only text the user selects in the PDF is sent to the configured provider, together with the request authentication and prompt needed for that provider. Model-list requests, when enabled, contact the configured provider but do not upload the PDF. PDF content is fetched in the browser from the remote PDF’s source host (or read from a local file in the normal web/desktop viewer); this packaging work does not send whole PDF files to the translation provider. Provider retention, logging, and training practices are outside this repository and must be checked before publication.
 
-The extension requests only the permissions declared in `extension/manifest.json`, with optional host access for automatic PDF detection. Users should grant host access only when they want that feature.
+The extension requests `http://*/*` and `https://*/*` host access at install time so PDF routing and remote loading can work without per-site prompts. Optional `webRequest` is still requested only on browsers that need the legacy PDF interception path. Users can review and restrict site access in the browser’s extension settings.
 
 ## Chrome sideload checklist
 

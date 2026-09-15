@@ -2,10 +2,16 @@ const EXTENSION_PROTOCOL = "chrome-extension:";
 
 let defaultState = null;
 
+function wrapFetch(options = {}) {
+  const custom = options.fetch ?? options.fetchImpl;
+  if (custom && custom !== globalThis.fetch) return custom;
+  return (...args) => globalThis.fetch(...args);
+}
+
 function dependencies(options = {}) {
   return {
     chrome: options.chrome ?? options.chromeApi ?? globalThis.chrome,
-    fetch: options.fetch ?? options.fetchImpl ?? globalThis.fetch,
+    fetch: wrapFetch(options),
     location: options.location ?? globalThis.location,
   };
 }
@@ -75,8 +81,23 @@ function createState(options) {
     ...dependencies(options),
     activeMime: false,
     originalUrl: null,
+    mimeTabId: null,
     startupPromise: null,
   };
+}
+
+async function setBrowserTabTitle(state, title) {
+  const trimmed = String(title || "").trim();
+  if (!trimmed || typeof state.chrome?.runtime?.sendMessage !== "function") return;
+  try {
+    await state.chrome.runtime.sendMessage({
+      type: "set-tab-title",
+      title: trimmed,
+      tabId: state.mimeTabId,
+    });
+  } catch {
+    // The MIME shell tab still shows the original URL if Edge rejects the update.
+  }
 }
 
 async function openLegacyUrl(state) {
@@ -116,6 +137,7 @@ async function startup(state) {
 
     state.activeMime = true;
     state.originalUrl = info.originalUrl;
+    state.mimeTabId = info.tabId ?? null;
     const response = await state.fetch(info.streamUrl);
     if (response.ok === false) {
       throw new Error(`读取 PDF MIME 流失败（HTTP ${response.status}）。`);
@@ -128,6 +150,7 @@ async function startup(state) {
     } catch {
       // Chrome owns originalUrl; retain a useful display name if it is unusual.
     }
+    await setBrowserTabTitle(state, name);
     return {
       data: new Uint8Array(buffer),
       name,
@@ -183,6 +206,9 @@ export function createExtensionPlatform(options = {}) {
     },
     fallbackToBrowser() {
       return fallback(state);
+    },
+    setTabTitle(title) {
+      return setBrowserTabTitle(state, title);
     },
   };
 }

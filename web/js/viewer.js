@@ -218,6 +218,8 @@ export class PdfViewer {
   async open(source) {
     this.close();
     const generation = this.generation;
+    this.name = source.name || "文档";
+    this.notify();
     try {
       const loading = getDocument({
         url: source.url,
@@ -237,7 +239,6 @@ export class PdfViewer {
       const pdf = await loading.promise;
       if (generation !== this.generation) return null;
       this.pdf = pdf;
-      this.name = source.name || "文档";
       this.pageCount = pdf.numPages;
       await this.loadFirstPageSize(pdf, generation);
       if (generation !== this.generation) return null;

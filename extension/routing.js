@@ -1,5 +1,6 @@
 export const AUTO_OPEN_STORAGE_KEY = "autoOpenPdf";
 export const OPEN_ORIGINAL_MESSAGE = "open-original";
+export const SET_TAB_TITLE_MESSAGE = "set-tab-title";
 export const VIEWER_PATH = "web/index.html";
 export const PDF_BYPASS_PREFIX = "pdfOriginalBypass:";
 

@@ -199,6 +199,21 @@ function syncZoom(mode) {
   }
 }
 
+const APP_TITLE = "速览";
+
+function syncTabTitle() {
+  const name = viewer.name?.trim();
+  document.title = viewer.pdf || name ? (name || APP_TITLE) : APP_TITLE;
+}
+
+function applyTabTitle(name) {
+  const trimmed = String(name || "").trim();
+  if (trimmed) document.title = trimmed;
+  if (platform.id === "extension" && typeof platform.setTabTitle === "function") {
+    void platform.setTabTitle(trimmed);
+  }
+}
+
 function syncToolbar(state) {
   const hasDoc = Boolean(viewer.pdf);
   $("page-controls").hidden = !hasDoc;
@@ -216,6 +231,7 @@ function syncToolbar(state) {
   $("btn-forward").disabled = !history.canForward();
   updateOutlineActive();
   scheduleSaveReadingPosition();
+  syncTabTitle();
 }
 
 function stepPage(delta) {
@@ -378,6 +394,7 @@ async function openSource(getSource) {
 }
 
 async function openFile(file) {
+  applyTabTitle(file?.name);
   return openSource(() => {
     objectUrl = URL.createObjectURL(file);
     return {
@@ -390,6 +407,7 @@ async function openFile(file) {
 }
 
 async function openFromPlatform(meta) {
+  applyTabTitle(meta?.name);
   return openSource(() => ({
     url: meta.url,
     data: meta.data,
@@ -1549,6 +1567,7 @@ async function boot() {
     settings = loadSettings();
     const startup = await platform.startupOpen();
     if (startup && request === openGeneration) {
+      applyTabTitle(startup.name);
       if (platform.id === "extension") $("btn-original-pdf").hidden = false;
       await openFromPlatform(startup);
     }
