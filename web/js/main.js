@@ -16,6 +16,7 @@ import {
 import { getSelectionAnchorFromSelection, getSelectionAnchorRect } from "./selection-anchor.js";
 import { prepareSelectionForTranslation } from "./selection-text.js";
 import { applyBubblePlacement } from "./translate-bubble-placement.js";
+import { formatBubbleModelLabel } from "./translate-provider.js";
 import { MAX_TRANSLATE_CHARS, translateText } from "./translate.js";
 import { destPdfY, pickOutlineActive } from "./outline-active.js";
 import { PasswordResponses } from "../vendor/pdfjs/build/pdf.mjs";
@@ -1077,9 +1078,9 @@ function isAutoTranslateOn() {
 function syncBubbleModel() {
   const modelLabel = $("bubble-model");
   if (!modelLabel) return;
-  const model = loadSettings().model?.trim() || "openai/gpt-4o-mini";
-  modelLabel.textContent = `Powered by OpenAI · ${model}`;
-  modelLabel.title = modelLabel.textContent;
+  const label = formatBubbleModelLabel(loadSettings());
+  modelLabel.textContent = label;
+  modelLabel.title = label;
 }
 
 function currentSelectionRect() {

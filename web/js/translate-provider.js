@@ -9,6 +9,19 @@ export const MAX_TRANSLATE_CHARS = 4000;
 export const DEFAULT_API_BASE = "https://openrouter.ai/api/v1";
 export const DEFAULT_MODEL = "openai/gpt-4o-mini";
 
+/**
+ * Translate-bubble footer: reflect the configured API endpoint, not the model id prefix.
+ * @param {{ apiBaseUrl?: string, model?: string } | null | undefined} settings
+ */
+export function formatBubbleModelLabel(settings) {
+  const model = String(settings?.model ?? DEFAULT_MODEL).trim() || DEFAULT_MODEL;
+  const base = normalizeApiBase(settings?.apiBaseUrl).toLowerCase();
+  if (base.includes("openrouter.ai")) return `OpenRouter · ${model}`;
+  if (base.includes("openai.com")) return `OpenAI · ${model}`;
+  if (base.includes("anthropic.com")) return `Anthropic · ${model}`;
+  return model;
+}
+
 export function normalizeApiBase(url) {
   const trimmed = String(url || DEFAULT_API_BASE).trim().replace(/\/+$/, "");
   return trimmed || DEFAULT_API_BASE;

@@ -9,12 +9,37 @@ import {
   modelMatchesQuery,
   modelsUrl,
   normalizeApiBase,
+  formatBubbleModelLabel,
   translateWithProvider,
   parseSseTranslationChunk,
 } from '../web/js/translate-provider.js';
 
 test('normalizeApiBase trims trailing slashes', () => {
   assert.equal(normalizeApiBase('https://api.example.com/v1/'), 'https://api.example.com/v1');
+});
+
+test('formatBubbleModelLabel reflects API endpoint not model vendor prefix', () => {
+  assert.equal(
+    formatBubbleModelLabel({
+      apiBaseUrl: 'https://openrouter.ai/api/v1',
+      model: 'google/gemini-2.0-flash',
+    }),
+    'OpenRouter · google/gemini-2.0-flash',
+  );
+  assert.equal(
+    formatBubbleModelLabel({
+      apiBaseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o-mini',
+    }),
+    'OpenAI · gpt-4o-mini',
+  );
+  assert.equal(
+    formatBubbleModelLabel({
+      apiBaseUrl: 'http://127.0.0.1:11434/v1',
+      model: 'llama3',
+    }),
+    'llama3',
+  );
 });
 
 test('modelsUrl appends /models for OpenAI-compatible bases', () => {
