@@ -12,6 +12,26 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
 
   const isModelFieldFocused = () => document.activeElement === input;
 
+  const positionMenu = () => {
+    if (menu.hidden) return;
+    const anchor = menu.parentElement?.getBoundingClientRect?.();
+    const style = menu.style;
+    if (!anchor || !style || !menu.getBoundingClientRect) return;
+
+    const gap = 4;
+    const viewportHeight = globalThis.innerHeight || document.documentElement?.clientHeight || 0;
+    style.left = `${Math.round(anchor.left)}px`;
+    style.top = `${Math.round(anchor.bottom + gap)}px`;
+    style.width = `${Math.round(anchor.width)}px`;
+
+    const menuHeight = menu.getBoundingClientRect().height;
+    const spaceBelow = viewportHeight - anchor.bottom - gap;
+    const spaceAbove = anchor.top - gap;
+    if (menuHeight > spaceBelow && menuHeight <= spaceAbove) {
+      style.top = `${Math.round(anchor.top - menuHeight - gap)}px`;
+    }
+  };
+
   const renderMenu = (query) => {
     menu.replaceChildren();
     const matches = models.filter((model) => modelMatchesQuery(model, query)).slice(0, 80);
@@ -47,6 +67,7 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
       menu.append(item);
     }
     menu.hidden = false;
+    positionMenu();
   };
 
   const setStatus = (text, isError = false) => {
@@ -109,6 +130,10 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
   input.addEventListener("keydown", (event) => {
     if (event.key === "Escape") hideMenu();
   });
+
+  menu.closest?.(".modal-card")?.addEventListener("scroll", positionMenu, { passive: true });
+  globalThis.addEventListener?.("resize", positionMenu);
+  globalThis.addEventListener?.("scroll", positionMenu, true);
 
   return { refresh, hideMenu, invalidatePending };
 }
