@@ -1568,12 +1568,12 @@ async function boot() {
     const startup = await platform.startupOpen();
     if (startup && request === openGeneration) {
       applyTabTitle(startup.name);
-      if (platform.id === "extension") $("btn-original-pdf").hidden = false;
+      if (platform.canFallbackToBrowser?.()) $("btn-original-pdf").hidden = false;
       await openFromPlatform(startup);
     }
   } catch (error) {
     showViewerStatus(error.message || "无法打开文档。", { action: true });
-    if (platform.id === "extension") $("btn-original-pdf").hidden = false;
+    if (platform.canFallbackToBrowser?.()) $("btn-original-pdf").hidden = false;
   }
 }
 

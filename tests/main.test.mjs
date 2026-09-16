@@ -10,7 +10,9 @@ function deferred() {
 }
 async function setup({ platform = 'Linux x86_64', startup = null,
   requestHostAccess = async () => true, saveSettings = () => ({}),
-  loadSettings = () => ({}), initSettings = async () => {} } = {}) {
+  loadSettings = () => ({}), initSettings = async () => {},
+  platformId = 'test', canFallbackToBrowser = undefined,
+  chrome = undefined } = {}) {
   const elements = new Map(), timers = new Map();
   let timerId = 0, viewer, fileInput;
   const windowListeners = {};
@@ -113,6 +115,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
       userAgent: /Mac|iPhone|iPad/i.test(platform) ? 'Mozilla/5.0 (Macintosh)' : 'Mozilla/5.0 (X11; Linux x86_64)',
     },
     setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
+    chrome,
   });
   const exports = {
     './viewer.js': { PdfViewer: Viewer },
@@ -127,9 +130,10 @@ async function setup({ platform = 'Linux x86_64', startup = null,
     },
     './platform/index.js': {
       createPlatform: () => ({
-        id: 'test',
-        async startupOpen() { return startup; },
+        id: platformId,
+        async startupOpen() { return typeof startup === 'function' ? startup() : startup; },
         async pickFile() { return null; },
+        ...(canFallbackToBrowser !== undefined ? { canFallbackToBrowser } : {}),
       }),
     },
     './model-picker.js': {
@@ -166,6 +170,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
   get('settings-modal').hidden = true;
   get('pdf-password-modal').hidden = true;
   get('zoom-menu').hidden = true;
+  get('btn-original-pdf').hidden = true;
   return { viewer, get, fileInput, revoked, document: context.document,
     dispatch(type, event) { for (const fn of windowListeners[type] || []) fn(event); },
     input(value) { const el = get('search-input'); el.value = value; el.listeners.input({ target: el }); },
@@ -769,4 +774,32 @@ test('extension chrome sits in the toolbar and settings footer', async () => {
     settings,
     /class="modal-actions"[\s\S]*id="btn-extension-options"[\s\S]*扩展设置[\s\S]*id="btn-settings-cancel"/,
   );
+});
+
+test('extension boot failure without file keeps original-pdf button hidden', async () => {
+  const openOptionsPage = [];
+  const app = await setup({
+    platformId: 'extension',
+    canFallbackToBrowser: () => false,
+    chrome: { runtime: { openOptionsPage: () => { openOptionsPage.push(1); } } },
+    startup: () => Promise.reject(new Error('no file')),
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.get('btn-original-pdf').hidden, true);
+  assert.equal(app.get('btn-extension-options').hidden, false);
+  assert.equal(openOptionsPage.length, 0);
+});
+
+test('extension boot failure with file shows original-pdf button', async () => {
+  const openOptionsPage = [];
+  const app = await setup({
+    platformId: 'extension',
+    canFallbackToBrowser: () => true,
+    chrome: { runtime: { openOptionsPage: () => { openOptionsPage.push(1); } } },
+    startup: () => Promise.reject(new Error('permission denied')),
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.get('btn-original-pdf').hidden, false);
+  assert.equal(app.get('btn-extension-options').hidden, false);
+  assert.equal(openOptionsPage.length, 0);
 });

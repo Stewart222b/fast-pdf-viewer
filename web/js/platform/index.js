@@ -33,6 +33,12 @@ export function createPlatform() {
     pickFile(...args) {
       return activePlatform().pickFile(...args);
     },
+    setTabTitle(...args) {
+      return activePlatform().setTabTitle?.(...args);
+    },
+    canFallbackToBrowser(...args) {
+      return activePlatform().canFallbackToBrowser?.(...args);
+    },
   };
   if (typeof window !== "undefined") {
     window.addEventListener("pywebviewready", () => {

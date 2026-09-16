@@ -207,6 +207,9 @@ export function createExtensionPlatform(options = {}) {
     fallbackToBrowser() {
       return fallback(state);
     },
+    canFallbackToBrowser() {
+      return Boolean(state.activeMime || state.originalUrl);
+    },
     setTabTitle(title) {
       return setBrowserTabTitle(state, title);
     },
