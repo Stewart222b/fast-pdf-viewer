@@ -210,6 +210,11 @@ export function createExtensionPlatform(options = {}) {
     canFallbackToBrowser() {
       return Boolean(state.activeMime || state.originalUrl);
     },
+    clearBrowserFallback() {
+      state.activeMime = false;
+      state.originalUrl = null;
+      state.mimeTabId = null;
+    },
     setTabTitle(title) {
       return setBrowserTabTitle(state, title);
     },

@@ -201,6 +201,18 @@ test("failed MIME fetch propagates and never replays the original URL", async ()
   assert.deepEqual(fetched, ["blob:chrome-extension://extension-id/once"]);
 });
 
+test("clearBrowserFallback drops MIME and legacy original URL state", async () => {
+  const platform = createExtensionPlatform({
+    chrome: chromeApi(),
+    location: extensionLocation(`?file=${encodeURIComponent("https://example.com/a.pdf")}`),
+  });
+  await platform.startupOpen();
+  assert.equal(platform.canFallbackToBrowser(), true);
+
+  platform.clearBrowserFallback();
+  assert.equal(platform.canFallbackToBrowser(), false);
+});
+
 test("legacy startup returns credentialed PDF.js URL metadata", async () => {
   const url = "https://example.com/files/a%20book.pdf?download=1";
   const platform = createExtensionPlatform({

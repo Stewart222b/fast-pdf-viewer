@@ -24,6 +24,7 @@ function listenerChrome({
   const updateCalls = [];
   const createCalls = [];
   const sessionStore = new Map();
+  const localSets = [];
   const tabsById = new Map();
   let containsCalls = 0;
   let resolveContains;
@@ -60,7 +61,9 @@ function listenerChrome({
           }
           return { autoOpenPdf: autoOpen };
         },
-        set: async () => {},
+        set: async value => {
+          localSets.push(value);
+        },
       },
       session: {
         async get(key) {
@@ -161,6 +164,7 @@ function listenerChrome({
     updateCalls,
     createCalls,
     sessionStore,
+    localSets,
     tabsById,
     containsCalls: () => containsCalls,
     resolveContains,
@@ -454,6 +458,100 @@ test("action click opens .pdf URLs directly without probing", async () => {
   assert.equal(probed, false);
   const expected = `chrome-extension://id/web/index.html?file=${encodeURIComponent("https://example.com/paper.pdf")}`;
   assert.deepEqual(plain(harness.updateCalls), [{ id: 2, changes: { url: expected } }]);
+});
+
+test("revoked legacy permission clears persisted auto-open preference", async () => {
+  const harness = listenerChrome({
+    hangContains: false,
+    containsResult: false,
+    autoOpen: true,
+  });
+  await loadBackground(harness.chrome);
+  await flush();
+  assert.deepEqual(plain(harness.localSets), [{ autoOpenPdf: false }]);
+  assert.equal(harness.headerListeners.length, 0);
+});
+
+test("non-PDF navigation clears a pending original-PDF bypass", async () => {
+  const harness = listenerChrome({ autoOpen: true });
+  await loadBackground(harness.chrome);
+  const [onMessage] = harness.messageListeners;
+  const originalUrl = "https://example.com/protected.pdf";
+  const sender = {
+    tab: { id: 8 },
+    url: `chrome-extension://id/web/index.html?file=${encodeURIComponent(originalUrl)}`,
+  };
+  await new Promise(resolve => {
+    onMessage({ type: "open-original", url: originalUrl }, sender, resolve);
+  });
+  assert.equal(harness.sessionStore.has("pdfOriginalBypass:8"), true);
+
+  harness.headerListeners[0].listener({
+    tabId: 8,
+    url: "https://example.com/login",
+    type: "main_frame",
+    method: "GET",
+    responseHeaders: [{ name: "content-type", value: "text/html" }],
+  });
+  await flush();
+  assert.equal(harness.sessionStore.has("pdfOriginalBypass:8"), false);
+  assert.equal(harness.updateCalls.length, 1);
+});
+
+test("navigation completion clears bypass when legacy listener is inactive", async () => {
+  const harness = listenerChrome({ autoOpen: false });
+  await loadBackground(harness.chrome);
+  const [onMessage] = harness.messageListeners;
+  const originalUrl = "https://example.com/protected.pdf";
+  const sender = {
+    tab: { id: 12 },
+    url: `chrome-extension://id/web/index.html?file=${encodeURIComponent(originalUrl)}`,
+  };
+  await new Promise(resolve => {
+    onMessage({ type: "open-original", url: originalUrl }, sender, resolve);
+  });
+  assert.equal(harness.sessionStore.has("pdfOriginalBypass:12"), true);
+  assert.equal(harness.headerListeners.length, 0);
+
+  harness.updatedListeners[0](12, { status: "complete" });
+  await flush();
+  assert.equal(harness.sessionStore.has("pdfOriginalBypass:12"), false);
+});
+
+test("stale bypass does not suppress routing for a later unrelated PDF", async () => {
+  const harness = listenerChrome({ autoOpen: true });
+  await loadBackground(harness.chrome);
+  const [onMessage] = harness.messageListeners;
+  const staleUrl = "https://example.com/old.pdf";
+  const sender = {
+    tab: { id: 15 },
+    url: `chrome-extension://id/web/index.html?file=${encodeURIComponent(staleUrl)}`,
+  };
+  await new Promise(resolve => {
+    onMessage({ type: "open-original", url: staleUrl }, sender, resolve);
+  });
+  harness.headerListeners[0].listener({
+    tabId: 15,
+    url: "https://example.com/login",
+    type: "main_frame",
+    method: "GET",
+    responseHeaders: [{ name: "content-type", value: "text/html" }],
+  });
+  await flush();
+  assert.equal(harness.sessionStore.has("pdfOriginalBypass:15"), false);
+
+  const nextPdf = "https://example.com/new.pdf";
+  harness.tabsById.set(15, { url: nextPdf });
+  harness.headerListeners[0].listener({
+    tabId: 15,
+    url: nextPdf,
+    type: "main_frame",
+    method: "GET",
+    responseHeaders: [{ name: "content-type", value: "application/pdf" }],
+  });
+  await flush();
+  const expected = `chrome-extension://id/web/index.html?file=${encodeURIComponent(nextPdf)}`;
+  assert.deepEqual(plain(harness.updateCalls.at(-1)), { id: 15, changes: { url: expected } });
 });
 
 test("toggling auto-open off unregisters the legacy listener", async () => {

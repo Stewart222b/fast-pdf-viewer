@@ -100,6 +100,25 @@ async function putBypass(tabId, url) {
   }
 }
 
+async function hasBypass(tabId) {
+  if (memoryBypasses.has(tabId)) return true;
+  try {
+    const key = bypassStorageKey(tabId);
+    return Boolean((await chrome.storage.session.get(key))[key]);
+  } catch {
+    return false;
+  }
+}
+
+async function clearBypass(tabId) {
+  memoryBypasses.delete(tabId);
+  try {
+    await chrome.storage.session.remove(bypassStorageKey(tabId));
+  } catch {
+    // Session cleanup is best-effort once the tab has moved on.
+  }
+}
+
 async function takeMatchingBypass(tabId, url, redirectChain = []) {
   const key = bypassStorageKey(tabId);
   let bypass = memoryBypasses.get(tabId);
@@ -130,15 +149,26 @@ async function takeMatchingBypass(tabId, url, redirectChain = []) {
 
 async function handleLegacyPdfNavigation(details) {
   await settingsReady;
-  if (!autoOpenPdf || hasNativeMimeHandler() || !isLegacyPdfNavigation(details)) return;
-
-  const originalUrl = normalizeHttpUrl(details.url);
-  if (
-    !originalUrl ||
-    (await takeMatchingBypass(details.tabId, originalUrl, details.redirectChain))
-  ) {
+  if (hasNativeMimeHandler() || details?.type !== "main_frame" || details?.method !== "GET") {
     return;
   }
+  if (!Number.isInteger(details.tabId) || details.tabId < 0) return;
+
+  const originalUrl = normalizeHttpUrl(details.url);
+  if (!originalUrl) return;
+
+  const isPdfResponse = isLegacyPdfNavigation(details);
+  if (await hasBypass(details.tabId)) {
+    if (isPdfResponse) {
+      if (await takeMatchingBypass(details.tabId, originalUrl, details.redirectChain)) return;
+      await clearBypass(details.tabId);
+    } else {
+      await clearBypass(details.tabId);
+      return;
+    }
+  }
+
+  if (!autoOpenPdf || !isPdfResponse) return;
 
   const target = viewerUrl(originalUrl);
   if (!target) return;
@@ -203,8 +233,19 @@ async function reconcileLegacyListener() {
   } catch (error) {
     console.warn("Could not inspect legacy PDF permissions", error);
   }
-  if (granted) registerLegacyListener();
-  else unregisterLegacyListener();
+  if (granted) {
+    registerLegacyListener();
+    return;
+  }
+
+  unregisterLegacyListener();
+  if (!autoOpenPdf) return;
+  autoOpenPdf = false;
+  try {
+    await chrome.storage.local.set({ [AUTO_OPEN_STORAGE_KEY]: false });
+  } catch (error) {
+    console.warn("Could not clear automatic PDF handling after permission loss", error);
+  }
 }
 
 // MV3 delivers the waking navigation only if this listener exists at
@@ -407,6 +448,11 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   // A navigation replaces the document that owned the enforced title; stop
   // re-writing the PDF name once the tab has moved on to another page.
   if (changeInfo.url || changeInfo.pendingUrl) desiredTabTitles.delete(tabId);
+  // When legacy webRequest is inactive, only navigation completion can retire
+  // a stored original-PDF bypass (for example after a non-PDF error page).
+  if (changeInfo.status === "complete" && !legacyListenerRegistered) {
+    void clearBypass(tabId);
+  }
   const wanted = desiredTabTitles.get(tabId);
   if (!wanted || !changeInfo.title || changeInfo.title === wanted) return;
   void applyTabTitle(tabId, wanted);
