@@ -325,17 +325,70 @@ test("PDF navigation without a bypass still routes into the viewer", async () =>
   assert.deepEqual(plain(harness.updateCalls), [{ id: 3, changes: { url: expected } }]);
 });
 
+test("legacy PDF navigation without redirectChain still routes when no bypass is stored", async () => {
+  const harness = listenerChrome({ autoOpen: true });
+  await loadBackground(harness.chrome);
+  const pdfUrl = "https://example.com/paper.pdf";
+  harness.tabsById.set(4, { url: pdfUrl });
+  harness.headerListeners[0].listener({
+    tabId: 4,
+    url: pdfUrl,
+    type: "main_frame",
+    method: "GET",
+    responseHeaders: [{ name: "content-type", value: "application/pdf" }],
+  });
+  await flush();
+  const expected = `chrome-extension://id/web/index.html?file=${encodeURIComponent(pdfUrl)}`;
+  assert.deepEqual(plain(harness.updateCalls), [{ id: 4, changes: { url: expected } }]);
+});
+
 test("the link context menu only targets PDF links", async () => {
   const harness = listenerChrome();
   await loadBackground(harness.chrome);
   const [onInstalled] = harness.installedListeners;
   await onInstalled({ reason: "update" });
   assert.equal(harness.menuCreates.length, 1);
-  assert.deepEqual(plain(harness.menuCreates[0].targetUrlPatterns), [
-    "*://*/*.pdf",
-    "*://*/*.pdf?*",
-  ]);
+  const patterns = plain(harness.menuCreates[0].targetUrlPatterns);
+  assert.equal(patterns.length, 16);
+  assert.ok(patterns.includes("*://*/*.pdf"));
+  assert.ok(patterns.includes("*://*/*.PDF"));
+  assert.ok(patterns.includes("*://*/*.pdf?*"));
+  assert.ok(patterns.includes("*://*/*.PDF?*"));
   assert.equal(harness.menuCreates[0].title, "使用速览打开 PDF");
+});
+
+test("action click requests site access before probing suffixless URLs", async () => {
+  const harness = listenerChrome();
+  const order = [];
+  await loadBackground(harness.chrome, {
+    fetch: async (url, options) => {
+      order.push("fetch");
+      return { ok: true, headers: { get: () => "application/pdf" } };
+    },
+  });
+  harness.chrome.permissions.request = async () => {
+    order.push("permission");
+    return true;
+  };
+  harness.actionListeners[0]({ id: 9, url: "https://example.com/paper?id=1" });
+  await flush();
+  assert.deepEqual(order, ["permission", "fetch"]);
+});
+
+test("action click does not hijack a tab that navigated during the MIME probe", async () => {
+  const harness = listenerChrome();
+  const originalUrl = "https://example.com/paper?id=1";
+  harness.tabsById.set(9, { url: originalUrl });
+  await loadBackground(harness.chrome, {
+    fetch: async () => {
+      harness.tabsById.set(9, { url: "https://example.com/other" });
+      return { ok: true, headers: { get: () => "application/pdf" } };
+    },
+  });
+  harness.actionListeners[0]({ id: 9, url: originalUrl });
+  await flush();
+  assert.deepEqual(plain(harness.updateCalls), []);
+  assert.deepEqual(plain(harness.createCalls), []);
 });
 
 test("action click opens the current PDF even without a .pdf suffix", async () => {
@@ -347,6 +400,7 @@ test("action click opens the current PDF even without a .pdf suffix", async () =
       return { ok: true, headers: { get: () => "application/pdf" } };
     },
   });
+  harness.tabsById.set(9, { url: "https://example.com/paper?id=1" });
   harness.actionListeners[0]({ id: 9, url: "https://example.com/paper?id=1" });
   await flush();
   assert.equal(fetchCalls.length, 1);
@@ -366,6 +420,7 @@ test("action click falls back to a range GET when HEAD is rejected", async () =>
       return { ok: true, headers: { get: () => "application/pdf; charset=binary" } };
     },
   });
+  harness.tabsById.set(5, { url: "https://example.com/dl?doc=2" });
   harness.actionListeners[0]({ id: 5, url: "https://example.com/dl?doc=2" });
   await flush();
   assert.deepEqual(plain(fetchCalls.map(call => call.method)), ["HEAD", "GET"]);
@@ -393,6 +448,7 @@ test("action click opens .pdf URLs directly without probing", async () => {
       return { ok: true, headers: { get: () => "text/html" } };
     },
   });
+  harness.tabsById.set(2, { url: "https://example.com/paper.pdf" });
   harness.actionListeners[0]({ id: 2, url: "https://example.com/paper.pdf" });
   await flush();
   assert.equal(probed, false);

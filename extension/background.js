@@ -12,6 +12,16 @@ import {
 } from "./routing.js";
 
 const MENU_ID = "open-in-fast-pdf-viewer";
+const PDF_LINK_MENU_PATTERNS = (() => {
+  const patterns = [];
+  for (let mask = 0; mask < 8; mask += 1) {
+    const suffix = [..."pdf"]
+      .map((char, index) => (mask & (1 << index) ? char.toUpperCase() : char))
+      .join("");
+    patterns.push(`*://*/*.${suffix}`, `*://*/*.${suffix}?*`);
+  }
+  return patterns;
+})();
 const MIME_TYPE = "application/pdf";
 const HTTP_REQUEST_FILTER = {
   urls: ["http://*/*", "https://*/*"],
@@ -106,6 +116,7 @@ async function takeMatchingBypass(tabId, url, redirectChain = []) {
   // the bypass on the next qualifying top-level PDF response for this tab;
   // use a supplied chain as an extra guard when a browser provides one.
   const chain = Array.isArray(redirectChain) ? redirectChain : [];
+  if (!bypass) return false;
   if (chain.length > 0 && bypass !== url && !chain.includes(bypass)) return false;
 
   memoryBypasses.delete(tabId);
@@ -207,7 +218,7 @@ chrome.runtime.onInstalled.addListener(async details => {
       id: MENU_ID,
       title: "使用速览打开 PDF",
       contexts: ["link"],
-      targetUrlPatterns: ["*://*/*.pdf", "*://*/*.pdf?*"],
+      targetUrlPatterns: PDF_LINK_MENU_PATTERNS,
     });
   });
 
@@ -274,29 +285,52 @@ async function respondsWithPdf(url) {
   }
 }
 
+async function tabStillAtUrl(tabId, originalUrl) {
+  if (!Number.isInteger(tabId) || !originalUrl) return false;
+  try {
+    const current = await chrome.tabs.get(tabId);
+    return [current.pendingUrl, current.url].map(normalizeHttpUrl).includes(originalUrl);
+  } catch {
+    return false;
+  }
+}
+
 chrome.action.onClicked.addListener(tab => {
   void (async () => {
     const originalUrl = normalizeHttpUrl(tab?.url);
-    let target = isPdfUrl(originalUrl) ? viewerUrl(originalUrl) : null;
-    if (
-      !target &&
-      originalUrl &&
-      Number.isInteger(tab?.id) &&
-      (await respondsWithPdf(originalUrl))
-    ) {
-      target = viewerUrl(originalUrl);
-    }
-    const origin = target ? permissionOriginFor(originalUrl) : null;
+    const tabId = tab?.id;
+    const emptyReaderUrl = chrome.runtime.getURL("web/index.html");
 
     try {
-      if (target && origin && Number.isInteger(tab?.id)) {
-        const granted = await chrome.permissions.request({ origins: [origin] });
-        if (granted) {
-          await chrome.tabs.update(tab.id, { url: target });
-          return;
-        }
+      if (!originalUrl || !Number.isInteger(tabId)) {
+        await chrome.tabs.create({ url: emptyReaderUrl });
+        return;
       }
-      await chrome.tabs.create({ url: chrome.runtime.getURL("web/index.html") });
+
+      const origin = permissionOriginFor(originalUrl);
+      if (!origin) {
+        await chrome.tabs.create({ url: emptyReaderUrl });
+        return;
+      }
+
+      const granted = await chrome.permissions.request({ origins: [origin] });
+      if (!granted) {
+        await chrome.tabs.create({ url: emptyReaderUrl });
+        return;
+      }
+
+      let target = isPdfUrl(originalUrl) ? viewerUrl(originalUrl) : null;
+      if (!target && (await respondsWithPdf(originalUrl))) {
+        if (!(await tabStillAtUrl(tabId, originalUrl))) return;
+        target = viewerUrl(originalUrl);
+      }
+      if (!target) {
+        await chrome.tabs.create({ url: emptyReaderUrl });
+        return;
+      }
+
+      if (!(await tabStillAtUrl(tabId, originalUrl))) return;
+      await chrome.tabs.update(tabId, { url: target });
     } catch (error) {
       console.warn("Could not open 速览", error);
     }
@@ -306,6 +340,7 @@ chrome.action.onClicked.addListener(tab => {
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId !== MENU_ID) return;
   const originalUrl = normalizeHttpUrl(info.linkUrl);
+  if (!isPdfUrl(originalUrl)) return;
   const origin = permissionOriginFor(originalUrl);
   const target = viewerUrl(originalUrl);
   if (!origin || !target) return;

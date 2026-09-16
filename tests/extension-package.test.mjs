@@ -9,9 +9,10 @@ import {
   readFile,
   readdir,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   GENERATED_MARKER_NAME,
@@ -27,23 +28,31 @@ function archiveNames(stdout) {
     .map(name => name.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, ""));
 }
 
+async function looksLikeZipArchive(archive) {
+  const header = await readFile(archive);
+  if (header.length < 4) return false;
+  return header[0] === 0x50 && header[1] === 0x4b;
+}
+
 async function listArchiveNames(archive) {
+  if (!(await looksLikeZipArchive(archive))) {
+    throw new Error(`Archive is not a ZIP file: ${archive}`);
+  }
   const attempts = [
     ["unzip", ["-Z1", archive]],
     ["zipinfo", ["-1", archive]],
-    ["tar", ["-tf", basename(archive)], { cwd: dirname(archive) }],
   ];
   let lastError = null;
-  for (const [command, args, options] of attempts) {
+  for (const [command, args] of attempts) {
     try {
-      const { stdout } = await execFileAsync(command, args, options);
+      const { stdout } = await execFileAsync(command, args);
       return archiveNames(stdout);
     } catch (error) {
       lastError = error;
       if (error.code !== "ENOENT" && error.code !== 1 && error.code !== 9) throw error;
     }
   }
-  throw lastError ?? new Error("No archive listing tool is available.");
+  throw lastError ?? new Error("No ZIP listing tool is available.");
 }
 
 async function createFixture() {
@@ -163,6 +172,24 @@ test("optional zip contains the package and both license files", async () => {
     assert.ok(names.includes("web/index.html"));
     assert.ok(names.includes("manifest.json"));
     assert.ok(!names.some(name => name.startsWith("./")), "zip entries must not start with ./");
+  });
+});
+
+test("rejects GNU tar output that is not a ZIP archive", async () => {
+  await withFixture(async root => {
+    const originalPath = process.env.PATH;
+    const tarOnlyPath = await mkdtemp(join(tmpdir(), "fast-pdf-viewer-tar-only-path-"));
+    await symlink("/usr/bin/tar", join(tarOnlyPath, "tar"));
+    process.env.PATH = tarOnlyPath;
+    try {
+      await assert.rejects(
+        buildExtension({ root, zip: true }),
+        /tar did not produce a ZIP archive/,
+      );
+    } finally {
+      process.env.PATH = originalPath;
+      await rm(tarOnlyPath, { recursive: true, force: true });
+    }
   });
 });
 

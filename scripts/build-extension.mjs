@@ -345,17 +345,21 @@ function spawnWithStderr(command, args, cwd) {
   });
 }
 
+async function looksLikeZipArchive(path) {
+  const header = await readFile(path);
+  if (header.length < 4) return false;
+  return header[0] === 0x50 && header[1] === 0x4b;
+}
+
 async function createZipArchive(zipPath, outputDir) {
   try {
     // Prefer the system `zip` command for deterministic, CI-friendly archives.
     await spawnWithStderr("zip", ["-q", "-r", zipPath, "."], outputDir);
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
-    // Fall back to tar (bsdtar on Windows/macOS). Pass explicit top-level
-    // entries so the archive lists them without a leading "./" prefix.
+    // Fall back to tar only when it can emit a real ZIP (bsdtar). GNU tar's
+    // `-a` follows the suffix but still writes a tar stream, not ZIP.
     const entries = (await readdir(outputDir)).sort((a, b) => a.localeCompare(b));
-    // Use a path relative to the cwd so Windows tar does not interpret the
-    // drive-letter colon as a remote host specifier.
     const relativeZipPath = relative(outputDir, zipPath).replace(/\\/g, "/");
     try {
       await spawnWithStderr("tar", ["-a", "-c", "-f", relativeZipPath, ...entries], outputDir);
@@ -364,6 +368,12 @@ async function createZipArchive(zipPath, outputDir) {
         throw new Error("Cannot create the extension zip: neither system zip nor tar command was found.");
       }
       throw tarError;
+    }
+    if (!(await looksLikeZipArchive(zipPath))) {
+      await rm(zipPath, { force: true });
+      throw new Error(
+        "Cannot create the extension zip: tar did not produce a ZIP archive. Install zip or bsdtar with ZIP support.",
+      );
     }
   }
 }
