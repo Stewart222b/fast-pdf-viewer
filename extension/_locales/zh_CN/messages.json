@@ -1,0 +1,18 @@
+{
+  "extensionName": {
+    "message": "速览",
+    "description": "扩展名称。"
+  },
+  "extensionDescription": {
+    "message": "在 Microsoft Edge 中打开和阅读 PDF，支持本地搜索、页面导航和选中文本翻译。",
+    "description": "扩展的简短描述。"
+  },
+  "actionTitle": {
+    "message": "打开速览",
+    "description": "工具栏按钮提示文字。"
+  },
+  "contextMenuOpenPdf": {
+    "message": "使用速览打开 PDF",
+    "description": "PDF 链接右键菜单项。"
+  }
+}

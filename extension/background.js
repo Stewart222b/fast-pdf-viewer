@@ -216,7 +216,7 @@ chrome.runtime.onInstalled.addListener(async details => {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: MENU_ID,
-      title: "使用速览打开 PDF",
+      title: chrome.i18n?.getMessage("contextMenuOpenPdf") || "使用速览打开 PDF",
       contexts: ["link"],
       targetUrlPatterns: PDF_LINK_MENU_PATTERNS,
     });

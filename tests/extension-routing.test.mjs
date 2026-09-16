@@ -90,6 +90,9 @@ test("manifest declares extension contracts and broad http(s) host access", asyn
     await readFile(new URL("../extension/manifest.json", import.meta.url), "utf8"),
   );
   assert.equal(manifest.manifest_version, 3);
+  assert.equal(manifest.default_locale, "en");
+  assert.equal(manifest.name, "__MSG_extensionName__");
+  assert.equal(manifest.description, "__MSG_extensionDescription__");
   assert.equal(manifest.minimum_chrome_version, "125");
   assert.equal(manifest.background.service_worker, "background.js");
   assert.equal(manifest.options_page, "options.html");

@@ -5,6 +5,7 @@
 Implemented in this repository:
 
 - `scripts/build-extension.mjs` builds the fixed `dist/browser-extension/` directory. It flattens `extension/` into the package root and copies the complete `web/` tree to `web/`.
+- Store metadata is localized through `extension/_locales/en/` and `extension/_locales/zh_CN/`, so Partner Center can offer English and Simplified Chinese listings.
 - The builder verifies the pinned PDF.js `6.3.289` `VERSION`, `MANIFEST.json`, SHA-256 entries, modern and legacy modules, and the `cmaps/`, `standard_fonts/`, `wasm/`, and `iccs/` asset folders. For the extension staging tree only, it remaps `build/pdf.mjs`, `build/pdf.worker.mjs`, `web/pdf_viewer.css`, and `web/pdf_viewer.mjs` to the matching legacy files from the same pinned tarball. The PDF.js `MANIFEST.json` is used for build-time verification and omitted from the submitted package because Edge accepts only the extension’s root `manifest.json`. The repository’s normal `web/` tree remains modern.
 - It requires the vendored PDF.js Apache `LICENSE`, copies the repository `LICENSE`, and adds `THIRD_PARTY_NOTICES/PDF.js-LICENSE`.
 - The package is self-contained. The builder does not download PDF.js or any other runtime dependency. `python desktop/bootstrap_pdfjs.py` is only the source-preparation step when the vendored assets are absent; it is not used by the packaged extension.
