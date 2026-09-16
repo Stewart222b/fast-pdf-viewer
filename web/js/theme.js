@@ -2,9 +2,15 @@
 (() => {
   const key = "fast-pdf-viewer-theme";
   let theme = "dark";
-  try {
-    if (localStorage.getItem(key) === "light") theme = "light";
-  } catch { /* Storage may be unavailable; the switch still works. */ }
+
+  function readStoredTheme() {
+    try {
+      return localStorage.getItem(key) === "light" ? "light" : "dark";
+    } catch {
+      return theme;
+    }
+  }
+
   const apply = () => {
     document.documentElement.dataset.theme = theme;
     const button = document.getElementById("btn-theme");
@@ -13,13 +19,27 @@
     button?.setAttribute("title", label);
     document.getElementById("theme-icon")?.setAttribute("href", theme === "dark" ? "#i-sun" : "#i-moon");
   };
+
+  function setTheme(next) {
+    theme = next === "light" ? "light" : "dark";
+    apply();
+    try { localStorage.setItem(key, theme); } catch { /* Keep the current session usable. */ }
+  }
+
+  theme = readStoredTheme();
   apply();
+
+  globalThis.addEventListener?.("storage", (event) => {
+    if (event.key !== key || event.storageArea !== localStorage) return;
+    theme = event.newValue === "light" ? "light" : "dark";
+    apply();
+  });
+
   document.addEventListener("DOMContentLoaded", () => {
+    theme = readStoredTheme();
     apply();
     document.getElementById("btn-theme")?.addEventListener("click", () => {
-      theme = theme === "dark" ? "light" : "dark";
-      apply();
-      try { localStorage.setItem(key, theme); } catch { /* Keep the current session usable. */ }
+      setTheme(theme === "dark" ? "light" : "dark");
     });
   });
 })();

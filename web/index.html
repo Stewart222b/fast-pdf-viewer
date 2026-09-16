@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>速览</title>
+    <title>Fast PDF Viewer – AI Translation</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <script src="./js/theme.js"></script>
     <link rel="stylesheet" href="./vendor/pdfjs/web/pdf_viewer.css" />
     <link rel="stylesheet" href="./styles.css" />
@@ -12,6 +13,11 @@
     <svg class="icon-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <symbol id="i-folder-open" viewBox="0 0 24 24">
         <path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2" />
+      </symbol>
+      <symbol id="i-external-link" viewBox="0 0 24 24">
+        <path d="M15 3h6v6" />
+        <path d="M10 14 21 3" />
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
       </symbol>
       <symbol id="i-panel-left" viewBox="0 0 24 24">
         <rect width="18" height="18" x="3" y="3" rx="2" />
@@ -81,6 +87,7 @@
         <div class="toolbar-left">
           <span class="tb-group" role="group" aria-label="文件与导航">
             <button id="btn-open" class="btn toolbar-ghost has-icon" title="打开 PDF (Ctrl+O)"><svg class="icon" aria-hidden="true"><use href="#i-folder-open" /></svg><span>打开</span></button>
+            <button id="btn-original-pdf" class="btn toolbar-ghost has-icon" type="button" hidden title="用浏览器打开原始 PDF"><svg class="icon" aria-hidden="true"><use href="#i-external-link" /></svg><span>原始 PDF</span></button>
             <button id="btn-sidebar" class="btn toolbar-ghost has-icon" title="显示/隐藏目录侧栏" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-panel-left" /></svg><span>目录</span></button>
             <button id="btn-back" class="btn toolbar-ghost icon" title="返回（鼠标侧键 / Alt+← / Backspace）" aria-label="返回" disabled><svg class="icon" aria-hidden="true"><use href="#i-arrow-left" /></svg></button>
             <button id="btn-forward" class="btn toolbar-ghost icon" title="前进（鼠标侧键 / Alt+→）" aria-label="前进" disabled><svg class="icon" aria-hidden="true"><use href="#i-arrow-right" /></svg></button>
@@ -249,9 +256,12 @@
           </div>
         </details>
         <div class="modal-actions">
+          <button id="btn-extension-options" class="modal-link" type="button" hidden>扩展设置</button>
+          <span class="modal-actions-spacer" aria-hidden="true"></span>
           <button id="btn-settings-cancel" class="btn">取消</button>
           <button id="btn-settings-save" class="btn primary">保存</button>
         </div>
+        <p id="settings-error" class="hint error" role="alert" hidden></p>
       </div>
     </div>
 

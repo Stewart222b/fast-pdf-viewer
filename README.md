@@ -1,4 +1,4 @@
-# 速览 Fast PDF Viewer
+# Fast PDF Viewer – AI Translation
 
 <p align="center">
   <strong>为技术文档而生的轻量 PDF 阅读器</strong> —— 极速打开、连续滚动、层级目录定位、全文侧栏搜索、划词 AI 翻译与双主题切换。
@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/media/ui-hero.png" alt="速览深色主题：侧栏搜索与划词翻译" width="760" />
+  <img src="docs/media/ui-hero.png" alt="Fast PDF Viewer – AI Translation 深色主题：侧栏搜索与划词翻译" width="760" />
 </p>
 
 > 轻量本地 PDF 阅读器，支持目录、全文搜索、历史导航、划词 AI 翻译和深浅色主题。PDF 阅读过程在本地完成。
@@ -33,6 +33,20 @@
 ---
 
 ## 快速开始
+
+### Chrome / Edge 扩展
+
+扩展沿用同一套阅读器，可打开本地 PDF，并提供在线 PDF 链接的手动打开入口和可选的自动接管。
+
+```bash
+python desktop/bootstrap_pdfjs.py
+node scripts/build-extension.mjs --zip
+```
+
+在浏览器扩展管理页启用开发者模式，选择“加载已解压的扩展程序”，加载 `dist/browser-extension/`。
+安装后在“扩展设置”中开启“自动打开 PDF”。不同浏览器的接管能力、安装步骤和发布前验证项目见 [扩展说明](docs/browser-extension.md)。
+
+`dist/browser-extension.zip` 是分发包；商店上架需要另外提交和审核。
 
 ### 在线体验（无需安装）
 

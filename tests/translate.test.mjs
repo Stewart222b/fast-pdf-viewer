@@ -119,7 +119,7 @@ test('translateWithProvider uses Latin-1 fetch headers for OpenRouter', async ()
     for (const value of Object.values(init.headers)) {
       assert.match(String(value), /^[\x00-\xff]*$/, `header must be Latin-1: ${value}`);
     }
-    assert.equal(init.headers['X-Title'], 'Fast PDF Viewer');
+    assert.equal(init.headers['X-Title'], 'Fast PDF Viewer - AI Translation');
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       start(controller) {
@@ -142,7 +142,7 @@ test('translateWithProvider uses Latin-1 fetch headers for OpenRouter', async ()
 
 test('latin1HeaderValue keeps ASCII and falls back for Unicode', () => {
   assert.equal(latin1HeaderValue('abc'), 'abc');
-  assert.equal(latin1HeaderValue('速览', 'Fast PDF Viewer'), 'Fast PDF Viewer');
+  assert.equal(latin1HeaderValue('测试', 'Fast PDF Viewer - AI Translation'), 'Fast PDF Viewer - AI Translation');
 });
 
 test('translateWithProvider streams deltas via onDelta', async () => {

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fast PDF Viewer – AI Translation 设置</title>
+    <script src="./web/js/theme.js"></script>
+    <link rel="stylesheet" href="./options.css" />
+    <script src="./options.js" defer></script>
+  </head>
+  <body>
+    <svg class="icon-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <symbol id="i-sun" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" />
+      </symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24">
+        <path d="M20.5 13A8.5 8.5 0 0 1 11 3.5 8.5 8.5 0 1 0 20.5 13Z" />
+      </symbol>
+    </svg>
+    <main class="page-shell">
+      <header class="page-header">
+        <div class="page-header-row">
+          <a class="brand" href="./options.html" aria-label="Fast PDF Viewer – AI Translation 设置首页">
+            <img class="brand-mark" src="./icons/logo.png" alt="" width="48" height="48" />
+            <span class="brand-copy">
+              <span class="brand-name">Fast PDF Viewer – AI Translation</span>
+              <span class="brand-product">PDF Reader &amp; Translator</span>
+            </span>
+          </a>
+          <button id="btn-theme" class="theme-toggle" type="button" title="切换到浅色主题" aria-label="切换到浅色主题">
+            <svg class="icon" aria-hidden="true"><use id="theme-icon" href="#i-sun" /></svg>
+          </button>
+        </div>
+      </header>
+
+      <section class="intro" aria-labelledby="page-title">
+        <h1 id="page-title">扩展设置</h1>
+        <p>让 PDF 链接更快进入 Fast PDF Viewer – AI Translation，也可以随时回到阅读器。</p>
+      </section>
+
+      <section class="settings-panel" aria-labelledby="handling-title">
+        <div class="section-heading">
+          <h2 id="handling-title">PDF 处理</h2>
+          <p>选择浏览器遇到 PDF 时的默认行为。</p>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-copy">
+            <h3>自动打开 PDF</h3>
+            <p id="auto-open-description">检测到 PDF 链接时，自动交给 Fast PDF Viewer – AI Translation 阅读。</p>
+          </div>
+          <label class="switch" aria-label="自动打开 PDF">
+            <input
+              id="auto-open-pdf"
+              class="switch-input"
+              type="checkbox"
+              aria-describedby="auto-open-description auto-open-permission"
+            />
+            <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+          </label>
+        </div>
+
+        <div id="auto-open-permission" class="permission-note">
+          <h3>权限说明</h3>
+          <p>
+            扩展在安装时已获得 <code>http://</code> 和 <code>https://</code> 站点的访问权限，用于打开在线 PDF、向承载 PDF 的标签页写入标题和检测 PDF 请求；扩展不读取网页正文。支持原生 PDF 接管的浏览器使用浏览器自带能力；较旧浏览器启用自动打开时，会在确认后额外申请可选的
+            <code>webRequest</code> 权限。
+          </p>
+        </div>
+
+        <p id="settings-status" class="settings-status" role="status" aria-live="polite" aria-atomic="true"></p>
+      </section>
+
+      <nav class="quick-actions" aria-label="快捷操作">
+        <button id="open-reader" class="action action-primary" type="button">打开阅读器</button>
+        <a id="extension-details" class="action action-secondary" href="#">查看扩展详情</a>
+      </nav>
+
+      <footer class="page-footer">
+        <p>PDF 文件仍保留在本机；你可以在浏览器的扩展管理页调整更多权限。</p>
+        <a class="page-footer-link" href="./privacy.html">阅读隐私说明</a>
+      </footer>
+    </main>
+  </body>
+</html>

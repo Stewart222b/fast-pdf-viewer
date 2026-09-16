@@ -1,5 +1,5 @@
 ---
-name: 速览 Fast PDF Viewer
+name: Fast PDF Viewer – AI Translation
 description: Dark, tool-like reader chrome around a pdf.js page.
 colors:
   night-shell: "#12141a"
@@ -87,7 +87,7 @@ components:
     width: "420px"
 ---
 
-# Design System: 速览 Fast PDF Viewer
+# Design System: Fast PDF Viewer – AI Translation
 
 > Current theme/search update: default to neutral dark chrome (#242424 ground, #303030 surfaces, #2b2b2b sidebar); the toolbar sun/moon button switches to the light palette and saves `fast-pdf-viewer-theme` locally. `web/js/theme.js` restores the preference before CSS loads. PDF paper remains unchanged. Search input, hit count and navigation live together at the top of the left search pane; only results scroll. The toolbar search button or Ctrl+F opens this pane, Escape closes it, and switching to outline retains the query/results. This supersedes the floating-search and light-only descriptions below.
 
@@ -137,7 +137,7 @@ One cool-dark chassis with a single blue signal. Danger red is reserved for erro
 **Character:** Instrument readout, not editorial. Chinese UI copy with English industry terms left in English.
 
 ### Hierarchy
-- **Display** (regular, 40px, letter-spacing 0.08em): empty-state “速览” wordmark only.
+- **Display** (regular, 40px, letter-spacing 0.08em): empty-state “Fast PDF Viewer – AI Translation” wordmark only.
 - **Title** (500, 13px, 弱读数): toolbar document title — quiet, ellipsized, never competing with the page.
 - **Body** (400, 14px, inherit): chrome labels, outline rows, bubble copy.
 - **Label** (400, 12px): search hit counts and compact meta.

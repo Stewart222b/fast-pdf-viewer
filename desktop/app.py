@@ -203,7 +203,7 @@ def bind_server(port: int) -> ViewerHTTPServer:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="速览 Fast PDF Viewer")
+    parser = argparse.ArgumentParser(description="Fast PDF Viewer – AI Translation")
     parser.add_argument("pdf", nargs="?", help="要打开的 PDF 路径")
     parser.add_argument(
         "--browser",
@@ -265,10 +265,10 @@ def main() -> None:
     httpd = start_server(args.port)
     host, port = httpd.server_address
     url = f"http://{host}:{port}/"
-    print(f"速览 running at {url}", flush=True)
+    print(f"Fast PDF Viewer – AI Translation running at {url}", flush=True)
 
     if not args.browser:
-        if open_window(url, "速览"):
+        if open_window(url, "Fast PDF Viewer – AI Translation"):
             httpd.shutdown()
             return
         print("未安装 pywebview，改为打开浏览器。可运行: pip install -r requirements.txt")

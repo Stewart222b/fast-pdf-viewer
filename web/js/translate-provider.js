@@ -62,7 +62,7 @@ export async function fetchModelList(settings, { signal } = {}) {
   if (base.includes("openrouter.ai")) {
     const origin = latin1HeaderValue(globalThis.location?.origin);
     if (origin) headers["HTTP-Referer"] = origin;
-    headers["X-Title"] = latin1HeaderValue("速览 Fast PDF Viewer", "Fast PDF Viewer");
+    headers["X-Title"] = latin1HeaderValue("Fast PDF Viewer – AI Translation", "Fast PDF Viewer - AI Translation");
   }
   const response = await fetch(modelsUrl(apiBase), { headers, signal });
   const data = await response.json().catch(() => ({}));
@@ -234,7 +234,7 @@ export async function translateWithProvider(
     if (base.includes("openrouter.ai")) {
       const origin = latin1HeaderValue(globalThis.location?.origin);
       if (origin) headers["HTTP-Referer"] = origin;
-      headers["X-Title"] = latin1HeaderValue("速览 Fast PDF Viewer", "Fast PDF Viewer");
+      headers["X-Title"] = latin1HeaderValue("Fast PDF Viewer – AI Translation", "Fast PDF Viewer - AI Translation");
     }
     const response = await fetch(url, {
       method: "POST",

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fast PDF Viewer – AI Translation 隐私说明</title>
+    <script src="./web/js/theme.js"></script>
+    <link rel="stylesheet" href="./options.css" />
+  </head>
+  <body>
+    <svg class="icon-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <symbol id="i-sun" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" />
+      </symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24">
+        <path d="M20.5 13A8.5 8.5 0 0 1 11 3.5 8.5 8.5 0 1 0 20.5 13Z" />
+      </symbol>
+    </svg>
+    <main class="page-shell">
+      <header class="page-header">
+        <div class="page-header-row">
+          <a class="brand" href="./options.html" aria-label="返回 Fast PDF Viewer – AI Translation 设置">
+            <img class="brand-mark" src="./icons/logo.png" alt="" width="48" height="48" />
+            <span class="brand-copy">
+              <span class="brand-name">Fast PDF Viewer – AI Translation</span>
+              <span class="brand-product">PDF Reader &amp; Translator</span>
+            </span>
+          </a>
+          <button id="btn-theme" class="theme-toggle" type="button" title="切换到浅色主题" aria-label="切换到浅色主题">
+            <svg class="icon" aria-hidden="true"><use id="theme-icon" href="#i-sun" /></svg>
+          </button>
+        </div>
+      </header>
+
+      <section class="intro" aria-labelledby="page-title">
+        <h1 id="page-title">隐私说明</h1>
+        <p>这里说明扩展如何处理 PDF、翻译文本、权限和本地数据。</p>
+      </section>
+
+      <section class="privacy-sections" aria-label="隐私信息">
+        <section class="privacy-section" aria-labelledby="files-title">
+          <h2 id="files-title">PDF 与网络请求</h2>
+          <p>
+            PDF 字节在本地解析，扩展不会因为打开 PDF 而把文件上传到 Fast PDF Viewer – AI Translation 服务器。打开在线 PDF 时，浏览器仍会向
+            PDF 的原始服务器发起正常请求；原始服务器会按照普通网页请求接收该请求及其自身需要的网络信息。
+          </p>
+        </section>
+
+        <section class="privacy-section" aria-labelledby="translation-title">
+          <h2 id="translation-title">划词翻译</h2>
+          <p>
+            只有在你启用翻译并选中文本后，选中的文本才会发送到你在设置中配置的翻译提供商。Fast PDF Viewer – AI Translation 不代替该提供商处理请求，
+            具体数据处理方式以你选择的提供商为准。
+          </p>
+        </section>
+
+        <section class="privacy-section" aria-labelledby="storage-title">
+          <h2 id="storage-title">本地设置与阅读进度</h2>
+          <ul>
+            <li>API Key 保存在浏览器的 <code>chrome.storage.local</code> 中，未加密，也不会同步到其他设备。</li>
+            <li>扩展不包含分析、广告或遥测代码。</li>
+            <li>扩展内的阅读进度保存在扩展自身同源的 <code>localStorage</code> 中，不与普通网页版共用。</li>
+            <li>卸载扩展会清除扩展设置以及扩展页面保存的本地阅读进度。</li>
+          </ul>
+        </section>
+
+        <section class="privacy-section" aria-labelledby="permission-title">
+          <h2 id="permission-title">自动打开 PDF 与权限</h2>
+          <p>
+            安装扩展时，浏览器会授予 <code>http://</code> 与 <code>https://</code> 站点的访问权限，用于打开在线 PDF（向原始服务器发起与直接访问一致的请求）、向承载 PDF 的标签页写入标题，以及在旧浏览器上检测 PDF 响应；扩展不读取网页正文，也不收集浏览数据。
+            支持原生 PDF 接管的浏览器使用浏览器提供的 MIME 处理能力；较旧浏览器启用自动打开时，会在用户确认后额外申请可选的 <code>webRequest</code> 权限。你可以随时在浏览器的扩展管理页收回这些权限。
+          </p>
+        </section>
+      </section>
+
+      <footer class="page-footer">
+        <a class="page-footer-link" href="./options.html">返回扩展设置</a>
+      </footer>
+    </main>
+  </body>
+</html>

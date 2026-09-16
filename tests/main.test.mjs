@@ -8,7 +8,11 @@ function deferred() {
   const promise = new Promise(r => { resolve = r; });
   return { promise, resolve };
 }
-async function setup({ platform = 'Linux x86_64' } = {}) {
+async function setup({ platform = 'Linux x86_64', startup = null,
+  requestHostAccess = async () => true, saveSettings = () => ({}),
+  loadSettings = () => ({}), initSettings = async () => {},
+  platformId = 'test', canFallbackToBrowser = undefined,
+  chrome = undefined } = {}) {
   const elements = new Map(), timers = new Map();
   let timerId = 0, viewer, fileInput;
   const windowListeners = {};
@@ -68,7 +72,16 @@ async function setup({ platform = 'Linux x86_64' } = {}) {
       this.onPassword = options.onPassword;
     }
     close() { this.generation++; this.indexPromise = null; this.pageTexts = []; }
-    async open(source) { this.close(); this.source = source; this.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }]; this.pdf = { async getDestination(d) { return d; },     async getPageIndex() { return 0; } }; return this; }
+    async open(source) {
+      this.close();
+      this.source = source;
+      this.name = source.name;
+      this.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }];
+      this.pdf = { async getDestination(d) { return d; }, async getPageIndex() { return 0; } };
+      this.pageCount = 5;
+      this.onState?.({});
+      return this;
+    }
     async getOutline() { return this.outlinePromise || null; }
     getReadingPoint() { return { page: this.currentPage || 1, pdfY: this.readingPdfY }; }
     async goToDest() {}
@@ -81,6 +94,7 @@ async function setup({ platform = 'Linux x86_64' } = {}) {
     URL: { createObjectURL: () => `blob:test-${++nextBlob}`, revokeObjectURL: url => revoked.push(url) },
     console, fetch: async () => ({ ok: false }),
     document: {
+      title: 'Fast PDF Viewer – AI Translation',
       getElementById: get,
       createElement: tag => {
         const el = element();
@@ -101,11 +115,13 @@ async function setup({ platform = 'Linux x86_64' } = {}) {
       userAgent: /Mac|iPhone|iPad/i.test(platform) ? 'Mozilla/5.0 (Macintosh)' : 'Mozilla/5.0 (X11; Linux x86_64)',
     },
     setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
+    chrome,
   });
   const exports = {
     './viewer.js': { PdfViewer: Viewer },
     './history.js': { ViewHistory: class { onChange() {} canBack() { return false; } canForward() { return false; } } },
-    './settings.js': { loadSettings: () => ({}), saveSettings: () => ({}) },
+    './settings.js': { loadSettings, saveSettings, initSettings },
+    './platform/extension.js': { requestHostAccess, fallbackToBrowser: async () => {} },
     './translate.js': { translateText() {}, MAX_TRANSLATE_CHARS: 4000 },
     './reading-position.js': {
       readingFingerprint: () => '',
@@ -114,9 +130,10 @@ async function setup({ platform = 'Linux x86_64' } = {}) {
     },
     './platform/index.js': {
       createPlatform: () => ({
-        id: 'test',
-        async startupOpen() { return null; },
+        id: platformId,
+        async startupOpen() { return typeof startup === 'function' ? startup() : startup; },
         async pickFile() { return null; },
+        ...(canFallbackToBrowser !== undefined ? { canFallbackToBrowser } : {}),
       }),
     },
     './model-picker.js': {
@@ -153,13 +170,64 @@ async function setup({ platform = 'Linux x86_64' } = {}) {
   get('settings-modal').hidden = true;
   get('pdf-password-modal').hidden = true;
   get('zoom-menu').hidden = true;
-  return { viewer, get, fileInput, revoked,
+  get('btn-original-pdf').hidden = true;
+  return { viewer, get, fileInput, revoked, document: context.document,
     dispatch(type, event) { for (const fn of windowListeners[type] || []) fn(event); },
     input(value) { const el = get('search-input'); el.value = value; el.listeners.input({ target: el }); },
     runTimer() { const [id, fn] = [...timers].at(-1); timers.delete(id); return fn(); },
     click(id) { const el = get(id); el.listeners.click?.({ target: el, preventDefault() {}, stopPropagation() {} }); },
   };
 }
+
+test('tab title matches the open document name', async () => {
+  const app = await setup({
+    startup: {
+      data: new Uint8Array([37, 80, 68, 70]),
+      name: '1706.03762',
+      path: 'https://arxiv.org/pdf/1706.03762',
+    },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.document.title, '1706.03762');
+});
+
+test('startup forwards MIME bytes and legacy credentials through the real reader entry', async () => {
+  const bytes = new Uint8Array([37, 80, 68, 70]);
+  const app = await setup({ startup: { data: bytes, name: 'paper.pdf', path: 'https://example.org/paper.pdf', withCredentials: true } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.viewer.source.data, bytes);
+  assert.equal(app.viewer.source.path, 'https://example.org/paper.pdf');
+  assert.equal(app.viewer.source.withCredentials, true);
+});
+
+test('boot reloads settings after initSettings', async () => {
+  const afterInit = [];
+  let ready = false;
+  await setup({
+    loadSettings() {
+      afterInit.push(ready);
+      return {};
+    },
+    async initSettings() {
+      ready = true;
+    },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(afterInit.at(-1), true);
+});
+
+test('denied translation host access leaves settings open and never saves credentials', async () => {
+  let saved = false;
+  const app = await setup({ requestHostAccess: async () => false, saveSettings() { saved = true; } });
+  app.get('settings-modal').hidden = false;
+  app.get('setting-key').value = 'test-only';
+  app.get('setting-base').value = 'https://example.org/v1';
+  await app.get('btn-settings-save').listeners.click();
+  assert.equal(saved, false);
+  assert.equal(app.get('settings-modal').hidden, false);
+  assert.equal(app.get('settings-error').hidden, false);
+  assert.equal(app.get('btn-settings-save').disabled, false);
+});
 
 test('search entry, outline switch and Escape preserve query and synchronize button', async () => {
   const app = await setup();
@@ -692,4 +760,46 @@ test('open failure surfaces in the viewer with a reselect action', async () => {
   // Unopened document keeps the em-dash page readout, not 1 / 0.
   assert.equal(app.get('page-input').value, '—');
   assert.equal(app.get('page-count').textContent, '—');
+});
+
+test('extension chrome sits in the toolbar and settings footer', async () => {
+  const html = await readFile(new URL('../web/index.html', import.meta.url), 'utf8');
+  const toolbar = html.slice(html.indexOf('class="toolbar"'), html.indexOf('id="settings-modal"'));
+  const settings = html.slice(html.indexOf('id="settings-modal"'));
+  assert.match(toolbar, /id="btn-open"[\s\S]*id="btn-original-pdf"[\s\S]*id="btn-sidebar"/);
+  assert.match(toolbar, /原始 PDF/);
+  assert.doesNotMatch(toolbar, /id="btn-extension-options"/);
+  assert.doesNotMatch(settings, /id="btn-original-pdf"/);
+  assert.match(
+    settings,
+    /class="modal-actions"[\s\S]*id="btn-extension-options"[\s\S]*扩展设置[\s\S]*id="btn-settings-cancel"/,
+  );
+});
+
+test('extension boot failure without file keeps original-pdf button hidden', async () => {
+  const openOptionsPage = [];
+  const app = await setup({
+    platformId: 'extension',
+    canFallbackToBrowser: () => false,
+    chrome: { runtime: { openOptionsPage: () => { openOptionsPage.push(1); } } },
+    startup: () => Promise.reject(new Error('no file')),
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.get('btn-original-pdf').hidden, true);
+  assert.equal(app.get('btn-extension-options').hidden, false);
+  assert.equal(openOptionsPage.length, 0);
+});
+
+test('extension boot failure with file shows original-pdf button', async () => {
+  const openOptionsPage = [];
+  const app = await setup({
+    platformId: 'extension',
+    canFallbackToBrowser: () => true,
+    chrome: { runtime: { openOptionsPage: () => { openOptionsPage.push(1); } } },
+    startup: () => Promise.reject(new Error('permission denied')),
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.get('btn-original-pdf').hidden, false);
+  assert.equal(app.get('btn-extension-options').hidden, false);
+  assert.equal(openOptionsPage.length, 0);
 });

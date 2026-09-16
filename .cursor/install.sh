@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Idempotent Cloud Agent bootstrap for the 速览 Fast PDF Viewer.
+# Idempotent Cloud Agent bootstrap for Fast PDF Viewer – AI Translation.
 # Runs after the repository is checked out. Safe to run repeatedly.
 
 cd "$(dirname "$0")/.."

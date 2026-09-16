@@ -24,7 +24,11 @@ VENDOR = _web_dir() / 'vendor' / 'pdfjs'
 VERSION = '6.3.289'
 TARBALL = f'https://registry.npmjs.org/pdfjs-dist/-/pdfjs-dist-{VERSION}.tgz'
 INTEGRITY = 'ZHjSVpDa3D6izMq8/04lvkhkATUmL9px6ChPaXc1k6nU2Mrhlg1/7F0bdUqCwUjw3NsPTfPZsMDUU6ZIcRaeQw=='
-FILES = {'build/pdf.mjs', 'build/pdf.worker.mjs', 'web/pdf_viewer.css', 'web/pdf_viewer.mjs'}
+FILES = {
+    'LICENSE', 'build/pdf.mjs', 'build/pdf.worker.mjs', 'web/pdf_viewer.css', 'web/pdf_viewer.mjs',
+    'legacy/build/pdf.mjs', 'legacy/build/pdf.worker.mjs',
+    'legacy/web/pdf_viewer.css', 'legacy/web/pdf_viewer.mjs',
+}
 FOLDERS = ('cmaps/', 'standard_fonts/', 'wasm/', 'iccs/')
 
 

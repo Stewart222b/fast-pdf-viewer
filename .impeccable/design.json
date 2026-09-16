@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "generatedAt": "2026-09-13T07:23:00Z",
-  "title": "Design System: 速览 Fast PDF Viewer",
+  "title": "Design System: Fast PDF Viewer – AI Translation",
   "extensions": {
     "colorMeta": {
       "night-shell": { "role": "neutral", "displayName": "夜壳", "canonical": "#12141a" },
@@ -13,7 +13,7 @@
       "danger": { "role": "tertiary", "displayName": "危险", "canonical": "#f07178" }
     },
     "typographyMeta": {
-      "display": { "displayName": "Display", "purpose": "Empty-state 速览 wordmark only." },
+      "display": { "displayName": "Display", "purpose": "Empty-state Fast PDF Viewer – AI Translation wordmark only." },
       "title": { "displayName": "Title", "purpose": "Toolbar document title." },
       "body": { "displayName": "Body", "purpose": "Chrome labels and bubble copy." },
       "label": { "displayName": "Label", "purpose": "Search counts and compact meta." }
