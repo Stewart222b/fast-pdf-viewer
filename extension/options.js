@@ -48,14 +48,14 @@ async function handleAutoOpenChange() {
       if (hasNativeMimeHandler()) {
         await setMimeHandlerEnabled(true);
       } else {
-        setStatus("当前浏览器不支持原生 PDF 接管，正在请求主机访问权限…");
+        setStatus("当前浏览器不支持原生 PDF 接管，正在请求可选的 webRequest 权限…");
 
         // Keep this request in the checkbox change handler: the browser requires a user gesture.
         const granted = await chrome.permissions.request(HOST_ACCESS);
         if (!granted) {
           autoOpenInput.checked = false;
           await saveAutoOpenSetting(false);
-          setStatus("未获得主机访问权限，设置保持关闭。", "warning");
+          setStatus("未获得 webRequest 权限，设置保持关闭。", "warning");
           return;
         }
       }
