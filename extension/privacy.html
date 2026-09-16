@@ -66,11 +66,10 @@
         </section>
 
         <section class="privacy-section" aria-labelledby="permission-title">
-          <h2 id="permission-title">自动打开 PDF 与主机权限</h2>
+          <h2 id="permission-title">自动打开 PDF 与权限</h2>
           <p>
-            支持原生 PDF 接管的浏览器使用浏览器提供的 MIME 处理能力，不需要 <code>webRequest</code> 或所有网站的访问权限。
-            较旧浏览器若不支持原生能力，启用自动打开时才会在用户确认后申请 <code>webRequest</code> 以及
-            <code>http://*/*</code>、<code>https://*/*</code> 主机权限，用于检测 PDF 响应并交给阅读器；该回退路径不读取网页正文。
+            安装扩展时，浏览器会授予 <code>http://</code> 与 <code>https://</code> 站点的访问权限，用于打开在线 PDF（向原始服务器发起与直接访问一致的请求）、向承载 PDF 的标签页写入标题，以及在旧浏览器上检测 PDF 响应；扩展不读取网页正文，也不收集浏览数据。
+            支持原生 PDF 接管的浏览器使用浏览器提供的 MIME 处理能力；较旧浏览器启用自动打开时，会在用户确认后额外申请可选的 <code>webRequest</code> 权限。你可以随时在浏览器的扩展管理页收回这些权限。
           </p>
         </section>
       </section>

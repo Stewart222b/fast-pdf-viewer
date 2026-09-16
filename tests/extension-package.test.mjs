@@ -9,6 +9,7 @@ import {
   readFile,
   readdir,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
@@ -19,6 +20,40 @@ import {
 } from "../scripts/build-extension.mjs";
 
 const execFileAsync = promisify(execFile);
+
+function archiveNames(stdout) {
+  return stdout
+    .trim()
+    .split(/\r?\n/)
+    .map(name => name.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, ""));
+}
+
+async function looksLikeZipArchive(archive) {
+  const header = await readFile(archive);
+  if (header.length < 4) return false;
+  return header[0] === 0x50 && header[1] === 0x4b;
+}
+
+async function listArchiveNames(archive) {
+  if (!(await looksLikeZipArchive(archive))) {
+    throw new Error(`Archive is not a ZIP file: ${archive}`);
+  }
+  const attempts = [
+    ["unzip", ["-Z1", archive]],
+    ["zipinfo", ["-1", archive]],
+  ];
+  let lastError = null;
+  for (const [command, args] of attempts) {
+    try {
+      const { stdout } = await execFileAsync(command, args);
+      return archiveNames(stdout);
+    } catch (error) {
+      lastError = error;
+      if (error.code !== "ENOENT" && error.code !== 1 && error.code !== 9) throw error;
+    }
+  }
+  throw lastError ?? new Error("No ZIP listing tool is available.");
+}
 
 async function createFixture() {
   const root = await mkdtemp(join(tmpdir(), "fast-pdf-viewer-extension-"));
@@ -131,10 +166,46 @@ test("optional zip contains the package and both license files", async () => {
   await withFixture(async root => {
     const result = await buildExtension({ root, zip: true });
     assert.ok(result.zip);
-    const { stdout } = await execFileAsync("unzip", ["-Z1", result.zip]);
-    const names = new Set(stdout.trim().split("\n").map(name => name.replace(/^\.\//, "")));
-    assert.ok(names.has("LICENSE"));
-    assert.ok(names.has("THIRD_PARTY_NOTICES/PDF.js-LICENSE"));
-    assert.ok(names.has("web/index.html"));
+    const names = await listArchiveNames(result.zip);
+    assert.ok(names.includes("LICENSE"));
+    assert.ok(names.includes("THIRD_PARTY_NOTICES/PDF.js-LICENSE"));
+    assert.ok(names.includes("web/index.html"));
+    assert.ok(names.includes("manifest.json"));
+    assert.ok(!names.some(name => name.startsWith("./")), "zip entries must not start with ./");
+  });
+});
+
+test("rejects GNU tar output that is not a ZIP archive", async () => {
+  await withFixture(async root => {
+    const originalPath = process.env.PATH;
+    const tarOnlyPath = await mkdtemp(join(tmpdir(), "fast-pdf-viewer-tar-only-path-"));
+    await symlink("/usr/bin/tar", join(tarOnlyPath, "tar"));
+    process.env.PATH = tarOnlyPath;
+    try {
+      await assert.rejects(
+        buildExtension({ root, zip: true }),
+        /tar did not produce a ZIP archive/,
+      );
+    } finally {
+      process.env.PATH = originalPath;
+      await rm(tarOnlyPath, { recursive: true, force: true });
+    }
+  });
+});
+
+test("rejects with a clear error when neither zip nor tar is available", async () => {
+  await withFixture(async root => {
+    const originalPath = process.env.PATH;
+    const emptyDir = await mkdtemp(join(tmpdir(), "fast-pdf-viewer-empty-path-"));
+    process.env.PATH = emptyDir;
+    try {
+      await assert.rejects(
+        buildExtension({ root, zip: true }),
+        /neither system zip nor tar command was found/,
+      );
+    } finally {
+      process.env.PATH = originalPath;
+      await rm(emptyDir, { recursive: true, force: true });
+    }
   });
 });

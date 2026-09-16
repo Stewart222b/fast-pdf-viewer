@@ -9,7 +9,7 @@ Implemented in this repository:
 - It requires the vendored PDF.js Apache `LICENSE`, copies the repository `LICENSE`, and adds `THIRD_PARTY_NOTICES/PDF.js-LICENSE`.
 - The package is self-contained. The builder does not download PDF.js or any other runtime dependency. `python desktop/bootstrap_pdfjs.py` is only the source-preparation step when the vendored assets are absent; it is not used by the packaged extension.
 - Replacement is staged and atomic. The fixed output is replaced only when its generated marker is recognized; an unmarked `dist/browser-extension/` is left untouched and causes a failure.
-- `--zip` uses the system `zip` executable with argument-array spawning and writes `dist/browser-extension.zip`.
+- `--zip` uses the system `zip` executable with argument-array spawning and writes `dist/browser-extension.zip`; when `zip` is unavailable (for example on Windows), it falls back to `tar -a` (bsdtar) with explicit top-level entries so entry names keep their layout.
 
 Not performed or not verified by this task:
 
@@ -56,7 +56,7 @@ This is a local test procedure, not a store publication.
 1. Build the unpacked package with the commands above.
 2. Open `chrome://extensions` and enable **Developer mode**.
 3. Choose **Load unpacked** and select the `dist/browser-extension/` directory, not the repository’s `extension/` source directory.
-4. Open the extension’s options page. Confirm the setting is saved, the action opens `web/index.html`, and the browser prompts before optional host access is granted.
+4. Open the extension's options page. Confirm the setting is saved, the action opens `web/index.html`, and legacy browsers prompt for the optional `webRequest` permission before automatic opening is enabled.
 5. Open a representative remote PDF and confirm the source-host request, original-document fallback, local PDF.js rendering, and selected-text translation behavior.
 6. Reload the extension after each rebuild. Keep the DevTools console open for manifest, service-worker, MIME-handler, and permission errors.
 

@@ -323,11 +323,11 @@ async function replaceGeneratedDirectory(staging, output, root, dist) {
   if (movedExisting) await removeOwnedPath(backup, dist, BACKUP_PREFIX);
 }
 
-function spawnZip(zipPath, cwd) {
+function spawnWithStderr(command, args, cwd) {
   return new Promise((resolvePromise, reject) => {
     // shell:false is intentional: paths are passed as individual arguments,
     // including paths containing spaces or shell metacharacters.
-    const child = spawn("zip", ["-q", "-r", zipPath, "."], {
+    const child = spawn(command, args, {
       cwd,
       shell: false,
       stdio: ["ignore", "ignore", "pipe"],
@@ -337,18 +337,45 @@ function spawnZip(zipPath, cwd) {
     child.stderr.on("data", (chunk) => {
       stderr += chunk;
     });
-    child.on("error", (error) => {
-      if (error.code === "ENOENT") {
-        reject(new Error("Cannot create the extension zip: system zip command was not found."));
-      } else {
-        reject(error);
-      }
-    });
+    child.on("error", reject);
     child.on("close", (code, signal) => {
       if (code === 0) return resolvePromise();
-      reject(new Error(`System zip failed${signal ? ` (${signal})` : ` with exit code ${code}`}${stderr.trim() ? `: ${stderr.trim()}` : "."}`));
+      reject(new Error(`System ${command} failed${signal ? ` (${signal})` : ` with exit code ${code}`}${stderr.trim() ? `: ${stderr.trim()}` : "."}`));
     });
   });
+}
+
+async function looksLikeZipArchive(path) {
+  const header = await readFile(path);
+  if (header.length < 4) return false;
+  return header[0] === 0x50 && header[1] === 0x4b;
+}
+
+async function createZipArchive(zipPath, outputDir) {
+  try {
+    // Prefer the system `zip` command for deterministic, CI-friendly archives.
+    await spawnWithStderr("zip", ["-q", "-r", zipPath, "."], outputDir);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    // Fall back to tar only when it can emit a real ZIP (bsdtar). GNU tar's
+    // `-a` follows the suffix but still writes a tar stream, not ZIP.
+    const entries = (await readdir(outputDir)).sort((a, b) => a.localeCompare(b));
+    const relativeZipPath = relative(outputDir, zipPath).replace(/\\/g, "/");
+    try {
+      await spawnWithStderr("tar", ["-a", "-c", "-f", relativeZipPath, ...entries], outputDir);
+    } catch (tarError) {
+      if (tarError.code === "ENOENT") {
+        throw new Error("Cannot create the extension zip: neither system zip nor tar command was found.");
+      }
+      throw tarError;
+    }
+    if (!(await looksLikeZipArchive(zipPath))) {
+      await rm(zipPath, { force: true });
+      throw new Error(
+        "Cannot create the extension zip: tar did not produce a ZIP archive. Install zip or bsdtar with ZIP support.",
+      );
+    }
+  }
 }
 
 async function replaceGeneratedZip(stagingZip, zipPath, dist) {
@@ -406,7 +433,7 @@ async function createZip(output, root, dist) {
   const zipStage = await mkdtemp(join(dist, ZIP_STAGING_PREFIX));
   const stagingZip = join(zipStage, ZIP_NAME);
   try {
-    await spawnZip(stagingZip, output);
+    await createZipArchive(stagingZip, output);
     await replaceGeneratedZip(stagingZip, join(dist, ZIP_NAME), dist);
     return join(dist, ZIP_NAME);
   } finally {

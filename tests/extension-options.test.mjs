@@ -132,7 +132,7 @@ test("legacy fallback requests exact optional access and rolls back on denial", 
   assert.deepEqual(plain(harness.storageSets), [{ autoOpenPdf: false }]);
   assert.equal(input.checked, false);
   assert.equal(input.disabled, false);
-  assert.match(harness.elements.get("settings-status").textContent, /未获得主机访问权限/);
+  assert.match(harness.elements.get("settings-status").textContent, /未获得 webRequest 权限/);
 });
 
 test("reader and extension details actions use extension URLs", async () => {

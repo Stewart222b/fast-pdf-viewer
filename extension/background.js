@@ -12,6 +12,16 @@ import {
 } from "./routing.js";
 
 const MENU_ID = "open-in-fast-pdf-viewer";
+const PDF_LINK_MENU_PATTERNS = (() => {
+  const patterns = [];
+  for (let mask = 0; mask < 8; mask += 1) {
+    const suffix = [..."pdf"]
+      .map((char, index) => (mask & (1 << index) ? char.toUpperCase() : char))
+      .join("");
+    patterns.push(`*://*/*.${suffix}`, `*://*/*.${suffix}?*`);
+  }
+  return patterns;
+})();
 const MIME_TYPE = "application/pdf";
 const HTTP_REQUEST_FILTER = {
   urls: ["http://*/*", "https://*/*"],
@@ -90,7 +100,7 @@ async function putBypass(tabId, url) {
   }
 }
 
-async function takeMatchingBypass(tabId, url) {
+async function takeMatchingBypass(tabId, url, redirectChain = []) {
   const key = bypassStorageKey(tabId);
   let bypass = memoryBypasses.get(tabId);
   if (!bypass) {
@@ -100,7 +110,14 @@ async function takeMatchingBypass(tabId, url) {
       bypass = null;
     }
   }
-  if (bypass !== url) return false;
+  // "Open the original PDF" stores the URL the user asked to keep. A
+  // redirecting server answers from a different final URL, and Chrome's
+  // onHeadersReceived details do not promise a redirect-chain field. Consume
+  // the bypass on the next qualifying top-level PDF response for this tab;
+  // use a supplied chain as an extra guard when a browser provides one.
+  const chain = Array.isArray(redirectChain) ? redirectChain : [];
+  if (!bypass) return false;
+  if (chain.length > 0 && bypass !== url && !chain.includes(bypass)) return false;
 
   memoryBypasses.delete(tabId);
   try {
@@ -116,7 +133,12 @@ async function handleLegacyPdfNavigation(details) {
   if (!autoOpenPdf || hasNativeMimeHandler() || !isLegacyPdfNavigation(details)) return;
 
   const originalUrl = normalizeHttpUrl(details.url);
-  if (!originalUrl || (await takeMatchingBypass(details.tabId, originalUrl))) return;
+  if (
+    !originalUrl ||
+    (await takeMatchingBypass(details.tabId, originalUrl, details.redirectChain))
+  ) {
+    return;
+  }
 
   const target = viewerUrl(originalUrl);
   if (!target) return;
@@ -166,8 +188,11 @@ function unregisterLegacyListener() {
 }
 
 async function reconcileLegacyListener() {
+  // Wait for the stored preference: unregistering before it loads would undo
+  // the cold-start registration and miss the waking navigation.
+  await settingsReady;
   const event = chrome.webRequest?.onHeadersReceived;
-  if (!event || hasNativeMimeHandler()) {
+  if (!event || hasNativeMimeHandler() || !autoOpenPdf) {
     unregisterLegacyListener();
     return;
   }
@@ -191,9 +216,9 @@ chrome.runtime.onInstalled.addListener(async details => {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: MENU_ID,
-      title: "使用速览打开链接",
+      title: "使用速览打开 PDF",
       contexts: ["link"],
-      targetUrlPatterns: ["http://*/*", "https://*/*"],
+      targetUrlPatterns: PDF_LINK_MENU_PATTERNS,
     });
   });
 
@@ -226,21 +251,86 @@ chrome.runtime.onStartup.addListener(() => {
   void reconcileLegacyListener();
 });
 
+const PROBE_TIMEOUT_MS = 4000;
+
+// PDFs without a .pdf suffix still deserve the one-click open: ask the
+// server for its content type before giving up. The origin is already
+// covered by the manifest host permissions, so no extra grant is needed.
+async function respondsWithPdf(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+  try {
+    let response = await fetch(url, {
+      method: "HEAD",
+      credentials: "include",
+      redirect: "follow",
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      // Some servers reject HEAD; a one-byte range GET keeps the probe cheap.
+      response = await fetch(url, {
+        method: "GET",
+        headers: { Range: "bytes=0-0" },
+        credentials: "include",
+        redirect: "follow",
+        signal: controller.signal,
+      });
+    }
+    const contentType = response.headers.get("content-type") || "";
+    return contentType.split(";", 1)[0].trim().toLowerCase() === MIME_TYPE;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function tabStillAtUrl(tabId, originalUrl) {
+  if (!Number.isInteger(tabId) || !originalUrl) return false;
+  try {
+    const current = await chrome.tabs.get(tabId);
+    return [current.pendingUrl, current.url].map(normalizeHttpUrl).includes(originalUrl);
+  } catch {
+    return false;
+  }
+}
+
 chrome.action.onClicked.addListener(tab => {
   void (async () => {
     const originalUrl = normalizeHttpUrl(tab?.url);
-    const target = isPdfUrl(originalUrl) ? viewerUrl(originalUrl) : null;
-    const origin = target ? permissionOriginFor(originalUrl) : null;
+    const tabId = tab?.id;
+    const emptyReaderUrl = chrome.runtime.getURL("web/index.html");
 
     try {
-      if (target && origin && Number.isInteger(tab?.id)) {
-        const granted = await chrome.permissions.request({ origins: [origin] });
-        if (granted) {
-          await chrome.tabs.update(tab.id, { url: target });
-          return;
-        }
+      if (!originalUrl || !Number.isInteger(tabId)) {
+        await chrome.tabs.create({ url: emptyReaderUrl });
+        return;
       }
-      await chrome.tabs.create({ url: chrome.runtime.getURL("web/index.html") });
+
+      const origin = permissionOriginFor(originalUrl);
+      if (!origin) {
+        await chrome.tabs.create({ url: emptyReaderUrl });
+        return;
+      }
+
+      const granted = await chrome.permissions.request({ origins: [origin] });
+      if (!granted) {
+        await chrome.tabs.create({ url: emptyReaderUrl });
+        return;
+      }
+
+      let target = isPdfUrl(originalUrl) ? viewerUrl(originalUrl) : null;
+      if (!target && (await respondsWithPdf(originalUrl))) {
+        if (!(await tabStillAtUrl(tabId, originalUrl))) return;
+        target = viewerUrl(originalUrl);
+      }
+      if (!target) {
+        await chrome.tabs.create({ url: emptyReaderUrl });
+        return;
+      }
+
+      if (!(await tabStillAtUrl(tabId, originalUrl))) return;
+      await chrome.tabs.update(tabId, { url: target });
     } catch (error) {
       console.warn("Could not open 速览", error);
     }
@@ -250,6 +340,7 @@ chrome.action.onClicked.addListener(tab => {
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId !== MENU_ID) return;
   const originalUrl = normalizeHttpUrl(info.linkUrl);
+  if (!isPdfUrl(originalUrl)) return;
   const origin = permissionOriginFor(originalUrl);
   const target = viewerUrl(originalUrl);
   if (!origin || !target) return;
@@ -270,6 +361,9 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local" || !Object.hasOwn(changes, AUTO_OPEN_STORAGE_KEY)) return;
   autoOpenPdf = changes[AUTO_OPEN_STORAGE_KEY].newValue === true;
   void setNativeMimeHandling(autoOpenPdf);
+  // Toggling auto-open off should also let the legacy listener go instead of
+  // waking the service worker for every navigation.
+  void reconcileLegacyListener();
 });
 
 chrome.permissions.onAdded.addListener(() => {
@@ -310,6 +404,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  // A navigation replaces the document that owned the enforced title; stop
+  // re-writing the PDF name once the tab has moved on to another page.
+  if (changeInfo.url || changeInfo.pendingUrl) desiredTabTitles.delete(tabId);
   const wanted = desiredTabTitles.get(tabId);
   if (!wanted || !changeInfo.title || changeInfo.title === wanted) return;
   void applyTabTitle(tabId, wanted);

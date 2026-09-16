@@ -345,3 +345,56 @@ test("legacy fallback rejects a failed background response", async () => {
     /浏览器未能打开原始 PDF：unauthorized，请重试/,
   );
 });
+
+test("canFallbackToBrowser is false on a fresh platform", () => {
+  const platform = createExtensionPlatform({
+    chrome: chromeApi(),
+    location: extensionLocation(),
+  });
+
+  assert.equal(platform.canFallbackToBrowser(), false);
+});
+
+test("canFallbackToBrowser is true after legacy startup even when permission is denied", async () => {
+  const url = "https://pdf.example/denied.pdf";
+  const platform = createExtensionPlatform({
+    chrome: chromeApi({
+      permissions: { contains: async () => false },
+    }),
+    location: extensionLocation(`?file=${encodeURIComponent(url)}`),
+  });
+
+  assert.equal(platform.canFallbackToBrowser(), false);
+  await assert.rejects(platform.startupOpen(), /尚未获得访问.*权限/);
+  assert.equal(platform.canFallbackToBrowser(), true);
+});
+
+test("canFallbackToBrowser is true after MIME startup", async () => {
+  let streamInfoCalls = 0;
+  const platform = createExtensionPlatform({
+    chrome: chromeApi({
+      mimeHandler: {
+        getStreamInfo: async () => {
+          streamInfoCalls += 1;
+          return {
+            streamUrl: "blob:chrome-extension://extension-id/once",
+            originalUrl: "https://example.com/reports/annual.pdf",
+            tabId: 7,
+          };
+        },
+      },
+    }),
+    location: extensionLocation(),
+    fetch: async () => ({
+      ok: true,
+      async arrayBuffer() {
+        return Uint8Array.from([37, 80, 68, 70]).buffer;
+      },
+    }),
+  });
+
+  assert.equal(platform.canFallbackToBrowser(), false);
+  await platform.startupOpen();
+  assert.equal(streamInfoCalls, 1);
+  assert.equal(platform.canFallbackToBrowser(), true);
+});
