@@ -21,13 +21,13 @@ test("ignores service workers that are not this extension's background.js", () =
   ]), null);
 });
 
-test("matches the Chinese product name on chrome://extensions", () => {
+test("matches the extension product name on chrome://extensions", () => {
   assert.deepEqual(
     matchInstalledExtension([
       { id: "nkeimhogjdpnpccoofpliimaahmaaome", name: "Chrome PDF Viewer" },
-      { id: "abcdefghijklmnopabcdefghijklmnop", name: "速览" },
+      { id: "abcdefghijklmnopabcdefghijklmnop", name: "Fast PDF Viewer – AI Translation" },
     ]),
-    { id: "abcdefghijklmnopabcdefghijklmnop", name: "速览" },
+    { id: "abcdefghijklmnopabcdefghijklmnop", name: "Fast PDF Viewer – AI Translation" },
   );
 });
 

@@ -199,7 +199,7 @@ function syncZoom(mode) {
   }
 }
 
-const APP_TITLE = "速览";
+const APP_TITLE = "Fast PDF Viewer – AI Translation";
 
 function syncTabTitle() {
   const name = viewer.name?.trim();

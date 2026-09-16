@@ -216,7 +216,7 @@ chrome.runtime.onInstalled.addListener(async details => {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: MENU_ID,
-      title: chrome.i18n?.getMessage("contextMenuOpenPdf") || "使用速览打开 PDF",
+      title: chrome.i18n?.getMessage("contextMenuOpenPdf") || "Open PDF with Fast PDF Viewer – AI Translation",
       contexts: ["link"],
       targetUrlPatterns: PDF_LINK_MENU_PATTERNS,
     });
@@ -332,7 +332,7 @@ chrome.action.onClicked.addListener(tab => {
       if (!(await tabStillAtUrl(tabId, originalUrl))) return;
       await chrome.tabs.update(tabId, { url: target });
     } catch (error) {
-      console.warn("Could not open 速览", error);
+      console.warn("Could not open Fast PDF Viewer – AI Translation", error);
     }
   })();
 });

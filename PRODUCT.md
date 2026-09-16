@@ -16,7 +16,7 @@ GitHub is public for the same kind of reader. Design and defaults serve that rea
 
 ## Product Purpose
 
-速览 (Fast PDF Viewer) is a lightweight PDF **reader**. Success is: open quickly, scroll smoothly, jump and get back, find text, and translate a selection in an English technical document without leaving the page.
+Fast PDF Viewer – AI Translation is a lightweight PDF **reader**. Success is: open quickly, scroll smoothly, jump and get back, find text, and translate a selection in an English technical document without leaving the page.
 
 It exists because Edge/Chrome PDF preview is slow on large files, weak at returning to the previous reading position, and does not offer 划词 translation.
 
@@ -51,7 +51,7 @@ The combination that neighboring products cannot copy as a single claim: on-dema
 
 ## Brand Commitments
 
-- Name: **速览** / **Fast PDF Viewer**.
+- Name: **Fast PDF Viewer – AI Translation**.
 - UI language: Chinese, with industry terms kept in English (PDF, API, worker, PR, 划词).
 - No additional logo, legal, or brand-asset lock was confirmed.
 

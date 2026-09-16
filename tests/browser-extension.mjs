@@ -354,7 +354,7 @@ export function pickUnpackedExtensionTarget(targets = []) {
 
 export function matchInstalledExtension(items = []) {
   return items.find(item =>
-    (item.name === "速览" || item.name === "Fast PDF Viewer") && /^[a-p]{32}$/.test(item.id),
+    item.name === "Fast PDF Viewer – AI Translation" && /^[a-p]{32}$/.test(item.id),
   ) ?? null;
 }
 

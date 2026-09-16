@@ -354,7 +354,7 @@ test("the link context menu only targets PDF links", async () => {
   assert.ok(patterns.includes("*://*/*.PDF"));
   assert.ok(patterns.includes("*://*/*.pdf?*"));
   assert.ok(patterns.includes("*://*/*.PDF?*"));
-  assert.equal(harness.menuCreates[0].title, "使用速览打开 PDF");
+  assert.equal(harness.menuCreates[0].title, "Open PDF with Fast PDF Viewer – AI Translation");
 });
 
 test("action click requests site access before probing suffixless URLs", async () => {

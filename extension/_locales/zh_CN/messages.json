@@ -1,6 +1,6 @@
 {
   "extensionName": {
-    "message": "速览",
+    "message": "Fast PDF Viewer – AI Translation",
     "description": "扩展名称。"
   },
   "extensionDescription": {
@@ -8,11 +8,11 @@
     "description": "扩展的简短描述。"
   },
   "actionTitle": {
-    "message": "打开速览",
+    "message": "打开 Fast PDF Viewer – AI Translation",
     "description": "工具栏按钮提示文字。"
   },
   "contextMenuOpenPdf": {
-    "message": "使用速览打开 PDF",
+    "message": "使用 Fast PDF Viewer – AI Translation 打开 PDF",
     "description": "PDF 链接右键菜单项。"
   }
 }

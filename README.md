@@ -1,4 +1,4 @@
-# 速览 Fast PDF Viewer
+# Fast PDF Viewer – AI Translation
 
 <p align="center">
   <strong>为技术文档而生的轻量 PDF 阅读器</strong> —— 极速打开、连续滚动、层级目录定位、全文侧栏搜索、划词 AI 翻译与双主题切换。
@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/media/ui-hero.png" alt="速览深色主题：侧栏搜索与划词翻译" width="760" />
+  <img src="docs/media/ui-hero.png" alt="Fast PDF Viewer – AI Translation 深色主题：侧栏搜索与划词翻译" width="760" />
 </p>
 
 > 轻量本地 PDF 阅读器，支持目录、全文搜索、历史导航、划词 AI 翻译和深浅色主题。PDF 阅读过程在本地完成。

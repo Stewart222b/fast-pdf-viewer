@@ -94,7 +94,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
     URL: { createObjectURL: () => `blob:test-${++nextBlob}`, revokeObjectURL: url => revoked.push(url) },
     console, fetch: async () => ({ ok: false }),
     document: {
-      title: '速览',
+      title: 'Fast PDF Viewer – AI Translation',
       getElementById: get,
       createElement: tag => {
         const el = element();
