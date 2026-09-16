@@ -197,8 +197,8 @@ async function validateSources(root) {
   await requireRegularFile(join(extensionDirectory, "background.js"), "extension/background.js");
   await requireRegularFile(join(extensionDirectory, "options.html"), "extension/options.html");
   const manifest = await readExtensionManifest(extensionDirectory);
-  const pdfjsManifest = await verifyPdfjsAssets(webDirectory);
-  return { webDirectory, extensionDirectory, manifest, pdfjsManifest };
+  await verifyPdfjsAssets(webDirectory);
+  return { webDirectory, extensionDirectory, manifest };
 }
 
 async function copyEntry(source, destination) {
@@ -238,24 +238,6 @@ async function applyLegacyPdfjsRemap(staging, webDirectory) {
       join(packagedVendor, ...destination.split("/")),
     );
   }
-}
-
-async function regeneratePackagedPdfjsManifest(staging, sourceManifest) {
-  const vendor = join(staging, "web", "vendor", "pdfjs");
-  const files = {};
-  for (const name of Object.keys(sourceManifest.files).sort()) {
-    const file = resolve(vendor, ...name.split("/"));
-    if (!isPathInside(vendor, file)) {
-      throw new Error(`Packaged PDF.js manifest path escapes its vendor directory: ${name}`);
-    }
-    await requireRegularFile(file, `packaged PDF.js asset ${name}`);
-    files[name] = await sha256(file);
-  }
-  await writeFile(
-    join(vendor, "MANIFEST.json"),
-    `${JSON.stringify({ version: sourceManifest.version, files })}\n`,
-    { flag: "w" },
-  );
 }
 
 async function ensureDistDirectory(root) {
@@ -456,7 +438,9 @@ export async function buildExtension({ root = SCRIPT_ROOT, zip = false } = {}) {
   try {
     await copyDirectoryContents(sources.webDirectory, join(staging, "web"));
     await applyLegacyPdfjsRemap(staging, sources.webDirectory);
-    await regeneratePackagedPdfjsManifest(staging, sources.pdfjsManifest);
+    // MANIFEST.json is used to verify the vendored PDF.js files above, but it
+    // must not be shipped: Edge treats it as a second extension manifest.
+    await rm(join(staging, "web", "vendor", "pdfjs", "MANIFEST.json"), { force: true });
     await copyFile(join(projectRoot, "LICENSE"), join(staging, "LICENSE"));
     await mkdir(join(staging, "THIRD_PARTY_NOTICES"), { recursive: true });
     await copyFile(

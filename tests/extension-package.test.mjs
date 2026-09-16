@@ -12,7 +12,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   GENERATED_MARKER_NAME,
@@ -41,11 +41,12 @@ async function listArchiveNames(archive) {
   const attempts = [
     ["unzip", ["-Z1", archive]],
     ["zipinfo", ["-1", archive]],
+    ["tar", ["-tf", basename(archive)], { cwd: dirname(archive) }],
   ];
   let lastError = null;
-  for (const [command, args] of attempts) {
+  for (const [command, args, options] of attempts) {
     try {
-      const { stdout } = await execFileAsync(command, args);
+      const { stdout } = await execFileAsync(command, args, options);
       return archiveNames(stdout);
     } catch (error) {
       lastError = error;
@@ -131,10 +132,9 @@ test("builds a browser-loadable package with local PDF.js and legal files", asyn
     assert.equal(await readFile(join(packagedVendor, "build", "pdf.worker.mjs"), "utf8"), "export const legacy = 'worker';\n");
     assert.equal(await readFile(join(packagedVendor, "web", "pdf_viewer.css"), "utf8"), ".legacy {}\n");
     assert.equal(await readFile(join(packagedVendor, "web", "pdf_viewer.mjs"), "utf8"), "export const legacy = 'viewer';\n");
-    const packagedManifest = JSON.parse(await readFile(join(packagedVendor, "MANIFEST.json"), "utf8"));
-    assert.equal(
-      packagedManifest.files["build/pdf.mjs"],
-      createHash("sha256").update("export const legacy = 'pdf';\n").digest("hex"),
+    await assert.rejects(
+      readFile(join(packagedVendor, "MANIFEST.json"), "utf8"),
+      { code: "ENOENT" },
     );
     assert.equal(await readFile(join(output, GENERATED_MARKER_NAME), "utf8"), "fast-pdf-viewer browser-extension build output\n");
   });
@@ -171,11 +171,18 @@ test("optional zip contains the package and both license files", async () => {
     assert.ok(names.includes("THIRD_PARTY_NOTICES/PDF.js-LICENSE"));
     assert.ok(names.includes("web/index.html"));
     assert.ok(names.includes("manifest.json"));
+    assert.equal(
+      names.filter(name => name.toLowerCase().endsWith("manifest.json")).length,
+      1,
+      "the package must contain only the extension manifest",
+    );
     assert.ok(!names.some(name => name.startsWith("./")), "zip entries must not start with ./");
   });
 });
 
-test("rejects GNU tar output that is not a ZIP archive", async () => {
+test("rejects GNU tar output that is not a ZIP archive", {
+  skip: process.platform === "win32" ? "requires the POSIX /usr/bin/tar path" : false,
+}, async () => {
   await withFixture(async root => {
     const originalPath = process.env.PATH;
     const tarOnlyPath = await mkdtemp(join(tmpdir(), "fast-pdf-viewer-tar-only-path-"));
