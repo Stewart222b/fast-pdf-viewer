@@ -6,6 +6,7 @@ import {
 import { TextLayerBuilder } from "../vendor/pdfjs/web/pdf_viewer.mjs";
 import { buildTextIndex, buildTextMapping, matchRects } from "./search.js";
 import { convertCssToPdfPoint, convertPdfToCssPoint } from "./pdf-viewport.js";
+import { t } from "./i18n.js";
 
 GlobalWorkerOptions.workerSrc = new URL(
   "../vendor/pdfjs/build/pdf.worker.mjs",
@@ -218,7 +219,7 @@ export class PdfViewer {
   async open(source) {
     this.close();
     const generation = this.generation;
-    this.name = source.name || "文档";
+    this.name = source.name || t("document");
     this.notify();
     try {
       const loading = getDocument({
@@ -399,7 +400,7 @@ export class PdfViewer {
 
   async promptPassword(updatePassword, reason) {
     if (!this.onPassword) {
-      updatePassword(new Error("需要 PDF 密码"));
+      updatePassword(new Error(t("pdfPasswordNeeded")));
       return;
     }
     try {
@@ -712,7 +713,7 @@ export class PdfViewer {
       const height = Math.abs(rect[3] - rect[1]);
       const a = document.createElement("a");
       a.href = annotation.url || "#";
-      a.title = annotation.url || "跳转";
+      a.title = annotation.url || t("jump");
       a.style.left = `${left}px`;
       a.style.top = `${top}px`;
       a.style.width = `${width}px`;

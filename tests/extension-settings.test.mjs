@@ -19,6 +19,7 @@ test('extension settings load and save without placing API keys in localStorage'
     await settings.initSettings();
     assert.equal(settings.loadSettings().apiKey, 'test-only');
     assert.equal(settings.loadSettings().targetLang, 'zh-CN');
+    assert.equal(settings.loadSettings().uiLanguage, 'zh-CN');
     await settings.saveSettings({ model: 'updated' });
     assert.equal(values['fast-pdf-viewer-settings'].model, 'updated');
     listener({ 'fast-pdf-viewer-settings': { newValue: { model: 'other-tab' } } }, 'local');
