@@ -12,6 +12,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
   requestHostAccess = async () => true, saveSettings = () => ({}),
   loadSettings = () => ({}), initSettings = async () => {},
   platformId = 'test', canFallbackToBrowser = undefined,
+  clearBrowserFallback = undefined,
   chrome = undefined } = {}) {
   const elements = new Map(), timers = new Map();
   let timerId = 0, viewer, fileInput;
@@ -134,6 +135,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
         async startupOpen() { return typeof startup === 'function' ? startup() : startup; },
         async pickFile() { return null; },
         ...(canFallbackToBrowser !== undefined ? { canFallbackToBrowser } : {}),
+        ...(clearBrowserFallback !== undefined ? { clearBrowserFallback } : {}),
       }),
     },
     './model-picker.js': {
@@ -788,6 +790,29 @@ test('extension boot failure without file keeps original-pdf button hidden', asy
   assert.equal(app.get('btn-original-pdf').hidden, true);
   assert.equal(app.get('btn-extension-options').hidden, false);
   assert.equal(openOptionsPage.length, 0);
+});
+
+test('extension local open clears original-pdf fallback state', async () => {
+  let fallbackCleared = 0;
+  const app = await setup({
+    platformId: 'extension',
+    canFallbackToBrowser: () => true,
+    clearBrowserFallback: () => { fallbackCleared += 1; },
+    startup: () => ({
+      url: 'https://example.com/remote.pdf',
+      name: 'remote.pdf',
+      withCredentials: true,
+    }),
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.get('btn-original-pdf').hidden, false);
+
+  app.fileInput.files = [{ name: 'local.pdf', arrayBuffer: async () => new ArrayBuffer(8) }];
+  await app.fileInput.listeners.change();
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(fallbackCleared, 1);
+  assert.equal(app.get('btn-original-pdf').hidden, true);
 });
 
 test('extension boot failure with file shows original-pdf button', async () => {

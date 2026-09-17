@@ -49,6 +49,10 @@ export function isPdfContentType(headers) {
   return contentTypeFromHeaders(headers).split(";", 1)[0].trim().toLowerCase() === "application/pdf";
 }
 
+export function isHttpRedirectStatus(statusCode) {
+  return Number.isInteger(statusCode) && statusCode >= 300 && statusCode < 400;
+}
+
 export function isLegacyPdfNavigation(details) {
   return (
     details?.type === "main_frame" &&

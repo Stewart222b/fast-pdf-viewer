@@ -395,6 +395,10 @@ async function openSource(getSource) {
 
 async function openFile(file) {
   applyTabTitle(file?.name);
+  if (platform.id === "extension") {
+    platform.clearBrowserFallback?.();
+    $("btn-original-pdf").hidden = true;
+  }
   return openSource(() => {
     objectUrl = URL.createObjectURL(file);
     return {
