@@ -7,6 +7,7 @@ import {
 } from "./reading-position.js";
 import { highlightSnippet, searchDocument } from "./search.js";
 import { loadSettings, saveSettings, initSettings } from "./settings.js";
+import { applyDocumentTranslations, setLocale, t } from "./i18n.js";
 import { requestHostAccess, fallbackToBrowser } from "./platform/extension.js";
 import { wireModelPicker } from "./model-picker.js";
 import {
@@ -25,6 +26,8 @@ import { PdfViewer } from "./viewer.js";
 
 const $ = (id) => document.getElementById(id);
 const platform = createPlatform();
+setLocale(loadSettings().uiLanguage);
+applyDocumentTranslations();
 
 // The fixed select supplies presets; the visible label can show any gesture scale.
 const zoomMenuItems = [...$("zoom-select").options].map(option => {
@@ -119,7 +122,7 @@ function requestPdfPassword(reason) {
     };
     const onCancel = () => {
       cleanup();
-      reject(new Error("已取消输入密码"));
+      reject(new Error(t("passwordCancelled")));
     };
     const onKey = (event) => {
       if (event.key === "Enter") {
@@ -132,7 +135,7 @@ function requestPdfPassword(reason) {
       }
     };
     error.hidden = reason !== PasswordResponses.INCORRECT_PASSWORD;
-    error.textContent = reason === PasswordResponses.INCORRECT_PASSWORD ? "密码错误，请重试。" : "";
+    error.textContent = reason === PasswordResponses.INCORRECT_PASSWORD ? t("passwordIncorrect") : "";
     input.value = "";
     modal.hidden = false;
     dismissPassword = onCancel;
@@ -221,8 +224,8 @@ function syncToolbar(state) {
   $("page-input").value = hasDoc ? String(state.page || 1) : "—";
   $("page-input").disabled = !hasDoc;
   $("page-count").textContent = hasDoc ? String(viewer.pageCount || 0) : "—";
-  $("doc-title").textContent = viewer.name || "未打开文件";
-  $("doc-title").title = viewer.name || "未打开文件";
+  $("doc-title").textContent = viewer.name || t("noFile");
+  $("doc-title").title = viewer.name || t("noFile");
   $("drop-hint").classList.toggle("hidden", hasDoc);
   // Empty state keeps a primary 打开; once a PDF is open it steps down.
   $("btn-open").classList.toggle("demoted", hasDoc);
@@ -362,8 +365,8 @@ async function openSource(getSource) {
   outlineTreeApi = null;
   outlineAutoReveal = true;
   syncOutlineTreeActions();
-  hideBubble();
-  showViewerStatus("正在打开…");
+  hideBubble({ force: true });
+  showViewerStatus(t("opening"));
   try {
     const source = await getSource();
     if (request !== openGeneration) return;
@@ -386,7 +389,7 @@ async function openSource(getSource) {
     }
   } catch (error) {
     if (request === openGeneration) {
-      const message = `打开失败：${error.message || error}`;
+      const message = t("openFailed", { message: error.message || error });
       $("outline-pane").textContent = message;
       showViewerStatus(message, { action: true });
     }
@@ -436,7 +439,7 @@ async function renderOutline(request) {
     pane.removeAttribute("role");
     pane.removeAttribute("aria-label");
     if (!outline?.length) {
-      pane.innerHTML = '<div class="empty-side">这份 PDF 没有目录。</div>';
+      pane.innerHTML = `<div class="empty-side">${t("noOutline")}</div>`;
       // Late outline with no entries must not kick the user out of search.
       if (sidebarMode !== "search") {
         selectSidebar("outline");
@@ -460,7 +463,7 @@ async function renderOutline(request) {
   }
   pane.replaceChildren();
   pane.setAttribute("role", "tree");
-  pane.setAttribute("aria-label", "文档目录");
+  pane.setAttribute("aria-label", t("documentOutline"));
   // Flat entries in mount order with parent links, so the active path can be
   // revealed without DOM tree-walking.
   const entries = [];
@@ -471,7 +474,7 @@ async function renderOutline(request) {
   };
   const mount = (items, depth, container, parentEntry) => {
     for (const item of items) {
-      const title = item.title || "未命名";
+      const title = item.title || t("unnamed");
       const hasChildren = Boolean(item.items?.length);
       const node = document.createElement("div");
       node.className = "outline-node";
@@ -487,8 +490,8 @@ async function renderOutline(request) {
       toggle.tabIndex = -1;
       if (hasChildren) {
         toggle.setAttribute("aria-expanded", depth === 0 ? "true" : "false");
-        toggle.setAttribute("aria-label", `展开/折叠 ${title}`);
-        toggle.title = "展开/折叠";
+        toggle.setAttribute("aria-label", `${t("toggleBranch")} ${title}`);
+        toggle.title = t("toggleBranch");
       } else {
         toggle.classList.add("is-leaf");
         toggle.setAttribute("aria-hidden", "true");
@@ -502,7 +505,7 @@ async function renderOutline(request) {
       const page = Number(item.pageNumber);
       if (Number.isFinite(page) && page > 0) {
         btn.dataset.page = String(page);
-        btn.setAttribute("aria-description", `第 ${page} 页`);
+        btn.setAttribute("aria-description", t("pageDescription", { page }));
       }
       row.append(toggle, btn);
       node.append(row);
@@ -594,13 +597,13 @@ function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)
   $("search-next").disabled = hits.length === 0;
   if (!query) {
     count.hidden = true;
-    list.innerHTML = '<div class="empty-side">输入关键词后，这里会列出全部命中。</div>';
+    list.innerHTML = `<div class="empty-side">${t("searchPrompt")}</div>`;
     return;
   }
   count.hidden = false;
   if (!hits.length) {
-    count.textContent = "0 条";
-    list.innerHTML = '<div class="empty-side">没有找到匹配。</div>';
+    count.textContent = t("zeroResults");
+    list.innerHTML = `<div class="empty-side">${t("noMatches")}</div>`;
     return;
   }
   count.textContent = `${viewer.hitIndex + 1} / ${hits.length}`;
@@ -612,25 +615,25 @@ function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)
     button.addEventListener("click", () => renderSearchList(hits, query, nextStart));
     list.appendChild(button);
   };
-  if (start > 0) moreButton("上一组结果", Math.max(0, start - 200));
+  if (start > 0) moreButton(t("previousResults"), Math.max(0, start - 200));
   hits.slice(start, end).forEach((hit, localIndex) => {
     const index = start + localIndex;
     const btn = document.createElement("button");
     btn.className = `search-hit${index === viewer.hitIndex ? " active" : ""}`;
     if (index === viewer.hitIndex) activeButton = btn;
-    btn.innerHTML = `<div class="meta">第 ${hit.pageNumber} 页 · ${index + 1}/${hits.length}</div>
+    btn.innerHTML = `<div class="meta">${t("pageMeta", { page: hit.pageNumber, current: index + 1, total: hits.length })}</div>
       <div class="snippet">${highlightSnippet(hit.snippet, query)}</div>`;
     btn.addEventListener("click", async () => {
       try {
         await viewer.jumpToHit(index, { push: true });
         if (searchHits === hits && $("search-input").value === query) renderSearchList(hits, query, undefined, true);
       } catch (error) {
-        if (searchHits === hits) list.textContent = `定位失败：${error.message || error}`;
+        if (searchHits === hits) list.textContent = t("locateFailed", { message: error.message || error });
       }
     });
     list.appendChild(btn);
   });
-  if (end < hits.length) moreButton("下一组结果", end);
+  if (end < hits.length) moreButton(t("nextResults"), end);
   list.scrollTop = previousScroll;
   if (reveal && activeButton && !isSidebarCollapsed() && sidebarMode === "search") {
     // Scroll only the results container; never move the PDF or keyboard focus.
@@ -692,18 +695,71 @@ async function runSearch(query, request = searchGeneration, jump = true) {
       if (viewer.indexError) {
         const warning = document.createElement("div");
         warning.className = "empty-side";
-        warning.textContent = "部分页面索引失败，当前仅显示已读取结果。";
+        warning.textContent = t("partialIndex");
         $("search-list").appendChild(warning);
       } else if (viewer.indexedPages < viewer.pageCount) {
-        $("search-count").textContent += ` · 索引 ${viewer.indexedPages}/${viewer.pageCount}`;
+        $("search-count").textContent += ` · ${t("indexing", { current: viewer.indexedPages, total: viewer.pageCount })}`;
       }
     }
   } catch (error) {
-    if (current()) $("search-list").textContent = `搜索失败：${error.message || error}`;
+    if (current()) $("search-list").textContent = t("searchFailed", { message: error.message || error });
   }
 }
 
 let sidebarMode = "outline";
+const SIDEBAR_MIN_WIDTH = 272;
+const SIDEBAR_MAX_WIDTH = 480;
+const SIDEBAR_WIDTH_STORAGE_KEY = "fast-pdf-viewer-sidebar-width-v1";
+const sidebarResizeHandle = $("sidebar-resize-handle");
+sidebarResizeHandle?.setAttribute("role", "separator");
+sidebarResizeHandle?.setAttribute("aria-orientation", "vertical");
+sidebarResizeHandle?.setAttribute("aria-label", t("resizeSidebar"));
+sidebarResizeHandle?.setAttribute("aria-valuemin", String(SIDEBAR_MIN_WIDTH));
+
+function readSavedSidebarWidth() {
+  try {
+    const saved = Number(globalThis.localStorage?.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
+    return Number.isFinite(saved) && saved > 0
+      ? Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(saved)))
+      : SIDEBAR_MIN_WIDTH;
+  } catch {
+    return SIDEBAR_MIN_WIDTH;
+  }
+}
+
+function getSidebarWidthMax() {
+  const workspace = document.querySelector(".workspace");
+  const workspaceWidth = workspace?.getBoundingClientRect?.().width || 0;
+  const viewportWidth = Number(window.innerWidth) || workspaceWidth || SIDEBAR_MAX_WIDTH;
+  const availableWidth = viewportWidth <= 900
+    ? viewportWidth - 24
+    : workspaceWidth - 320;
+  return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, availableWidth));
+}
+
+let sidebarWidth = readSavedSidebarWidth();
+
+function setSidebarWidth(width) {
+  sidebarWidth = Math.min(getSidebarWidthMax(), Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)));
+  document.documentElement?.style?.setProperty("--sidebar-w", `${sidebarWidth}px`);
+  sidebarResizeHandle?.setAttribute("aria-valuenow", String(sidebarWidth));
+  sidebarResizeHandle?.setAttribute("aria-valuemax", String(getSidebarWidthMax()));
+}
+
+function saveSidebarWidth() {
+  try {
+    globalThis.localStorage?.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+  } catch {
+    // The current session can still use the resized width when storage is unavailable.
+  }
+}
+
+function reflowAfterSidebarResize() {
+  if (Number(window.innerWidth) > 900) runPageWidthReflow();
+}
+
+setSidebarWidth(sidebarWidth);
+
 function selectSidebar(name) {
   sidebarMode = name;
   $("outline-pane").classList.toggle("active", name === "outline");
@@ -812,6 +868,76 @@ function setSidebarCollapsed(collapsed) {
   schedulePageWidthReflow();
 }
 
+let sidebarResizeDrag = null;
+sidebarResizeHandle?.addEventListener("pointerdown", (event) => {
+  if (event.isPrimary === false || (event.button != null && event.button !== 0) || isSidebarCollapsed()) return;
+  event.preventDefault();
+  sidebarResizeDrag = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startWidth: sidebarWidth,
+    changed: false,
+  };
+  document.querySelector(".workspace").classList.toggle("is-sidebar-resizing", true);
+  try {
+    sidebarResizeHandle.setPointerCapture?.(event.pointerId);
+  } catch {
+    // Pointer capture may be unavailable in older embedded browsers.
+  }
+});
+
+sidebarResizeHandle?.addEventListener("pointermove", (event) => {
+  if (!sidebarResizeDrag || event.pointerId !== sidebarResizeDrag.pointerId) return;
+  const previousWidth = sidebarWidth;
+  setSidebarWidth(sidebarResizeDrag.startWidth + event.clientX - sidebarResizeDrag.startX);
+  sidebarResizeDrag.changed ||= sidebarWidth !== previousWidth;
+});
+
+function finishSidebarResize(event) {
+  if (!sidebarResizeDrag || (event?.pointerId != null && event.pointerId !== sidebarResizeDrag.pointerId)) return;
+  const changed = sidebarResizeDrag.changed;
+  try {
+    sidebarResizeHandle?.releasePointerCapture?.(sidebarResizeDrag.pointerId);
+  } catch {
+    // The pointer may already have been released by the browser.
+  }
+  sidebarResizeDrag = null;
+  document.querySelector(".workspace").classList.toggle("is-sidebar-resizing", false);
+  if (changed) {
+    saveSidebarWidth();
+    reflowAfterSidebarResize();
+  }
+}
+
+sidebarResizeHandle?.addEventListener("pointerup", finishSidebarResize);
+sidebarResizeHandle?.addEventListener("pointercancel", finishSidebarResize);
+sidebarResizeHandle?.addEventListener("keydown", (event) => {
+  const step = event.shiftKey ? 48 : 16;
+  let nextWidth;
+  if (event.key === "ArrowRight") nextWidth = sidebarWidth + step;
+  else if (event.key === "ArrowLeft") nextWidth = sidebarWidth - step;
+  else if (event.key === "Home") nextWidth = SIDEBAR_MIN_WIDTH;
+  else if (event.key === "End") nextWidth = getSidebarWidthMax();
+  else return;
+  event.preventDefault();
+  const previousWidth = sidebarWidth;
+  setSidebarWidth(nextWidth);
+  if (sidebarWidth !== previousWidth) {
+    saveSidebarWidth();
+    reflowAfterSidebarResize();
+  }
+});
+
+let viewportReflowTimer = 0;
+window.addEventListener("resize", () => {
+  if (!sidebarResizeDrag) setSidebarWidth(readSavedSidebarWidth());
+  clearTimeout(viewportReflowTimer);
+  viewportReflowTimer = setTimeout(() => {
+    viewportReflowTimer = 0;
+    runPageWidthReflow();
+  }, 120);
+});
+
 async function pickFile() {
   const picked = await platform.pickFile();
   if (picked) {
@@ -851,14 +977,14 @@ $("sidebar-tab-search")?.addEventListener("click", () => {
 });
 const outlineExpandAllBtn = $("btn-outline-expand-all");
 if (outlineExpandAllBtn) {
-  outlineExpandAllBtn.title = "全部展开";
-  outlineExpandAllBtn.setAttribute("aria-label", "全部展开");
+  outlineExpandAllBtn.title = t("expandAll");
+  outlineExpandAllBtn.setAttribute("aria-label", t("expandAll"));
   outlineExpandAllBtn.addEventListener("click", () => expandAllOutlineNodes());
 }
 const outlineCollapseAllBtn = $("btn-outline-collapse-all");
 if (outlineCollapseAllBtn) {
-  outlineCollapseAllBtn.title = "全部折叠";
-  outlineCollapseAllBtn.setAttribute("aria-label", "全部折叠");
+  outlineCollapseAllBtn.title = t("collapseAll");
+  outlineCollapseAllBtn.setAttribute("aria-label", t("collapseAll"));
   outlineCollapseAllBtn.addEventListener("click", () => collapseAllOutlineNodes());
 }
 $("btn-sidebar-close").addEventListener("click", () => setSidebarCollapsed(true));
@@ -956,7 +1082,7 @@ async function moveHit(step) {
     await viewer.jumpToHit(next, { push: true });
     if (searchHits === hits) renderSearchList(hits, $("search-input").value, undefined, true);
   } catch (error) {
-    if (searchHits === hits) $("search-list").textContent = `定位失败：${error.message || error}`;
+    if (searchHits === hits) $("search-list").textContent = t("locateFailed", { message: error.message || error });
   }
 }
 
@@ -1076,7 +1202,7 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     event.preventDefault();
     if (!$("translate-bubble").hidden) {
-      hideBubble();
+      hideBubble({ force: true });
       return;
     }
     if (!$("zoom-menu").hidden) {
@@ -1092,9 +1218,16 @@ window.addEventListener("keydown", (event) => {
 
 const bubble = $("translate-bubble");
 const translateChip = $("translate-chip");
+const bubblePinButton = $("btn-bubble-pin");
+const bubbleHeader = $("bubble-header");
+const bubbleDragHandle = $("bubble-drag-handle");
 let selectedText = "";
+let translateChipText = "";
 let selectedTranslationMode = "passage";
 let bubbleSelectionRect = null;
+let isBubblePinned = false;
+let isBubbleManuallyPositioned = false;
+let bubbleDrag = null;
 
 function isAutoTranslateOn() {
   return loadSettings().autoTranslateOnSelect !== false;
@@ -1114,8 +1247,112 @@ function currentSelectionRect() {
   return anchored || bubbleSelectionRect;
 }
 
+function syncBubblePinButton() {
+  const label = isBubblePinned ? t("unpinTranslation") : t("pinTranslation");
+  bubblePinButton.title = label;
+  bubblePinButton.setAttribute("aria-label", label);
+  bubblePinButton.setAttribute("aria-pressed", String(isBubblePinned));
+  bubblePinButton.classList.toggle("is-pinned", isBubblePinned);
+  bubble.classList.toggle("is-pinned", isBubblePinned);
+}
+
+function setBubblePinned(pinned) {
+  isBubblePinned = Boolean(pinned);
+  syncBubblePinButton();
+  if (!bubble.hidden) repositionBubble();
+}
+
+function finishBubbleDrag(event) {
+  if (!bubbleDrag) return;
+  if (event?.pointerId != null && bubbleDrag.pointerId != null && event.pointerId !== bubbleDrag.pointerId) return;
+  const pointerId = bubbleDrag.pointerId;
+  bubbleDrag = null;
+  bubble.classList.toggle("is-dragging", false);
+  if (pointerId != null && bubbleHeader.hasPointerCapture?.(pointerId)) {
+    bubbleHeader.releasePointerCapture(pointerId);
+  }
+}
+
+bubbleHeader.addEventListener("pointerdown", (event) => {
+  if (event.target?.closest?.("button")) return;
+  if (event.isPrimary === false || (event.button != null && event.button !== 0)) return;
+  event.preventDefault();
+  isBubbleManuallyPositioned = true;
+  keepPinnedBubbleInView();
+  const rect = bubble.getBoundingClientRect();
+  const left = Number.parseFloat(bubble.style.left);
+  const top = Number.parseFloat(bubble.style.top);
+  bubbleDrag = {
+    pointerId: event.pointerId,
+    offsetX: event.clientX - (Number.isFinite(left) ? left : rect.left),
+    offsetY: event.clientY - (Number.isFinite(top) ? top : rect.top),
+  };
+  bubble.classList.toggle("is-dragging", true);
+  if (event.pointerId != null) {
+    try { bubbleHeader.setPointerCapture?.(event.pointerId); } catch { /* capture may be unavailable */ }
+  }
+  event.stopPropagation();
+});
+
+bubbleHeader.addEventListener("pointermove", (event) => {
+  if (!bubbleDrag || (event.pointerId != null && bubbleDrag.pointerId != null && event.pointerId !== bubbleDrag.pointerId)) return;
+  event.preventDefault();
+  bubble.style.left = `${event.clientX - bubbleDrag.offsetX}px`;
+  bubble.style.top = `${event.clientY - bubbleDrag.offsetY}px`;
+  keepPinnedBubbleInView();
+  event.stopPropagation();
+});
+
+bubbleHeader.addEventListener("pointerup", finishBubbleDrag);
+bubbleHeader.addEventListener("pointercancel", finishBubbleDrag);
+bubbleHeader.addEventListener("lostpointercapture", finishBubbleDrag);
+bubbleDragHandle.addEventListener("keydown", (event) => {
+  const distance = event.shiftKey ? 48 : 16;
+  const movement = {
+    ArrowLeft: [-distance, 0],
+    ArrowRight: [distance, 0],
+    ArrowUp: [0, -distance],
+    ArrowDown: [0, distance],
+  }[event.key];
+  if (!movement) return;
+  event.preventDefault();
+  isBubbleManuallyPositioned = true;
+  keepPinnedBubbleInView();
+  const rect = bubble.getBoundingClientRect();
+  const left = Number.parseFloat(bubble.style.left);
+  const top = Number.parseFloat(bubble.style.top);
+  bubble.style.left = `${(Number.isFinite(left) ? left : rect.left) + movement[0]}px`;
+  bubble.style.top = `${(Number.isFinite(top) ? top : rect.top) + movement[1]}px`;
+  keepPinnedBubbleInView();
+});
+
+function keepPinnedBubbleInView() {
+  const viewport = wrap.getBoundingClientRect();
+  const margin = 8;
+  const availableWidth = Math.max(160, viewport.right - viewport.left - margin * 2);
+  const width = Math.min(420, availableWidth);
+  bubble.style.width = width + "px";
+  bubble.style.maxWidth = width + "px";
+
+  const minLeft = viewport.left + margin;
+  const maxLeft = Math.max(minLeft, viewport.right - margin - bubble.offsetWidth);
+  const minTop = viewport.top + margin;
+  const maxTop = Math.max(minTop, viewport.bottom - margin - 72);
+  const currentLeft = Number.parseFloat(bubble.style.left);
+  const currentTop = Number.parseFloat(bubble.style.top);
+  const left = Math.min(Math.max(Number.isFinite(currentLeft) ? currentLeft : minLeft, minLeft), maxLeft);
+  const top = Math.min(Math.max(Number.isFinite(currentTop) ? currentTop : minTop, minTop), maxTop);
+  bubble.style.left = left + "px";
+  bubble.style.top = top + "px";
+  bubble.style.maxHeight = Math.max(72, Math.min(480, viewport.bottom - margin - top)) + "px";
+}
+
 function repositionBubble() {
   if (bubble.hidden) return;
+  if (isBubblePinned || isBubbleManuallyPositioned) {
+    keepPinnedBubbleInView();
+    return;
+  }
   const rect = currentSelectionRect();
   if (!rect) return;
   applyBubblePlacement(bubble, rect, wrap.getBoundingClientRect());
@@ -1143,6 +1380,7 @@ function cancelTranslate() {
 
 function hideTranslateChip() {
   translateChip.hidden = true;
+  translateChipText = "";
 }
 
 function repositionTranslateChip() {
@@ -1164,7 +1402,11 @@ function repositionTranslateChip() {
   translateChip.style.top = `${top}px`;
 }
 
-function hideBubble() {
+function hideBubble({ force = false } = {}) {
+  if (isBubblePinned && !force) return;
+  isBubblePinned = false;
+  isBubbleManuallyPositioned = false;
+  syncBubblePinButton();
   bubbleSelectionRect = null;
   hideTranslateChip();
   bubble.hidden = true;
@@ -1176,7 +1418,7 @@ function hideBubble() {
 }
 
 function showTranslateChip(selectionRect, text) {
-  selectedText = text;
+  translateChipText = text;
   bubbleSelectionRect = selectionRect;
   translateChip.hidden = false;
   repositionTranslateChip();
@@ -1193,6 +1435,7 @@ function openTranslatePanel(selectionRect, text, { startTranslate = true } = {})
   const selectionId = ++bubbleSelectionId;
   selectedText = text;
   bubbleSelectionRect = selectionRect;
+  isBubbleManuallyPositioned = false;
   syncBubbleModel();
   const source = $("translate-source");
   renderBubbleSource(source, text, selectedTranslationMode);
@@ -1216,7 +1459,7 @@ function updateSourceFold() {
   renderBubbleSource(source, selectedText, selectedTranslationMode, { full: expanded });
   source.classList.toggle("collapsed", long && !expanded);
   toggle.hidden = !long;
-  toggle.textContent = expanded ? "收起原文" : "展开原文";
+  toggle.textContent = expanded ? t("collapseSource") : t("expandSource");
 }
 
 let translateAwaitingKey = false;
@@ -1244,7 +1487,7 @@ function setTranslateError(message, selectionId) {
     settingsBtn.type = "button";
     settingsBtn.className = "link-btn";
     settingsBtn.id = "btn-translate-settings";
-    settingsBtn.textContent = "设置翻译";
+    settingsBtn.textContent = t("setupTranslation");
     settingsBtn.addEventListener("click", () => openSettings());
     result.append(settingsBtn);
   } else {
@@ -1252,7 +1495,7 @@ function setTranslateError(message, selectionId) {
     retry.type = "button";
     retry.className = "link-btn";
     retry.id = "btn-translate-retry";
-    retry.textContent = "重试";
+    retry.textContent = t("retry");
     retry.addEventListener("click", () => runTranslate(selectionId));
     translateAwaitingKey = false;
     result.append(retry);
@@ -1265,7 +1508,7 @@ async function runTranslate(selectionId = bubbleSelectionId) {
   const text = selectedText;
   if (!text) return;
   if (text.length > MAX_TRANSLATE_CHARS) {
-    setTranslateError(`选中文本过长（${text.length} 字），请缩短到 ${MAX_TRANSLATE_CHARS} 字以内。`, selectionId);
+    setTranslateError(t("textTooLong", { count: text.length, max: MAX_TRANSLATE_CHARS }), selectionId);
     return;
   }
   const result = $("translate-result");
@@ -1302,9 +1545,10 @@ async function runTranslate(selectionId = bubbleSelectionId) {
   }
 }
 
-// 划词气泡是选区延伸：点击外部 / Esc 直接关闭，不做迷你聊天。
+// 划词气泡是选区延伸：点击外部 / Esc 关闭；固定后忽略外部点击。
 document.addEventListener("pointerdown", (event) => {
   if (bubble.hidden) return;
+  if (isBubblePinned) return;
   const target = event.target;
   if (bubble.contains(target) || translateChip.contains(target)) return;
   if (target.closest?.(".textLayer")) return;
@@ -1312,7 +1556,17 @@ document.addEventListener("pointerdown", (event) => {
   hideBubble();
 });
 
-document.addEventListener("mouseup", (event) => {  if (bubble.contains(event.target) || translateChip.contains(event.target)) return;
+document.addEventListener("mouseup", (event) => {
+  if (translateChip.contains(event.target)) return;
+  if (bubble.contains(event.target)) {
+    hideTranslateChip();
+    return;
+  }
+  if (!event.target?.closest?.(".textLayer")) {
+    hideTranslateChip();
+    hideBubble();
+    return;
+  }
   const selection = window.getSelection();
   const prepared = selection?.rangeCount ? prepareSelectionForTranslation(selection) : null;
   if (prepared?.tooLong) {
@@ -1321,19 +1575,15 @@ document.addEventListener("mouseup", (event) => {  if (bubble.contains(event.tar
     selectedTranslationMode = "passage";
     const selectionId = openTranslatePanel(anchor, "", { startTranslate: false });
     setTranslateError(
-      `选中文本过长（${prepared.charCount} 字），请缩短到 ${MAX_TRANSLATE_CHARS} 字以内。`,
+      t("textTooLong", { count: prepared.charCount, max: MAX_TRANSLATE_CHARS }),
       selectionId,
     );
     return;
   }
   const text = prepared?.text || "";
   if (!text || !selection.rangeCount) {
-    if (
-      !event.target.closest("#translate-bubble") &&
-      !event.target.closest("#translate-chip")
-    ) {
-      hideBubble();
-    }
+    hideTranslateChip();
+    hideBubble();
     return;
   }
   const range = selection.getRangeAt(0);
@@ -1348,6 +1598,8 @@ document.addEventListener("mouseup", (event) => {  if (bubble.contains(event.tar
   const anchor = getSelectionAnchorRect(range, wrap.getBoundingClientRect(), selection);
   if (isAutoTranslateOn()) {
     openTranslatePanel(anchor, text);
+  } else if (isBubblePinned) {
+    showTranslateChip(anchor, text);
   } else {
     bubble.hidden = true;
     cancelTranslate();
@@ -1361,20 +1613,68 @@ window.addEventListener("resize", scheduleRepositionBubble);
 translateChip.addEventListener("click", (event) => {
   event.stopPropagation();
   const rect = currentSelectionRect() || bubbleSelectionRect;
-  if (!rect || !selectedText) return;
-  openTranslatePanel(rect, selectedText);
+  if (!rect || !translateChipText) return;
+  openTranslatePanel(rect, translateChipText);
 });
 
-$("btn-bubble-close").addEventListener("click", hideBubble);
+$("btn-bubble-pin").addEventListener("click", (event) => {
+  event.stopPropagation();
+  setBubblePinned(!isBubblePinned);
+});
+syncBubblePinButton();
+$("btn-bubble-close").addEventListener("click", () => hideBubble({ force: true }));
 $("btn-source-toggle")?.addEventListener("click", () => {
   const toggle = $("btn-source-toggle");
   toggle.dataset.expanded = toggle.dataset.expanded === "true" ? "false" : "true";
   updateSourceFold();
   scheduleRepositionBubble();
 });
-$("btn-copy").addEventListener("click", async () => {
+const bubbleCopyButton = $("btn-copy");
+const bubbleCopyStatus = $("copy-status");
+let bubbleCopyFeedbackTimer = 0;
+let bubbleCopyRequestId = 0;
+
+function syncBubbleCopyFeedback(state, announcement = "") {
+  clearTimeout(bubbleCopyFeedbackTimer);
+  bubbleCopyFeedbackTimer = 0;
+
+  const labels = {
+    idle: t("copyResult"),
+    success: t("copied"),
+    error: t("copyFailed"),
+  };
+  bubbleCopyButton.dataset.copyState = state;
+  bubbleCopyButton.title = labels[state];
+  bubbleCopyButton.setAttribute("aria-label", labels[state]);
+  bubbleCopyStatus.textContent = announcement;
+
+  if (state !== "idle") {
+    const requestId = bubbleCopyRequestId;
+    bubbleCopyFeedbackTimer = setTimeout(() => {
+      if (requestId === bubbleCopyRequestId) syncBubbleCopyFeedback("idle");
+    }, 2000);
+  }
+}
+
+bubbleCopyButton.addEventListener("click", async () => {
+  const requestId = ++bubbleCopyRequestId;
   const copy = readBubblePlainText($("translate-result")) || selectedText;
-  if (copy) await navigator.clipboard.writeText(copy);
+  if (!copy) {
+    syncBubbleCopyFeedback("error", t("nothingToCopy"));
+    return;
+  }
+
+  syncBubbleCopyFeedback("idle");
+  try {
+    await navigator.clipboard.writeText(copy);
+    if (requestId === bubbleCopyRequestId) {
+      syncBubbleCopyFeedback("success", t("copySuccessAnnouncement"));
+    }
+  } catch {
+    if (requestId === bubbleCopyRequestId) {
+      syncBubbleCopyFeedback("error", t("copyFailureAnnouncement"));
+    }
+  }
 });
 
 const modelPicker = wireModelPicker({
@@ -1384,6 +1684,7 @@ const modelPicker = wireModelPicker({
   getCredentials: () => ({
     apiKey: $("setting-key").value.trim(),
     apiBaseUrl: $("setting-base").value.trim(),
+    model: $("setting-model").value.trim(),
   }),
 });
 let modelRefreshTimer = 0;
@@ -1392,9 +1693,7 @@ const scheduleModelRefresh = () => {
   modelRefreshTimer = setTimeout(() => modelPicker.refresh(), 400);
 };
 const onCredentialInput = () => {
-  if (!$("setting-key").value.trim() || !$("setting-base").value.trim()) {
-    modelPicker.invalidatePending();
-  }
+  modelPicker.invalidatePending();
   scheduleModelRefresh();
 };
 $("setting-key").addEventListener("input", onCredentialInput);
@@ -1435,6 +1734,7 @@ function openSettings() {
   $("setting-base").value = settings.apiBaseUrl;
   $("setting-model").value = settings.model;
   $("setting-lang").value = settings.targetLang;
+  $("setting-ui-language").value = settings.uiLanguage || "zh-CN";
   $("setting-auto-translate").checked = settings.autoTranslateOnSelect !== false;
   lastSettingsTrigger = document.activeElement;
   $("settings-modal").hidden = false;
@@ -1497,14 +1797,16 @@ $("btn-settings-save").addEventListener("click", async () => {
     apiBaseUrl: $("setting-base").value.trim() || "https://openrouter.ai/api/v1",
     model: $("setting-model").value.trim() || "openai/gpt-4o-mini",
     targetLang: $("setting-lang").value,
+    uiLanguage: $("setting-ui-language").value,
     autoTranslateOnSelect: $("setting-auto-translate").checked,
   };
   try {
     // Request from the click handler, before yielding the user gesture.
     const permission = next.apiKey ? requestHostAccess(next.apiBaseUrl) : true;
     button.disabled = true;
-    if (!await permission) throw new Error("未获得服务地址访问权限，设置尚未保存。");
+    if (!await permission) throw new Error(t("permissionDenied"));
     settings = await saveSettings(next);
+    applyInterfaceLanguage(settings.uiLanguage);
     syncBubbleModel();
     const retryTranslate = translateAwaitingKey && settings.apiKey?.trim();
     closeSettings();
@@ -1513,7 +1815,7 @@ $("btn-settings-save").addEventListener("click", async () => {
       void runTranslate(bubbleSelectionId);
     }
   } catch (reason) {
-    error.textContent = reason.message || "保存失败，请重试。";
+    error.textContent = reason.message || t("saveFailed");
     error.hidden = false;
   } finally {
     button.disabled = false;
@@ -1534,41 +1836,68 @@ function shortcutChord(key) {
 function applyShortcutLabels() {
   const open = shortcutChord("O");
   const find = shortcutChord("F");
-  $("btn-open").title = `打开 PDF (${open})`;
+  $("btn-open").title = `${t("openPdf")} (${open})`;
   const search = $("btn-search-toggle");
   if (search) {
-    search.title = `搜索 (${find})`;
-    search.setAttribute("aria-label", `搜索 (${find})`);
+    search.title = `${t("search")} (${find})`;
+    search.setAttribute("aria-label", `${t("search")} (${find})`);
   }
   const zoomOut = $("btn-zoom-out");
   if (zoomOut) {
-    zoomOut.title = `缩小 (${shortcutChord("-")})`;
-    zoomOut.setAttribute("aria-label", `缩小 (${shortcutChord("-")})`);
+    zoomOut.title = `${t("zoomOut")} (${shortcutChord("-")})`;
+    zoomOut.setAttribute("aria-label", `${t("zoomOut")} (${shortcutChord("-")})`);
   }
   const zoomIn = $("btn-zoom-in");
   if (zoomIn) {
-    zoomIn.title = `放大 (${shortcutChord("=")})`;
-    zoomIn.setAttribute("aria-label", `放大 (${shortcutChord("=")})`);
+    zoomIn.title = `${t("zoomIn")} (${shortcutChord("=")})`;
+    zoomIn.setAttribute("aria-label", `${t("zoomIn")} (${shortcutChord("=")})`);
   }
   const hint = $("empty-shortcut");
   if (hint) hint.textContent = open;
 }
 
-async function boot() {
+function applyInterfaceLanguage(locale) {
+  setLocale(locale);
+  applyDocumentTranslations();
   applyShortcutLabels();
+
+  const options = [...$("zoom-select").options];
+  for (let index = 0; index < zoomMenuItems.length; index += 1) {
+    zoomMenuItems[index].textContent = options[index]?.textContent || zoomMenuItems[index].textContent;
+  }
+  const state = viewer.getState?.() || { page: viewer.currentPage || 1, zoom: "page-width" };
+  syncZoom(state.zoom);
+  syncToolbar(state);
+  syncBubblePinButton();
+  updateSourceFold();
+  syncBubbleCopyFeedback(bubbleCopyButton.dataset.copyState || "idle");
+
+  for (const toggle of document.querySelectorAll?.(".outline-toggle") || []) {
+    toggle.title = t("toggleBranch");
+    toggle.setAttribute("aria-label", t("toggleBranch"));
+  }
+  const searchList = $("search-list");
+  if (searchList.childNodes?.length) {
+    renderSearchList(searchHits, $("search-input").value, undefined, false);
+  }
+}
+
+async function boot() {
+  applyInterfaceLanguage(settings.uiLanguage);
   document.body.dataset.platform = platform.id;
   if (platform.id === "extension") {
     $("btn-extension-options").hidden = false;
     $("btn-extension-options").addEventListener("click", () => chrome.runtime.openOptionsPage());
     $("btn-original-pdf").addEventListener("click", async () => {
       try { await fallbackToBrowser(); }
-      catch (error) { showViewerStatus(error.message || "无法打开原始 PDF。", { action: true }); }
+      catch (error) { showViewerStatus(error.message || t("openOriginalFailed"), { action: true }); }
     });
   }
   const request = openGeneration;
   try {
     await initSettings();
     settings = loadSettings();
+    applyInterfaceLanguage(settings.uiLanguage);
     const startup = await platform.startupOpen();
     if (startup && request === openGeneration) {
       applyTabTitle(startup.name);
@@ -1576,7 +1905,7 @@ async function boot() {
       await openFromPlatform(startup);
     }
   } catch (error) {
-    showViewerStatus(error.message || "无法打开文档。", { action: true });
+    showViewerStatus(error.message || t("openDocumentFailed"), { action: true });
     if (platform.canFallbackToBrowser?.()) $("btn-original-pdf").hidden = false;
   }
 }
