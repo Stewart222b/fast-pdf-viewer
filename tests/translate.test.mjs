@@ -42,6 +42,50 @@ test('formatBubbleModelLabel reflects API endpoint not model vendor prefix', () 
   );
 });
 
+test('formatBubbleModelLabel recognizes common international and Chinese API providers', () => {
+  const cases = [
+    ['https://api.deepseek.com/v1', 'DeepSeek'],
+    ['https://generativelanguage.googleapis.com/v1beta/openai', 'Gemini'],
+    ['https://api.x.ai/v1', 'xAI'],
+    ['https://api.us.mistral.ai/v1', 'Mistral'],
+    ['https://api.groq.com/openai/v1', 'Groq'],
+    ['https://api.together.ai/v1', 'Together AI'],
+    ['https://api.fireworks.ai/inference/v1', 'Fireworks AI'],
+    ['https://api.siliconflow.cn/v1', 'SiliconFlow'],
+    ['https://open.bigmodel.cn/api/paas/v4', '智谱 AI'],
+    ['https://api.z.ai/api/paas/v4', 'Z.ai'],
+    ['https://dashscope-intl.aliyuncs.com/compatible-mode/v1', '阿里云百炼'],
+    ['https://workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', '阿里云百炼'],
+    ['https://api.hunyuan.cloud.tencent.com/v1', '腾讯混元'],
+    ['https://tokenhub.tencentmaas.com/v1', '腾讯混元 TokenHub'],
+    ['https://api.moonshot.ai/v1', 'Moonshot AI / Kimi'],
+    ['https://qianfan.baidubce.com/v2', '百度千帆'],
+    ['https://api.minimax.io/v1', 'MiniMax'],
+    ['https://api.perplexity.ai/v1', 'Perplexity'],
+    ['https://ark.cn-beijing.volces.com/api/v3', '火山引擎方舟'],
+    ['https://integrate.api.nvidia.com/v1', 'NVIDIA NIM'],
+    ['https://api.cerebras.ai/v1', 'Cerebras'],
+  ];
+  for (const [apiBaseUrl, provider] of cases) {
+    assert.equal(
+      formatBubbleModelLabel({ apiBaseUrl, model: 'example-model' }),
+      `${provider} · example-model`,
+      apiBaseUrl,
+    );
+  }
+});
+
+test('formatBubbleModelLabel does not mistake proxy or management hosts for providers', () => {
+  for (const apiBaseUrl of [
+    'https://api.deepseek.com.evil.example/v1',
+    'https://my-openrouter-proxy.example/v1',
+    'https://management-api.x.ai/v1',
+    'https://custom.aliyuncs.com/v1',
+  ]) {
+    assert.equal(formatBubbleModelLabel({ apiBaseUrl, model: 'custom-model' }), 'custom-model');
+  }
+});
+
 test('modelsUrl appends /models for OpenAI-compatible bases', () => {
   assert.equal(modelsUrl('https://openrouter.ai/api/v1'), 'https://openrouter.ai/api/v1/models');
   assert.equal(

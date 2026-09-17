@@ -1,10 +1,12 @@
 import { fetchModelList, modelMatchesQuery } from "./translate-provider.js";
+import { t } from "./i18n.js";
 
 export function wireModelPicker({ input, menu, status, getCredentials }) {
   let models = [];
   let loadToken = 0;
   let activeController = null;
   let suppressMenuOnInput = false;
+  let modelListLoaded = false;
 
   const hideMenu = () => {
     menu.hidden = true;
@@ -70,10 +72,42 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
     positionMenu();
   };
 
-  const setStatus = (text, isError = false) => {
-    status.textContent = text;
-    status.classList.toggle("error", isError);
-    status.hidden = !text;
+  const setStatus = (text, state = "neutral") => {
+    const normalizedState = state === true ? "error" : state;
+    const message = String(text || "");
+    status.textContent = normalizedState === "error" && !message.startsWith("✕")
+      ? t("modelLoadFailed", { message })
+      : message;
+    status.classList.toggle("error", normalizedState === "error");
+    status.classList.toggle("success", normalizedState === "success");
+    status.classList.toggle("warning", normalizedState === "warning");
+    status.hidden = !message;
+  };
+
+  const updateModelStatus = () => {
+    if (!modelListLoaded) return;
+    const currentModel = String(getCredentials().model ?? input.value ?? "").trim();
+    if (!models.length) {
+      setStatus(t("modelListEmptyWarning"), "warning");
+      return;
+    }
+    if (!currentModel) {
+      setStatus(t("modelIdRequired"), "warning");
+      return;
+    }
+    const found = models.some((model) => model.id.toLowerCase() === currentModel.toLowerCase());
+    if (found) {
+      setStatus(t("modelFound", { model: currentModel, count: models.length }), "success");
+    } else {
+      setStatus(t("modelNotFound"), "warning");
+    }
+  };
+
+  const setMissingCredentialsStatus = (credentials) => {
+    const missing = [];
+    if (!credentials.apiKey?.trim()) missing.push("API Key");
+    if (!credentials.apiBaseUrl?.trim()) missing.push("Base URL");
+    setStatus(t("missingCredentials", { fields: missing.join(t("and")) }), "error");
   };
 
   const refresh = async () => {
@@ -83,31 +117,39 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
       activeController?.abort();
       activeController = null;
       models = [];
+      modelListLoaded = false;
       hideMenu();
-      setStatus("填写 API Key 与 Base URL 后可加载模型列表。");
+      setMissingCredentialsStatus(credentials);
       return;
     }
     const token = ++loadToken;
     activeController?.abort();
     activeController = new AbortController();
-    setStatus("正在加载模型列表…");
+    models = [];
+    modelListLoaded = false;
+    hideMenu();
+    setStatus(t("loadingModels"));
     try {
       models = await fetchModelList(credentials, { signal: activeController.signal });
       if (token !== loadToken) return;
+      modelListLoaded = true;
       const latest = getCredentials();
       if (!latest.apiKey?.trim() || !latest.apiBaseUrl?.trim()) {
         models = [];
+        modelListLoaded = false;
         hideMenu();
-        setStatus("填写 API Key 与 Base URL 后可加载模型列表。");
+        setMissingCredentialsStatus(latest);
         return;
       }
-      setStatus(models.length ? `已加载 ${models.length} 个模型，输入可筛选。` : "没有返回可用模型。");
+      setStatus(models.length ? t("modelsLoaded", { count: models.length }) : t("noModels"));
+      updateModelStatus();
       renderMenu(input.value);
     } catch (error) {
       if (token !== loadToken || activeController.signal.aborted) return;
       models = [];
+      modelListLoaded = false;
       hideMenu();
-      setStatus(error.message || "无法加载模型列表。", true);
+      setStatus(error.message || t("unableLoadModels"), true);
     }
   };
 
@@ -115,12 +157,22 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
     loadToken += 1;
     activeController?.abort();
     activeController = null;
+    models = [];
+    modelListLoaded = false;
+    hideMenu();
+    const credentials = getCredentials();
+    if (credentials.apiKey?.trim() && credentials.apiBaseUrl?.trim()) {
+      setStatus(t("configChanged"));
+    } else {
+      setMissingCredentialsStatus(credentials);
+    }
   };
 
   input.addEventListener("focus", () => {
     if (models.length) renderMenu(input.value);
   });
   input.addEventListener("input", () => {
+    updateModelStatus();
     if (suppressMenuOnInput) return;
     renderMenu(input.value);
   });
