@@ -8,7 +8,7 @@ import {
 import { highlightSnippet, searchDocument } from "./search.js";
 import { loadSettings, saveSettings, initSettings } from "./settings.js";
 import { applyDocumentTranslations, setLocale, t } from "./i18n.js";
-import { requestHostAccess, fallbackToBrowser } from "./platform/extension.js";
+import { formatExtensionError, requestHostAccess, fallbackToBrowser } from "./platform/extension.js";
 import { wireModelPicker } from "./model-picker.js";
 import {
   readBubblePlainText,
@@ -327,9 +327,27 @@ function collapseAllOutlineNodes() {
   pinOutlineDisclosure();
 }
 
-function showViewerStatus(text, { action = false } = {}) {
+/** @type {{ key?: string, values?: Record<string, unknown>, error?: Error } | null} */
+let viewerStatusDescriptor = null;
+
+function localizedErrorMessage(error) {
+  return formatExtensionError(error, t) || error?.message || String(error ?? "");
+}
+
+function viewerStatusText() {
+  if (!viewerStatusDescriptor) return "";
+  if (viewerStatusDescriptor.key) {
+    const values = { ...viewerStatusDescriptor.values };
+    if (values.error) values.message = localizedErrorMessage(values.error);
+    return t(viewerStatusDescriptor.key, values);
+  }
+  return localizedErrorMessage(viewerStatusDescriptor.error);
+}
+
+function showViewerStatus(text, { action = false, descriptor = null } = {}) {
   const box = $("viewer-status");
   if (!box) return;
+  viewerStatusDescriptor = descriptor;
   $("viewer-status-text").textContent = text;
   const btn = $("viewer-status-action");
   if (btn) btn.hidden = !action;
@@ -339,6 +357,17 @@ function showViewerStatus(text, { action = false } = {}) {
 function hideViewerStatus() {
   const box = $("viewer-status");
   if (box) box.hidden = true;
+  viewerStatusDescriptor = null;
+}
+
+function refreshViewerStatus() {
+  const box = $("viewer-status");
+  if (!box || box.hidden || !viewerStatusDescriptor) return;
+  const text = viewerStatusText();
+  $("viewer-status-text").textContent = text;
+  if (!viewer.pdf && viewerStatusDescriptor.key === "openFailed") {
+    $("outline-pane").textContent = text;
+  }
 }
 
 let userZoomTouched = false;
@@ -366,7 +395,7 @@ async function openSource(getSource) {
   outlineAutoReveal = true;
   syncOutlineTreeActions();
   hideBubble({ force: true });
-  showViewerStatus(t("opening"));
+  showViewerStatus(t("opening"), { descriptor: { key: "opening" } });
   try {
     const source = await getSource();
     if (request !== openGeneration) return;
@@ -389,9 +418,12 @@ async function openSource(getSource) {
     }
   } catch (error) {
     if (request === openGeneration) {
-      const message = t("openFailed", { message: error.message || error });
+      const message = t("openFailed", { message: localizedErrorMessage(error) });
       $("outline-pane").textContent = message;
-      showViewerStatus(message, { action: true });
+      showViewerStatus(message, {
+        action: true,
+        descriptor: { key: "openFailed", values: { error } },
+      });
     }
   }
 }
@@ -1409,6 +1441,7 @@ function hideBubble({ force = false } = {}) {
   syncBubblePinButton();
   bubbleSelectionRect = null;
   hideTranslateChip();
+  invalidateBubbleCopy();
   bubble.hidden = true;
   const result = $("translate-result");
   result.hidden = true;
@@ -1432,6 +1465,7 @@ function showStreamingCaret(result) {
 
 function openTranslatePanel(selectionRect, text, { startTranslate = true } = {}) {
   hideTranslateChip();
+  invalidateBubbleCopy();
   const selectionId = ++bubbleSelectionId;
   selectedText = text;
   bubbleSelectionRect = selectionRect;
@@ -1504,6 +1538,7 @@ function setTranslateError(message, selectionId) {
 
 async function runTranslate(selectionId = bubbleSelectionId) {
   if (selectionId !== bubbleSelectionId) return;
+  invalidateBubbleCopy();
   cancelTranslate();
   const text = selectedText;
   if (!text) return;
@@ -1633,6 +1668,11 @@ const bubbleCopyButton = $("btn-copy");
 const bubbleCopyStatus = $("copy-status");
 let bubbleCopyFeedbackTimer = 0;
 let bubbleCopyRequestId = 0;
+
+function invalidateBubbleCopy() {
+  bubbleCopyRequestId += 1;
+  syncBubbleCopyFeedback("idle");
+}
 
 function syncBubbleCopyFeedback(state, announcement = "") {
   clearTimeout(bubbleCopyFeedbackTimer);
@@ -1880,6 +1920,10 @@ function applyInterfaceLanguage(locale) {
   if (searchList.childNodes?.length) {
     renderSearchList(searchHits, $("search-input").value, undefined, false);
   }
+  refreshViewerStatus();
+  if (viewer.pdf || viewerStatusDescriptor?.key === "openFailed") {
+    void renderOutline(openGeneration);
+  }
 }
 
 async function boot() {
@@ -1890,7 +1934,13 @@ async function boot() {
     $("btn-extension-options").addEventListener("click", () => chrome.runtime.openOptionsPage());
     $("btn-original-pdf").addEventListener("click", async () => {
       try { await fallbackToBrowser(); }
-      catch (error) { showViewerStatus(error.message || t("openOriginalFailed"), { action: true }); }
+      catch (error) {
+        const message = localizedErrorMessage(error) || t("openOriginalFailed");
+        showViewerStatus(message, {
+          action: true,
+          descriptor: error?.code ? { error } : { key: "openOriginalFailed" },
+        });
+      }
     });
   }
   const request = openGeneration;
@@ -1905,7 +1955,11 @@ async function boot() {
       await openFromPlatform(startup);
     }
   } catch (error) {
-    showViewerStatus(error.message || t("openDocumentFailed"), { action: true });
+    const message = localizedErrorMessage(error) || t("openDocumentFailed");
+    showViewerStatus(message, {
+      action: true,
+      descriptor: error?.code ? { error } : { key: "openDocumentFailed" },
+    });
     if (platform.canFallbackToBrowser?.()) $("btn-original-pdf").hidden = false;
   }
 }

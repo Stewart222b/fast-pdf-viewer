@@ -37,3 +37,10 @@ test("document translations update text, titles, labels, placeholders, and html 
   assert.equal(elements[3].placeholder, "Search document");
   setLocale("zh-CN");
 });
+
+test("extension startup error strings exist in both locales", () => {
+  setLocale("en");
+  assert.match(t("extensionOriginNotGranted", { origin: "https://example.com" }), /example\.com/);
+  setLocale("zh-CN");
+  assert.match(t("extensionOriginNotGranted", { origin: "https://example.com" }), /example\.com/);
+});

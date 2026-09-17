@@ -2,6 +2,20 @@ const EXTENSION_PROTOCOL = "chrome-extension:";
 
 let defaultState = null;
 
+export function extensionError(code, params = {}) {
+  const error = new Error(code);
+  error.code = code;
+  error.params = params;
+  return error;
+}
+
+export function formatExtensionError(error, translate) {
+  if (!error?.code) return error?.message || "";
+  const localized = translate?.(error.code, error.params);
+  if (localized && localized !== error.code) return localized;
+  return error.message || error.code;
+}
+
 function wrapFetch(options = {}) {
   const custom = options.fetch ?? options.fetchImpl;
   if (custom && custom !== globalThis.fetch) return custom;
@@ -27,14 +41,14 @@ function parseRemoteUrl(value) {
   try {
     url = new URL(value);
   } catch {
-    throw new Error("PDF 地址无效：请输入完整的 HTTP(S) 地址。");
+    throw extensionError("extensionInvalidPdfUrl");
   }
   if (
     (url.protocol !== "http:" && url.protocol !== "https:") ||
     url.username ||
     url.password
   ) {
-    throw new Error("PDF 地址无效：仅支持不含账号信息的 HTTP(S) 地址。");
+    throw extensionError("extensionInvalidPdfUrlCredentials");
   }
   return url;
 }
@@ -57,7 +71,7 @@ function requestAccess(url, chrome, location) {
   if (!isExtensionContext(chrome, location)) return true;
   const parsed = parseRemoteUrl(url);
   if (typeof chrome.permissions?.request !== "function") {
-    throw new Error("无法请求网站访问权限：扩展权限 API 不可用。");
+    throw extensionError("extensionPermissionApiUnavailable");
   }
 
   // Keep this call in the same user-gesture stack. Do not make this function
@@ -71,7 +85,7 @@ function queryFile(location) {
   const params = new URLSearchParams(search);
   if (!params.has("file")) return null;
   if (!params.get("file")) {
-    throw new Error("缺少要打开的 PDF 地址（file 参数）。");
+    throw extensionError("extensionMissingFileParam");
   }
   return parseRemoteUrl(params.get("file"));
 }
@@ -106,13 +120,13 @@ async function openLegacyUrl(state) {
 
   state.originalUrl = url.href;
   if (typeof state.chrome?.permissions?.contains !== "function") {
-    throw new Error("无法检查网站访问权限，不能打开此 PDF。");
+    throw extensionError("extensionCannotCheckPermission");
   }
   const allowed = await state.chrome.permissions.contains({
     origins: [originPattern(url)],
   });
   if (!allowed) {
-    throw new Error(`尚未获得访问 ${url.origin} 的权限，请先授权后再打开。`);
+    throw extensionError("extensionOriginNotGranted", { origin: url.origin });
   }
 
   return {
@@ -140,7 +154,7 @@ async function startup(state) {
     state.mimeTabId = info.tabId ?? null;
     const response = await state.fetch(info.streamUrl);
     if (response.ok === false) {
-      throw new Error(`读取 PDF MIME 流失败（HTTP ${response.status}）。`);
+      throw extensionError("extensionMimeReadFailed", { status: response.status });
     }
     const buffer = await response.arrayBuffer();
     const originalUrl = info.originalUrl;
@@ -172,18 +186,20 @@ async function fallback(state) {
     return state.chrome.mimeHandler.abortAndFallbackToNativeHandler();
   }
   if (!state.originalUrl) {
-    throw new Error("没有可交给浏览器打开的原始 PDF 地址。");
+    throw extensionError("extensionNoOriginalUrl");
   }
   if (typeof state.chrome?.runtime?.sendMessage !== "function") {
-    throw new Error("无法通知扩展后台打开原始 PDF。");
+    throw extensionError("extensionCannotNotifyBackground");
   }
   const response = await state.chrome.runtime.sendMessage({
     type: "open-original",
     url: state.originalUrl,
   });
   if (response?.ok === false) {
-    const detail = response.error ? `：${response.error}` : "";
-    throw new Error(`浏览器未能打开原始 PDF${detail}，请重试。`);
+    if (response.error) {
+      throw extensionError("extensionOpenOriginalFailedReason", { reason: response.error });
+    }
+    throw extensionError("extensionOpenOriginalFailed");
   }
   return response;
 }

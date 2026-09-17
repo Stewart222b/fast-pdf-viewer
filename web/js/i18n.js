@@ -41,7 +41,18 @@ const messages = {
     configChanged: "配置已更改，等待重新检查模型列表…", modelNoTranslation: "模型没有返回译文。",
     apiKeyRequired: "还没有填写 API Key，请先打开设置。", noText: "没有可翻译的文本。",
     translationFailed: "翻译请求失败 ({status})", translationCancelled: "已取消翻译。", translationTimeout: "翻译超时，请稍后重试。",
-    document: "文档", pdfPasswordNeeded: "需要 PDF 密码", jump: "跳转"
+    document: "文档", pdfPasswordNeeded: "需要 PDF 密码", jump: "跳转",
+    extensionInvalidPdfUrl: "PDF 地址无效：请输入完整的 HTTP(S) 地址。",
+    extensionInvalidPdfUrlCredentials: "PDF 地址无效：仅支持不含账号信息的 HTTP(S) 地址。",
+    extensionPermissionApiUnavailable: "无法请求网站访问权限：扩展权限 API 不可用。",
+    extensionMissingFileParam: "缺少要打开的 PDF 地址（file 参数）。",
+    extensionCannotCheckPermission: "无法检查网站访问权限，不能打开此 PDF。",
+    extensionOriginNotGranted: "尚未获得访问 {origin} 的权限，请先授权后再打开。",
+    extensionMimeReadFailed: "读取 PDF MIME 流失败（HTTP {status}）。",
+    extensionNoOriginalUrl: "没有可交给浏览器打开的原始 PDF 地址。",
+    extensionCannotNotifyBackground: "无法通知扩展后台打开原始 PDF。",
+    extensionOpenOriginalFailed: "浏览器未能打开原始 PDF，请重试。",
+    extensionOpenOriginalFailedReason: "浏览器未能打开原始 PDF：{reason}，请重试。",
   },
   en: {
     fileNavigation: "File and navigation", open: "Open", openPdf: "Open PDF", originalPdf: "Original PDF",
@@ -83,7 +94,18 @@ const messages = {
     configChanged: "Configuration changed. Waiting to check the model list again…", modelNoTranslation: "The model returned no translation.",
     apiKeyRequired: "No API key is configured. Open Settings first.", noText: "There is no text to translate.",
     translationFailed: "Translation request failed ({status})", translationCancelled: "Translation cancelled.", translationTimeout: "Translation timed out. Try again later.",
-    document: "Document", pdfPasswordNeeded: "PDF password required", jump: "Open link"
+    document: "Document", pdfPasswordNeeded: "PDF password required", jump: "Open link",
+    extensionInvalidPdfUrl: "Invalid PDF URL. Enter a full HTTP(S) address.",
+    extensionInvalidPdfUrlCredentials: "Invalid PDF URL. Only HTTP(S) URLs without embedded credentials are supported.",
+    extensionPermissionApiUnavailable: "Cannot request site access: the extension permissions API is unavailable.",
+    extensionMissingFileParam: "No PDF URL to open (missing file parameter).",
+    extensionCannotCheckPermission: "Cannot verify site access permission for this PDF.",
+    extensionOriginNotGranted: "Access to {origin} has not been granted. Grant permission and try again.",
+    extensionMimeReadFailed: "Could not read the PDF MIME stream (HTTP {status}).",
+    extensionNoOriginalUrl: "No original PDF URL is available for the browser to open.",
+    extensionCannotNotifyBackground: "Could not ask the extension background page to open the original PDF.",
+    extensionOpenOriginalFailed: "The browser could not open the original PDF. Try again.",
+    extensionOpenOriginalFailedReason: "The browser could not open the original PDF: {reason}. Try again.",
   }
 };
 

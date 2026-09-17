@@ -139,7 +139,16 @@ async function setup({ platform = 'Linux x86_64', startup = null,
     './viewer.js': { PdfViewer: Viewer },
     './history.js': { ViewHistory: class { onChange() {} canBack() { return false; } canForward() { return false; } } },
     './settings.js': { loadSettings, saveSettings, initSettings },
-    './platform/extension.js': { requestHostAccess, fallbackToBrowser: async () => {} },
+    './platform/extension.js': {
+      requestHostAccess,
+      fallbackToBrowser: async () => {},
+      formatExtensionError(error, translate) {
+        if (!error?.code) return error?.message || '';
+        const localized = translate?.(error.code, error.params);
+        if (localized && localized !== error.code) return localized;
+        return error.message || error.code;
+      },
+    },
     './translate.js': { translateText() {}, MAX_TRANSLATE_CHARS: 4000 },
     './reading-position.js': {
       readingFingerprint: () => '',
@@ -272,6 +281,40 @@ test('copy button reports a rejected clipboard write as an error', async () => {
   assert.equal(button.dataset.copyState, 'error');
   assert.equal(button.title, '复制失败');
   assert.equal(app.get('copy-status').textContent, '复制失败，请检查浏览器剪贴板权限');
+});
+
+test('closing the bubble ignores a late clipboard success', async () => {
+  let resolveWrite;
+  const app = await setup({
+    clipboardWrite: () => new Promise((resolve) => { resolveWrite = resolve; }),
+  });
+  app.get('translate-result').textContent = '翻译结果';
+  const button = app.get('btn-copy');
+  const pending = button.listeners.click();
+  app.click('btn-bubble-close');
+  resolveWrite();
+  await pending;
+  assert.equal(button.dataset.copyState, 'idle');
+  assert.equal(app.get('copy-status').textContent, '');
+});
+
+test('switching interface language re-renders the empty outline message', async () => {
+  const app = await setup({
+    startup: { url: 'https://example.com/a.pdf', name: 'a.pdf' },
+    loadSettings: () => ({ uiLanguage: 'zh-CN', apiKey: '', apiBaseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4o-mini', targetLang: 'zh-CN', autoTranslateOnSelect: false }),
+    saveSettings: async (next) => next,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  app.viewer.outlinePromise = Promise.resolve([]);
+  await new Promise((resolve) => setImmediate(resolve));
+  const pane = app.get('outline-pane');
+  assert.match(String(pane.innerHTML || pane.textContent), /没有目录/);
+  app.get('settings-modal').hidden = false;
+  app.get('setting-ui-language').value = 'en';
+  const saveClick = app.get('btn-settings-save').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  await Promise.resolve(saveClick);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(String(pane.innerHTML || pane.textContent), /no outline/i);
 });
 
 test('clearing a selection hides its translate chip while keeping a pinned bubble open', async () => {
