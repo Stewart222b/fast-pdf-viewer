@@ -1,15 +1,15 @@
 /** @typedef {{ left: number, top: number, right: number, bottom: number, width: number, height: number }} RectLike */
 
 function isValidRect(rect) {
-  return rect && rect.width > 0 && rect.height > 0;
+  return rect && rect.width >= 0 && rect.height > 0;
 }
 
 function rectsIntersectViewport(rect, viewport) {
   return (
     rect.bottom > viewport.top &&
     rect.top < viewport.bottom &&
-    rect.right > viewport.left &&
-    rect.left < viewport.right
+    rect.right >= viewport.left &&
+    rect.left <= viewport.right
   );
 }
 

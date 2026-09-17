@@ -21,6 +21,7 @@ const defaults = {
   apiBaseUrl: "https://openrouter.ai/api/v1",
   model: "openai/gpt-4o-mini",
   targetLang: "zh-CN",
+  uiLanguage: "zh-CN",
   autoTranslateOnSelect: true,
 };
 

@@ -1,3 +1,5 @@
+import { t } from "./i18n.js";
+
 const LANG_NAME = {
   "zh-CN": "简体中文",
   "zh-TW": "繁体中文",
@@ -9,17 +11,63 @@ export const MAX_TRANSLATE_CHARS = 4000;
 export const DEFAULT_API_BASE = "https://openrouter.ai/api/v1";
 export const DEFAULT_MODEL = "openai/gpt-4o-mini";
 
+const API_PROVIDER_HOSTS = new Map([
+  ["api.openai.com", "OpenAI"],
+  ["api.anthropic.com", "Anthropic"],
+  ["openrouter.ai", "OpenRouter"],
+  ["api.deepseek.com", "DeepSeek"],
+  ["generativelanguage.googleapis.com", "Gemini"],
+  ["api.x.ai", "xAI"],
+  ["us.api.x.ai", "xAI"],
+  ["mtls.api.x.ai", "xAI"],
+  ["api.mistral.ai", "Mistral"],
+  ["api.eu.mistral.ai", "Mistral"],
+  ["api.us.mistral.ai", "Mistral"],
+  ["api.groq.com", "Groq"],
+  ["api.together.ai", "Together AI"],
+  ["api.together.xyz", "Together AI"],
+  ["api.fireworks.ai", "Fireworks AI"],
+  ["api.siliconflow.cn", "SiliconFlow"],
+  ["api.siliconflow.com", "SiliconFlow"],
+  ["open.bigmodel.cn", "智谱 AI"],
+  ["api.z.ai", "Z.ai"],
+  ["dashscope.aliyuncs.com", "阿里云百炼"],
+  ["dashscope-intl.aliyuncs.com", "阿里云百炼"],
+  ["dashscope-us.aliyuncs.com", "阿里云百炼"],
+  ["cn-hongkong.dashscope.aliyuncs.com", "阿里云百炼"],
+  ["api.hunyuan.cloud.tencent.com", "腾讯混元"],
+  ["tokenhub.tencentmaas.com", "腾讯混元 TokenHub"],
+  ["api.moonshot.cn", "Moonshot AI / Kimi"],
+  ["api.moonshot.ai", "Moonshot AI / Kimi"],
+  ["qianfan.baidubce.com", "百度千帆"],
+  ["api.minimax.io", "MiniMax"],
+  ["api.perplexity.ai", "Perplexity"],
+  ["ark.cn-beijing.volces.com", "火山引擎方舟"],
+  ["integrate.api.nvidia.com", "NVIDIA NIM"],
+  ["api.cerebras.ai", "Cerebras"],
+]);
+
+const API_PROVIDER_HOST_SUFFIXES = [
+  ["maas.aliyuncs.com", "阿里云百炼"],
+];
+
 /**
  * Translate-bubble footer: reflect the configured API endpoint, not the model id prefix.
  * @param {{ apiBaseUrl?: string, model?: string } | null | undefined} settings
  */
 export function formatBubbleModelLabel(settings) {
   const model = String(settings?.model ?? DEFAULT_MODEL).trim() || DEFAULT_MODEL;
-  const base = normalizeApiBase(settings?.apiBaseUrl).toLowerCase();
-  if (base.includes("openrouter.ai")) return `OpenRouter · ${model}`;
-  if (base.includes("openai.com")) return `OpenAI · ${model}`;
-  if (base.includes("anthropic.com")) return `Anthropic · ${model}`;
-  return model;
+  let host = "";
+  try {
+    const url = new URL(normalizeApiBase(settings?.apiBaseUrl));
+    if (url.protocol === "http:" || url.protocol === "https:") host = url.hostname.toLowerCase();
+  } catch {
+    // A custom or malformed URL has no reliable provider label.
+  }
+  const provider = API_PROVIDER_HOSTS.get(host) || API_PROVIDER_HOST_SUFFIXES.find(
+    ([suffix]) => host.endsWith(`.${suffix}`),
+  )?.[1] || (/^ark\.[a-z0-9-]+\.volces\.com$/.test(host) ? "火山引擎方舟" : "");
+  return provider ? `${provider} · ${model}` : model;
 }
 
 export function normalizeApiBase(url) {
@@ -67,7 +115,7 @@ export async function fetchModelList(settings, { signal } = {}) {
   const response = await fetch(modelsUrl(apiBase), { headers, signal });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = data?.error?.message || `无法加载模型列表 (${response.status})`;
+    const message = data?.error?.message || t("modelListRequestFailed", { status: response.status });
     throw new Error(message);
   }
   const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
@@ -157,7 +205,7 @@ async function readStreamingTranslation(response, { onDelta, signal } = {}) {
   if (!response.body) {
     const data = await response.json().catch(() => ({}));
     const content = data?.choices?.[0]?.message?.content?.trim();
-    if (!content) throw new Error("模型没有返回译文。");
+    if (!content) throw new Error(t("modelNoTranslation"));
     onDelta?.(content);
     return content;
   }
@@ -193,7 +241,7 @@ async function readStreamingTranslation(response, { onDelta, signal } = {}) {
     }
   }
   const trimmed = translated.trim();
-  if (!trimmed) throw new Error("模型没有返回译文。");
+  if (!trimmed) throw new Error(t("modelNoTranslation"));
   return trimmed;
 }
 
@@ -206,12 +254,12 @@ export async function translateWithProvider(
   { signal, timeoutMs = 60_000, onDelta, mode = "passage" } = {},
 ) {
   if (!settings?.apiKey) {
-    throw new Error("还没有填写 API Key，请先打开设置。");
+    throw new Error(t("apiKeyRequired"));
   }
   const trimmed = String(text || "").trim();
-  if (!trimmed) throw new Error("没有可翻译的文本。");
+  if (!trimmed) throw new Error(t("noText"));
   if (trimmed.length > MAX_TRANSLATE_CHARS) {
-    throw new Error(`选中文本过长（${trimmed.length} 字），请缩短到 ${MAX_TRANSLATE_CHARS} 字以内。`);
+    throw new Error(t("textTooLong", { count: trimmed.length, max: MAX_TRANSLATE_CHARS }));
   }
 
   const url = chatCompletionsUrl(settings.apiBaseUrl);
@@ -225,7 +273,7 @@ export async function translateWithProvider(
 
   try {
     const apiKey = latin1HeaderValue(settings.apiKey);
-    if (!apiKey) throw new Error("还没有填写 API Key，请先打开设置。");
+    if (!apiKey) throw new Error(t("apiKeyRequired"));
     const headers = {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
@@ -249,7 +297,7 @@ export async function translateWithProvider(
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      const message = data?.error?.message || `翻译请求失败 (${response.status})`;
+      const message = data?.error?.message || t("translationFailed", { status: response.status });
       throw new Error(message);
     }
     const contentType = response.headers.get("content-type") || "";
@@ -258,13 +306,13 @@ export async function translateWithProvider(
     }
     const data = await response.json().catch(() => ({}));
     const content = data?.choices?.[0]?.message?.content?.trim();
-    if (!content) throw new Error("模型没有返回译文。");
+    if (!content) throw new Error(t("modelNoTranslation"));
     onDelta?.(content);
     return content;
   } catch (error) {
     if (error?.name === "AbortError") {
-      if (signal?.aborted) throw new Error("已取消翻译。");
-      throw new Error("翻译超时，请稍后重试。");
+      if (signal?.aborted) throw new Error(t("translationCancelled"));
+      throw new Error(t("translationTimeout"));
     }
     throw error;
   } finally {

@@ -13,15 +13,20 @@ async function setup({ platform = 'Linux x86_64', startup = null,
   loadSettings = () => ({}), initSettings = async () => {},
   platformId = 'test', canFallbackToBrowser = undefined,
   clearBrowserFallback = undefined,
-  chrome = undefined } = {}) {
-  const elements = new Map(), timers = new Map();
+  chrome = undefined, localStorageStore = new Map(), clipboardWrite = async () => {} } = {}) {
+  const elements = new Map(), timers = new Map(), documentListeners = {};
+  let currentSelection = { rangeCount: 0 };
   let timerId = 0, viewer, fileInput;
   const windowListeners = {};
   const revoked = [];
   let nextBlob = 0;
+  const documentElement = element();
+  documentElement.style.setProperty = (name, value) => { documentElement.style[name] = value; };
+  documentElement.style.getPropertyValue = name => documentElement.style[name] || '';
   function element() {
     const el = { value: '', textContent: '', children: [], options: [], listeners: {}, style: {}, toggles: {}, attrs: {}, dataset: {},
       hidden: false, disabled: false, title: '', inert: false, tabIndex: 0,
+      offsetWidth: 320, offsetHeight: 180,
       classList: { toggle(name, on) { el.toggles[name] = on; }, add() {}, remove() {},
         contains(name) { return Boolean(el.toggles[name]); } },
       addEventListener(name, fn) { this.listeners[name] = fn; },
@@ -30,6 +35,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
       appendChild(child) { this.children.push(child); },
       append(...kids) { for (const kid of kids) this.appendChild(kid); },
       contains() { return false; }, focus() {}, select() {},
+      getBoundingClientRect() { return { left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600 }; },
       closest() { return null; },
       getAttribute(name) { return this.attrs[name]; },
       setAttribute(name, value) { this.attrs[name] = value; },
@@ -86,7 +92,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
     async getOutline() { return this.outlinePromise || null; }
     getReadingPoint() { return { page: this.currentPage || 1, pdfY: this.readingPdfY }; }
     async goToDest() {}
-    setZoom() {}
+    setZoom(mode, options) { (this.zoomCalls ||= []).push({ mode, options }); }
     bumpZoom() { return '150'; }
     clearHits() { this.shown.push(''); this.hitIndex = -1; this.query = ''; }
     async showHits(hits, query, index = 0, _options) { this.shown.push(query); this.hitIndex = hits.length ? index : -1; this.query = query; }
@@ -105,24 +111,44 @@ async function setup({ platform = 'Linux x86_64', startup = null,
       },
       createTextNode: text => ({ textContent: text }),
       body: element(),
+      documentElement,
       activeElement: null,
       querySelector: sel => (sel === '.workspace' ? workspace : null),
       querySelectorAll: () => [],
-      addEventListener() {},
+      addEventListener(name, fn) { (documentListeners[name] ||= []).push(fn); },
     },
-    window: { addEventListener(type, fn) { (windowListeners[type] ||= []).push(fn); } },
+    window: {
+      innerWidth: 1280,
+      addEventListener(type, fn) { (windowListeners[type] ||= []).push(fn); },
+      getSelection() { return currentSelection; },
+    },
+    localStorage: {
+      getItem(key) { return localStorageStore.has(key) ? localStorageStore.get(key) : null; },
+      setItem(key, value) { localStorageStore.set(key, String(value)); },
+    },
     navigator: {
       platform,
       userAgent: /Mac|iPhone|iPad/i.test(platform) ? 'Mozilla/5.0 (Macintosh)' : 'Mozilla/5.0 (X11; Linux x86_64)',
+      clipboard: { writeText: clipboardWrite },
     },
     setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); },
+    requestAnimationFrame() { return ++timerId; }, cancelAnimationFrame() {},
     chrome,
   });
   const exports = {
     './viewer.js': { PdfViewer: Viewer },
     './history.js': { ViewHistory: class { onChange() {} canBack() { return false; } canForward() { return false; } } },
     './settings.js': { loadSettings, saveSettings, initSettings },
-    './platform/extension.js': { requestHostAccess, fallbackToBrowser: async () => {} },
+    './platform/extension.js': {
+      requestHostAccess,
+      fallbackToBrowser: async () => {},
+      formatExtensionError(error, translate) {
+        if (!error?.code) return error?.message || '';
+        const localized = translate?.(error.code, error.params);
+        if (localized && localized !== error.code) return localized;
+        return error.message || error.code;
+      },
+    },
     './translate.js': { translateText() {}, MAX_TRANSLATE_CHARS: 4000 },
     './reading-position.js': {
       readingFingerprint: () => '',
@@ -139,7 +165,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
       }),
     },
     './model-picker.js': {
-      wireModelPicker: () => ({ refresh() {}, hideMenu() {} }),
+      wireModelPicker: () => ({ refresh() {}, hideMenu() {}, invalidatePending() {} }),
     },
   };
   const main = new vm.SourceTextModule(await readFile(new URL('../web/js/main.js', import.meta.url), 'utf8'), { context });
@@ -151,7 +177,8 @@ async function setup({ platform = 'Linux x86_64', startup = null,
       spec === './selection-anchor.js' ||
       spec === './selection-text.js' ||
       spec === './bubble-text-render.js' ||
-      spec === './translate-provider.js'
+      spec === './translate-provider.js' ||
+      spec === './i18n.js'
     ) {
       return new vm.SourceTextModule(await readFile(new URL(`../web/js/${spec.slice(2)}`, import.meta.url), 'utf8'), { context });
     }
@@ -173,8 +200,12 @@ async function setup({ platform = 'Linux x86_64', startup = null,
   get('pdf-password-modal').hidden = true;
   get('zoom-menu').hidden = true;
   get('btn-original-pdf').hidden = true;
-  return { viewer, get, fileInput, revoked, document: context.document,
+  return { viewer, get, fileInput, revoked, document: context.document, localStorageStore,
+    setSelection(selection) { currentSelection = selection; },
     dispatch(type, event) { for (const fn of windowListeners[type] || []) fn(event); },
+    dispatchDocument(type, event) { for (const fn of documentListeners[type] || []) fn(event); },
+    dispatchElement(id, type, event) { get(id).listeners[type]?.(event); },
+    setViewportWidth(width) { context.window.innerWidth = width; },
     input(value) { const el = get('search-input'); el.value = value; el.listeners.input({ target: el }); },
     runTimer() { const [id, fn] = [...timers].at(-1); timers.delete(id); return fn(); },
     click(id) { const el = get(id); el.listeners.click?.({ target: el, preventDefault() {}, stopPropagation() {} }); },
@@ -200,6 +231,152 @@ test('startup forwards MIME bytes and legacy credentials through the real reader
   assert.equal(app.viewer.source.data, bytes);
   assert.equal(app.viewer.source.path, 'https://example.org/paper.pdf');
   assert.equal(app.viewer.source.withCredentials, true);
+});
+
+test('pinned translation bubble survives outside clicks and closes on request', async () => {
+  const app = await setup();
+  const bubble = app.get('translate-bubble');
+  const pin = app.get('btn-bubble-pin');
+  const outside = { closest() { return null; } };
+  bubble.hidden = false;
+
+  app.click('btn-bubble-pin');
+  assert.equal(pin.attrs['aria-pressed'], 'true');
+  assert.equal(pin.title, '取消固定翻译窗');
+
+  app.dispatchDocument('pointerdown', { target: outside });
+  app.dispatchDocument('mouseup', { target: outside });
+  assert.equal(bubble.hidden, false);
+
+  app.click('btn-bubble-close');
+  assert.equal(bubble.hidden, true);
+  assert.equal(pin.attrs['aria-pressed'], 'false');
+});
+
+test('copy button shows a temporary success check only after writing to clipboard', async () => {
+  const copied = [];
+  const app = await setup({ clipboardWrite: async text => copied.push(text) });
+  app.get('translate-result').textContent = '翻译结果';
+  const button = app.get('btn-copy');
+
+  await button.listeners.click();
+  assert.deepEqual(copied, ['翻译结果']);
+  assert.equal(button.dataset.copyState, 'success');
+  assert.equal(button.title, '已复制');
+  assert.equal(button.attrs['aria-label'], '已复制');
+  assert.equal(app.get('copy-status').textContent, '翻译结果已复制到剪贴板');
+
+  app.runTimer();
+  assert.equal(button.dataset.copyState, 'idle');
+  assert.equal(button.title, '复制翻译结果');
+  assert.equal(app.get('copy-status').textContent, '');
+});
+
+test('copy button reports a rejected clipboard write as an error', async () => {
+  const app = await setup({ clipboardWrite: async () => { throw new Error('not allowed'); } });
+  app.get('translate-result').textContent = '翻译结果';
+  const button = app.get('btn-copy');
+
+  await button.listeners.click();
+  assert.equal(button.dataset.copyState, 'error');
+  assert.equal(button.title, '复制失败');
+  assert.equal(app.get('copy-status').textContent, '复制失败，请检查浏览器剪贴板权限');
+});
+
+test('closing the bubble ignores a late clipboard success', async () => {
+  let resolveWrite;
+  const app = await setup({
+    clipboardWrite: () => new Promise((resolve) => { resolveWrite = resolve; }),
+  });
+  app.get('translate-result').textContent = '翻译结果';
+  const button = app.get('btn-copy');
+  const pending = button.listeners.click();
+  app.click('btn-bubble-close');
+  resolveWrite();
+  await pending;
+  assert.equal(button.dataset.copyState, 'idle');
+  assert.equal(app.get('copy-status').textContent, '');
+});
+
+test('switching interface language re-renders the empty outline message', async () => {
+  const app = await setup({
+    startup: { url: 'https://example.com/a.pdf', name: 'a.pdf' },
+    loadSettings: () => ({ uiLanguage: 'zh-CN', apiKey: '', apiBaseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4o-mini', targetLang: 'zh-CN', autoTranslateOnSelect: false }),
+    saveSettings: async (next) => next,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  app.viewer.outlinePromise = Promise.resolve([]);
+  await new Promise((resolve) => setImmediate(resolve));
+  const pane = app.get('outline-pane');
+  assert.match(String(pane.innerHTML || pane.textContent), /没有目录/);
+  app.get('settings-modal').hidden = false;
+  app.get('setting-ui-language').value = 'en';
+  const saveClick = app.get('btn-settings-save').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  await Promise.resolve(saveClick);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(String(pane.innerHTML || pane.textContent), /no outline/i);
+});
+
+test('clearing a selection hides its translate chip while keeping a pinned bubble open', async () => {
+  const app = await setup();
+  const bubble = app.get('translate-bubble');
+  const chip = app.get('translate-chip');
+  bubble.hidden = false;
+  app.click('btn-bubble-pin');
+  chip.hidden = false;
+
+  const textLayer = { closest(selector) { return selector === '.textLayer' ? this : null; } };
+  app.setSelection({ rangeCount: 0 });
+  app.dispatchDocument('mouseup', { target: textLayer });
+  assert.equal(chip.hidden, true);
+  assert.equal(bubble.hidden, false);
+
+  chip.hidden = false;
+  const outside = { closest() { return null; } };
+  app.dispatchDocument('mouseup', { target: outside });
+  assert.equal(chip.hidden, true);
+  assert.equal(bubble.hidden, false);
+});
+
+test('dragging the translation bubble moves it without pinning and still allows outside close', async () => {
+  const app = await setup();
+  const bubble = app.get('translate-bubble');
+  const header = app.get('bubble-header');
+  const handle = app.get('bubble-drag-handle');
+  bubble.hidden = false;
+  bubble.style.left = '100px';
+  bubble.style.top = '120px';
+  const event = (values = {}) => ({
+    button: 0,
+    pointerId: 3,
+    clientX: 120,
+    clientY: 130,
+    preventDefault() {},
+    stopPropagation() {},
+    ...values,
+  });
+
+  header.listeners.pointerdown(event({ target: { closest: selector => selector === 'button' ? {} : null } }));
+  assert.equal(bubble.classList.contains('is-dragging'), false);
+
+  header.listeners.pointerdown(event());
+  assert.equal(app.get('btn-bubble-pin').attrs['aria-pressed'], 'false');
+  header.listeners.pointermove(event({ clientX: 180, clientY: 210 }));
+  assert.equal(bubble.style.left, '160px');
+  assert.equal(bubble.style.top, '200px');
+  header.listeners.pointerup(event());
+  assert.equal(bubble.classList.contains('is-dragging'), false);
+
+  bubble.style.left = '470px';
+  bubble.style.top = '510px';
+  handle.listeners.keydown({ key: 'ArrowRight', preventDefault() {} });
+  assert.equal(bubble.style.left, '472px');
+  assert.equal(bubble.style.top, '510px');
+  assert.equal(app.get('btn-bubble-pin').attrs['aria-pressed'], 'false');
+
+  const outside = { closest() { return null; } };
+  app.dispatchDocument('pointerdown', { target: outside });
+  assert.equal(bubble.hidden, true);
 });
 
 test('boot reloads settings after initSettings', async () => {
@@ -549,6 +726,78 @@ test('collapsed sidebar leaves the tab order via inert', async () => {
   app.click('btn-sidebar');
   assert.equal(sidebar.attrs['aria-hidden'], 'true');
   assert.equal(sidebar.inert, true);
+});
+
+test('sidebar width can be dragged, persists, and stays the same when toggled', async () => {
+  const app = await setup();
+  const handle = app.get('sidebar-resize-handle');
+  assert.equal(app.document.documentElement.style.getPropertyValue('--sidebar-w'), '272px');
+  assert.equal(handle.attrs.role, 'separator');
+  assert.equal(handle.attrs['aria-valuemin'], '272');
+
+  app.click('btn-sidebar');
+  app.viewer.pdf = {};
+  app.viewer.zoomMode = 'page-width';
+  app.viewer.zoomCalls = [];
+  app.dispatchElement('sidebar-resize-handle', 'pointerdown', {
+    button: 0, isPrimary: true, pointerId: 1, clientX: 272, preventDefault() {},
+  });
+  app.dispatchElement('sidebar-resize-handle', 'pointermove', { pointerId: 1, clientX: 400 });
+  assert.equal(app.document.documentElement.style.getPropertyValue('--sidebar-w'), '400px');
+  assert.equal(handle.attrs['aria-valuenow'], '400');
+  assert.equal(app.viewer.zoomCalls.length, 0);
+  app.dispatchElement('sidebar-resize-handle', 'pointerup', { pointerId: 1 });
+  assert.equal(app.viewer.zoomCalls.length, 1);
+  assert.equal(app.viewer.zoomCalls[0].mode, 'page-width');
+  assert.equal(app.viewer.zoomCalls[0].options.silent, true);
+  assert.equal(app.localStorageStore.get('fast-pdf-viewer-sidebar-width-v1'), '400');
+
+  app.click('btn-sidebar');
+  assert.equal(app.document.documentElement.style.getPropertyValue('--sidebar-w'), '400px');
+  app.click('btn-sidebar');
+  assert.equal(app.document.documentElement.style.getPropertyValue('--sidebar-w'), '400px');
+
+  const reopened = await setup({ localStorageStore: app.localStorageStore });
+  assert.equal(reopened.document.documentElement.style.getPropertyValue('--sidebar-w'), '400px');
+});
+
+test('sidebar keyboard resizing respects width limits and viewport changes', async () => {
+  const store = new Map([['fast-pdf-viewer-sidebar-width-v1', '460']]);
+  const app = await setup({ localStorageStore: store });
+  const handle = app.get('sidebar-resize-handle');
+  app.viewer.pdf = {};
+  app.viewer.zoomMode = 'page-width';
+  app.viewer.zoomCalls = [];
+  const keydown = (key, shiftKey = false) => app.dispatchElement('sidebar-resize-handle', 'keydown', {
+    key, shiftKey, preventDefault() {},
+  });
+
+  assert.equal(app.document.documentElement.style.getPropertyValue('--sidebar-w'), '460px');
+  app.setViewportWidth(360);
+  app.dispatch('resize', {});
+  assert.equal(app.document.documentElement.style.getPropertyValue('--sidebar-w'), '336px');
+  assert.equal(store.get('fast-pdf-viewer-sidebar-width-v1'), '460');
+
+  app.click('btn-sidebar');
+  app.dispatchElement('sidebar-resize-handle', 'pointerdown', {
+    button: 0, isPrimary: true, pointerId: 2, clientX: 336, preventDefault() {},
+  });
+  app.dispatchElement('sidebar-resize-handle', 'pointerup', { pointerId: 2 });
+  assert.equal(store.get('fast-pdf-viewer-sidebar-width-v1'), '460');
+
+  app.setViewportWidth(1280);
+  app.dispatch('resize', {});
+  assert.equal(app.document.documentElement.style.getPropertyValue('--sidebar-w'), '460px');
+  app.runTimer();
+  assert.equal(app.viewer.zoomCalls.at(-1).mode, 'page-width');
+
+  keydown('End');
+  assert.equal(app.document.documentElement.style.getPropertyValue('--sidebar-w'), '480px');
+  keydown('ArrowLeft', true);
+  assert.equal(app.document.documentElement.style.getPropertyValue('--sidebar-w'), '432px');
+  keydown('Home');
+  assert.equal(app.document.documentElement.style.getPropertyValue('--sidebar-w'), '272px');
+  assert.equal(store.get('fast-pdf-viewer-sidebar-width-v1'), '272');
 });
 
 test('collapsed sidebar removes focusable controls from tab order', async () => {

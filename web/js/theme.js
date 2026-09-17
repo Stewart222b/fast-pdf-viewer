@@ -14,7 +14,10 @@
   const apply = () => {
     document.documentElement.dataset.theme = theme;
     const button = document.getElementById("btn-theme");
-    const label = theme === "dark" ? "切换到浅色主题" : "切换到暗色主题";
+    const isEnglish = document.documentElement.lang === "en";
+    const label = isEnglish
+      ? (theme === "dark" ? "Switch to light theme" : "Switch to dark theme")
+      : (theme === "dark" ? "切换到浅色主题" : "切换到暗色主题");
     button?.setAttribute("aria-label", label);
     button?.setAttribute("title", label);
     document.getElementById("theme-icon")?.setAttribute("href", theme === "dark" ? "#i-sun" : "#i-moon");
@@ -34,6 +37,8 @@
     theme = event.newValue === "light" ? "light" : "dark";
     apply();
   });
+
+  globalThis.addEventListener?.("fast-pdf-viewer-language-change", apply);
 
   document.addEventListener("DOMContentLoaded", () => {
     theme = readStoredTheme();

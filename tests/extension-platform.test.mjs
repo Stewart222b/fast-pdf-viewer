@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createExtensionPlatform } from "../web/js/platform/extension.js";
+import { setLocale } from "../web/js/i18n.js";
+import { createExtensionPlatform, formatExtensionError } from "../web/js/platform/extension.js";
 
 function extensionLocation(search = "") {
   return { protocol: "chrome-extension:", search };
@@ -144,7 +145,10 @@ test("legacy startup rejects unsafe and credentialed URLs", async () => {
       chrome: chromeApi(),
       location: extensionLocation(`?file=${encodeURIComponent(file)}`),
     });
-    await assert.rejects(platform.startupOpen(), /PDF 地址无效/);
+    await assert.rejects(platform.startupOpen(), (error) => {
+      assert.equal(error.code, "extensionInvalidPdfUrlCredentials");
+      return true;
+    });
   }
 });
 
@@ -173,7 +177,10 @@ test("legacy startup requires origin permission", async () => {
     ),
   });
 
-  await assert.rejects(platform.startupOpen(), /尚未获得访问.*权限/);
+  await assert.rejects(platform.startupOpen(), (error) => {
+    assert.equal(error.code, "extensionOriginNotGranted");
+    return true;
+  });
   assert.deepEqual(checked, { origins: ["https://pdf.example/*"] });
 });
 
@@ -334,7 +341,10 @@ test("legacy permission failure retains URL for background fallback", async () =
     location: extensionLocation(`?file=${encodeURIComponent(url)}`),
   });
 
-  await assert.rejects(platform.startupOpen(), /尚未获得访问.*权限/);
+  await assert.rejects(platform.startupOpen(), (error) => {
+    assert.equal(error.code, "extensionOriginNotGranted");
+    return true;
+  });
   await platform.fallbackToBrowser();
   assert.deepEqual(messages, [{ type: "open-original", url }]);
 });
@@ -352,10 +362,23 @@ test("legacy fallback rejects a failed background response", async () => {
   });
 
   await platform.startupOpen();
-  await assert.rejects(
-    platform.fallbackToBrowser(),
-    /浏览器未能打开原始 PDF：unauthorized，请重试/,
-  );
+  await assert.rejects(platform.fallbackToBrowser(), (error) => {
+    assert.equal(error.code, "extensionOpenOriginalFailedReason");
+    assert.equal(error.params.reason, "unauthorized");
+    return true;
+  });
+});
+
+test("extension errors localize with the active interface language", () => {
+  const error = { code: "extensionOriginNotGranted", params: { origin: "https://pdf.example" } };
+  setLocale("en");
+  assert.match(formatExtensionError(error, (key, values) => {
+    if (key === "extensionOriginNotGranted") {
+      return `Access to ${values.origin} has not been granted.`;
+    }
+    return key;
+  }), /Access to https:\/\/pdf\.example/);
+  setLocale("zh-CN");
 });
 
 test("canFallbackToBrowser is false on a fresh platform", () => {
@@ -377,7 +400,10 @@ test("canFallbackToBrowser is true after legacy startup even when permission is 
   });
 
   assert.equal(platform.canFallbackToBrowser(), false);
-  await assert.rejects(platform.startupOpen(), /尚未获得访问.*权限/);
+  await assert.rejects(platform.startupOpen(), (error) => {
+    assert.equal(error.code, "extensionOriginNotGranted");
+    return true;
+  });
   assert.equal(platform.canFallbackToBrowser(), true);
 });
 
