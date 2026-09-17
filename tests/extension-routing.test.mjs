@@ -7,6 +7,7 @@ import {
   authorizedOpenOriginal,
   buildViewerUrl,
   bypassStorageKey,
+  isHttpRedirectStatus,
   isLegacyPdfNavigation,
   isPdfUrl,
   isPdfContentType,
@@ -48,6 +49,15 @@ test("recognizes PDF response media types case-insensitively", () => {
   assert.equal(isPdfContentType([{ name: "content-type", value: " Application/PDF ; charset=binary" }]), true);
   assert.equal(isPdfContentType([{ name: "Content-Type", value: "application/octet-stream" }]), false);
   assert.equal(isPdfContentType([]), false);
+});
+
+test("recognizes HTTP redirect status codes", () => {
+  assert.equal(isHttpRedirectStatus(301), true);
+  assert.equal(isHttpRedirectStatus(302), true);
+  assert.equal(isHttpRedirectStatus(307), true);
+  assert.equal(isHttpRedirectStatus(200), false);
+  assert.equal(isHttpRedirectStatus(404), false);
+  assert.equal(isHttpRedirectStatus(undefined), false);
 });
 
 test("legacy routing accepts only main-frame HTTP(S) GET PDF responses", () => {

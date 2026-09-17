@@ -5,6 +5,7 @@ import {
   authorizedOpenOriginal,
   buildViewerUrl,
   bypassStorageKey,
+  isHttpRedirectStatus,
   isLegacyPdfNavigation,
   isPdfUrl,
   normalizeHttpUrl,
@@ -163,6 +164,8 @@ async function handleLegacyPdfNavigation(details) {
       if (await takeMatchingBypass(details.tabId, originalUrl, details.redirectChain)) return;
       await clearBypass(details.tabId);
     } else {
+      // Intermediate 3xx responses are not PDFs; wait for the final response.
+      if (isHttpRedirectStatus(details.statusCode)) return;
       await clearBypass(details.tabId);
       return;
     }
@@ -227,19 +230,21 @@ async function reconcileLegacyListener() {
     return;
   }
 
+  let permissionKnown = false;
   let granted = false;
   try {
     granted = await chrome.permissions.contains(LEGACY_PERMISSIONS);
+    permissionKnown = true;
   } catch (error) {
     console.warn("Could not inspect legacy PDF permissions", error);
   }
-  if (granted) {
+  if (permissionKnown && granted) {
     registerLegacyListener();
     return;
   }
 
   unregisterLegacyListener();
-  if (!autoOpenPdf) return;
+  if (!permissionKnown || !autoOpenPdf) return;
   autoOpenPdf = false;
   try {
     await chrome.storage.local.set({ [AUTO_OPEN_STORAGE_KEY]: false });

@@ -40,3 +40,30 @@ test("platform wrapper tolerates platforms without extension-only methods", () =
   assert.equal(platform.setTabTitle("t"), undefined);
   assert.equal(platform.canFallbackToBrowser(), undefined);
 });
+
+test("createPlatform forwards clearBrowserFallback for the extension adapter", async () => {
+  const listeners = {};
+  globalThis.window = {
+    addEventListener(type, fn) {
+      listeners[type] = fn;
+    },
+  };
+  globalThis.document = { body: { dataset: {} } };
+  delete globalThis.pywebview;
+  globalThis.chrome = {
+    runtime: { id: "extension-id", sendMessage: async () => undefined },
+    permissions: { contains: async () => true },
+  };
+  globalThis.location = {
+    protocol: "chrome-extension:",
+    search: `?file=${encodeURIComponent("https://example.com/a.pdf")}`,
+    href: `chrome-extension://extension-id/web/index.html?file=${encodeURIComponent("https://example.com/a.pdf")}`,
+  };
+
+  const platform = createPlatform();
+  assert.equal(platform.id, "extension");
+  await platform.startupOpen();
+  assert.equal(platform.canFallbackToBrowser(), true);
+  platform.clearBrowserFallback();
+  assert.equal(platform.canFallbackToBrowser(), false);
+});

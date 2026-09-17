@@ -10,6 +10,7 @@ function listenerChrome({
   native = false,
   hangContains = true,
   containsResult = true,
+  containsReject = false,
   autoOpen = false,
   hangSettings = false,
 } = {}) {
@@ -101,6 +102,9 @@ function listenerChrome({
     permissions: {
       contains() {
         containsCalls += 1;
+        if (containsReject) {
+          return Promise.reject(new Error("permissions API unavailable"));
+        }
         return hangContains ? containsPromise : Promise.resolve(containsResult);
       },
       request: async () => true,
@@ -311,6 +315,46 @@ test("manual original-PDF bypass survives redirecting servers", async () => {
   assert.equal(harness.sessionStore.has("pdfOriginalBypass:7"), false);
 });
 
+test("intermediate redirect responses keep a pending original-PDF bypass", async () => {
+  const harness = listenerChrome({ autoOpen: true });
+  await loadBackground(harness.chrome);
+  const [onMessage] = harness.messageListeners;
+  const originalUrl = "https://cdn.example.com/shortlink";
+  const finalUrl = "https://cdn.example.com/files/paper.pdf";
+  const sender = {
+    tab: { id: 9 },
+    url: `chrome-extension://id/web/index.html?file=${encodeURIComponent(originalUrl)}`,
+  };
+  await new Promise(resolve => {
+    onMessage({ type: "open-original", url: originalUrl }, sender, resolve);
+  });
+
+  harness.headerListeners[0].listener({
+    tabId: 9,
+    url: originalUrl,
+    type: "main_frame",
+    method: "GET",
+    statusCode: 302,
+    responseHeaders: [{ name: "location", value: finalUrl }],
+  });
+  await flush();
+  assert.equal(harness.sessionStore.has("pdfOriginalBypass:9"), true);
+  assert.equal(harness.updateCalls.length, 1);
+
+  harness.tabsById.set(9, { url: finalUrl });
+  harness.headerListeners[0].listener({
+    tabId: 9,
+    url: finalUrl,
+    type: "main_frame",
+    method: "GET",
+    statusCode: 200,
+    responseHeaders: [{ name: "content-type", value: "application/pdf" }],
+  });
+  await flush();
+  assert.equal(harness.updateCalls.length, 1);
+  assert.equal(harness.sessionStore.has("pdfOriginalBypass:9"), false);
+});
+
 test("PDF navigation without a bypass still routes into the viewer", async () => {
   const harness = listenerChrome({ autoOpen: true });
   await loadBackground(harness.chrome);
@@ -469,6 +513,18 @@ test("revoked legacy permission clears persisted auto-open preference", async ()
   await loadBackground(harness.chrome);
   await flush();
   assert.deepEqual(plain(harness.localSets), [{ autoOpenPdf: false }]);
+  assert.equal(harness.headerListeners.length, 0);
+});
+
+test("failed legacy permission inspection keeps persisted auto-open preference", async () => {
+  const harness = listenerChrome({
+    hangContains: false,
+    containsReject: true,
+    autoOpen: true,
+  });
+  await loadBackground(harness.chrome);
+  await flush();
+  assert.deepEqual(plain(harness.localSets), []);
   assert.equal(harness.headerListeners.length, 0);
 });
 

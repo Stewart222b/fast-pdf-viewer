@@ -39,6 +39,9 @@ export function createPlatform() {
     canFallbackToBrowser(...args) {
       return activePlatform().canFallbackToBrowser?.(...args);
     },
+    clearBrowserFallback(...args) {
+      return activePlatform().clearBrowserFallback?.(...args);
+    },
   };
   if (typeof window !== "undefined") {
     window.addEventListener("pywebviewready", () => {
