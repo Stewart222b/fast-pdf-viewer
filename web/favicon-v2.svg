@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">Fast PDF Viewer</title>
+  <rect x="2" y="2" width="124" height="124" rx="28" fill="#1769D2"/>
+  <path d="M28 13h47l30 30v72H28z" fill="#FFFFFF"/>
+  <path d="M75 13v30h30z" fill="#FF6258"/>
+  <path d="M43 55h41v12H56v9h22v12H56v15H43z" fill="#173A63"/>
+</svg>
