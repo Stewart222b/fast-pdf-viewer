@@ -1260,6 +1260,7 @@ let bubbleSelectionRect = null;
 let isBubblePinned = false;
 let isBubbleManuallyPositioned = false;
 let bubbleDrag = null;
+let bubblePositionRevision = 0;
 
 function isAutoTranslateOn() {
   return loadSettings().autoTranslateOnSelect !== false;
@@ -1289,9 +1290,17 @@ function syncBubblePinButton() {
 }
 
 function setBubblePinned(pinned) {
+  const wasPinned = isBubblePinned;
   isBubblePinned = Boolean(pinned);
   syncBubblePinButton();
-  if (!bubble.hidden) repositionBubble();
+  if (bubble.hidden) return;
+  if (wasPinned && !isBubblePinned) {
+    // Keep the current screen position when unpinning; discard any older
+    // scroll/resize reposition that was queued while the bubble was pinned.
+    bubblePositionRevision += 1;
+    return;
+  }
+  repositionBubble();
 }
 
 function finishBubbleDrag(event) {
@@ -1391,8 +1400,10 @@ function repositionBubble() {
 }
 
 function scheduleRepositionBubble() {
+  const positionRevision = bubblePositionRevision;
   requestAnimationFrame(() => {
     repositionTranslateChip();
+    if (positionRevision !== bubblePositionRevision) return;
     repositionBubble();
   });
 }
