@@ -2,6 +2,7 @@ const SUPPORTED_LOCALES = new Set(["zh-CN", "en"]);
 
 const messages = {
   "zh-CN": {
+    modelIncompleteTranslation: "翻译未完成（{reason}），请重试。",
     fileNavigation: "文件与导航", open: "打开", openPdf: "打开 PDF", originalPdf: "原始 PDF",
     openOriginalPdf: "用浏览器打开原始 PDF", toggleSidebar: "显示/隐藏目录侧栏",
     back: "返回", backHint: "返回（鼠标侧键 / Alt+← / Backspace）", forward: "前进",
@@ -55,6 +56,7 @@ const messages = {
     extensionOpenOriginalFailedReason: "浏览器未能打开原始 PDF：{reason}，请重试。",
   },
   en: {
+    modelIncompleteTranslation: "Translation did not complete ({reason}). Please try again.",
     fileNavigation: "File and navigation", open: "Open", openPdf: "Open PDF", originalPdf: "Original PDF",
     openOriginalPdf: "Open the original PDF in the browser", toggleSidebar: "Show or hide the outline sidebar",
     back: "Back", backHint: "Back (mouse side button / Alt+← / Backspace)", forward: "Forward",

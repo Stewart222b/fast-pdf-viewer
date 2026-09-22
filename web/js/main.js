@@ -1043,14 +1043,22 @@ $("btn-search-toggle")?.addEventListener("click", () => {
   else openSearch();
 });
 function pageInputValue(raw) {
-  const digits = String(raw || "").replace(/\D/g, "");
+  const digits = String(raw || "").trim();
+  if (!/^\d+$/.test(digits)) return null;
   const page = Number(digits);
-  return Number.isFinite(page) && page > 0 ? page : null;
+  return Number.isSafeInteger(page) && page > 0 ? page : null;
+}
+
+function commitPageInput(input) {
+  if (input.disabled || !viewer.pageCount) return;
+  const page = pageInputValue(input.value);
+  const next = Math.min(viewer.pageCount, page || viewer.currentPage || 1);
+  input.value = String(next);
+  if (page) viewer.goToPage(next, { push: true });
 }
 
 $("page-input").addEventListener("change", (event) => {
-  const page = pageInputValue(event.target.value);
-  if (page) viewer.goToPage(page, { push: true });
+  commitPageInput(event.target);
 });
 $("page-input").addEventListener("keydown", (event) => {
   if (event.key === "ArrowUp" || event.key === "ArrowDown") {
@@ -1066,8 +1074,7 @@ $("page-input").addEventListener("keydown", (event) => {
   }
   if (event.key === "Enter") {
     event.preventDefault();
-    const page = pageInputValue(event.target.value);
-    if (page) viewer.goToPage(page, { push: true });
+    commitPageInput(event.target);
   }
 });
 
@@ -1143,8 +1150,8 @@ wrap.addEventListener("gesturechange", (event) => {
   if (nativeGestureScale == null || !(event.scale > 0)) return;
   event.preventDefault();
   viewer.pinchZoom({
-    deltaY: -100 * Math.log(event.scale / nativeGestureScale),
-    deltaMode: 0, clientX: event.clientX, clientY: event.clientY,
+    scaleFactor: event.scale / nativeGestureScale,
+    clientX: event.clientX, clientY: event.clientY,
   });
   nativeGestureScale = event.scale;
 }, { passive: false });
@@ -1592,7 +1599,9 @@ async function runTranslate(selectionId = bubbleSelectionId) {
 }
 
 // 划词气泡是选区延伸：点击外部 / Esc 关闭；固定后忽略外部点击。
+let selectionStartedInTextLayer = false;
 document.addEventListener("pointerdown", (event) => {
+  selectionStartedInTextLayer = event.button === 0 && Boolean(event.target?.closest?.(".textLayer"));
   if (bubble.hidden) return;
   if (isBubblePinned) return;
   const target = event.target;
@@ -1602,13 +1611,21 @@ document.addEventListener("pointerdown", (event) => {
   hideBubble();
 });
 
+document.addEventListener("pointercancel", () => {
+  selectionStartedInTextLayer = false;
+});
+
 document.addEventListener("mouseup", (event) => {
+  const selectionDrag = selectionStartedInTextLayer;
+  selectionStartedInTextLayer = false;
   if (translateChip.contains(event.target)) return;
   if (bubble.contains(event.target)) {
     hideTranslateChip();
     return;
   }
-  if (!event.target?.closest?.(".textLayer")) {
+  // A valid PDF selection may end on the page canvas or in a line gap.
+  // Ordinary outside clicks still close the bubble, even if a stale range remains.
+  if (!selectionDrag && !event.target?.closest?.(".textLayer")) {
     hideTranslateChip();
     hideBubble();
     return;

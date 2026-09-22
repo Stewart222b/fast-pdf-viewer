@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const profile = await mkdtemp(path.join(os.tmpdir(), 'fast-pdf-interaction-'));
-const server = spawn('python3', ['tests/browser_server.py'], { stdio: ['ignore', 'pipe', 'pipe'] });
+const server = spawn(process.env.PYTHON_PATH || 'python3', ['tests/browser_server.py'], { stdio: ['ignore', 'pipe', 'pipe'] });
 const chrome = spawn(process.env.CHROME_PATH || '/usr/local/bin/google-chrome', [
   '--headless=new', '--no-first-run', '--remote-debugging-port=0',
   `--user-data-dir=${profile}`, '--window-size=1280,900', 'about:blank',
@@ -98,11 +98,16 @@ try {
     const btn = document.getElementById('btn-sidebar');
     const before = document.querySelector('.workspace').classList.contains('sidebar-collapsed');
     btn.click();
-    const after = document.querySelector('.workspace').classList.contains('sidebar-collapsed');
+    const outlineOpen = !document.querySelector('.workspace').classList.contains('sidebar-collapsed') &&
+      document.getElementById('sidebar-tab-outline').getAttribute('aria-selected') === 'true';
     btn.click();
-    return { before, after, restored: document.querySelector('.workspace').classList.contains('sidebar-collapsed') === before };
+    const collapsed = document.querySelector('.workspace').classList.contains('sidebar-collapsed');
+    btn.click();
+    return { before, outlineOpen, collapsed, restored: document.querySelector('.workspace').classList.contains('sidebar-collapsed') === before };
   })()`);
-  assert.equal(sidebarToggle.after, !sidebarToggle.before);
+  assert.equal(sidebarToggle.before, false);
+  assert.equal(sidebarToggle.outlineOpen, true, 'outline button switches search to outline before collapsing');
+  assert.equal(sidebarToggle.collapsed, true);
   assert.equal(sidebarToggle.restored, true);
 
   const motion = await evaluate(`(async () => {
@@ -127,6 +132,10 @@ try {
   })()`);
   console.log('sidebar motion', motion);
   const pinch = await evaluate(`(async () => {
+    // Fit-width depends on platform scrollbar metrics; use a fixed start scale.
+    const zoom = document.getElementById('zoom-select');
+    zoom.value = '150';
+    zoom.dispatchEvent(new Event('change'));
     const wrap = document.querySelector('.viewer-wrap');
     const page = document.querySelector('.page');
     const before = page.getBoundingClientRect().width;
@@ -191,6 +200,7 @@ try {
     await new Promise(r => setTimeout(r, 350));
     return page.getBoundingClientRect().width / before;
   })()`);
+  console.log('native pinch ratio', nativePinch);
   assert.ok(Math.abs(nativePinch - 0.9) < 0.001, 'native WebView gesture must scale continuously');
 
   const zoomMenu = await evaluate(`(async () => {
@@ -275,6 +285,34 @@ try {
   })()`);
   assert.equal(selection.ok, true, selection.reason || selection.text);
 
+  // History must restore document coordinates after fit-width layout changes.
+  await fetch(`http://127.0.0.1:${fixtures.port}/api/browser/set-opened`, {
+    method: 'POST', body: JSON.stringify({ path: fixtures.long }),
+  });
+  await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+  await send('Page.reload');
+  await until(`document.getElementById('page-count').textContent === '120' && document.querySelector('.page')?.dataset.renderedZoom`);
+  await evaluate(`document.getElementById('zoom-select').value='page-width';document.getElementById('zoom-select').dispatchEvent(new Event('change'))`);
+  await evaluate(`document.getElementById('page-input').value='20';document.getElementById('page-input').dispatchEvent(new Event('change'))`);
+  await until(`document.querySelector('[data-page-number="20"]')?.dataset.renderedZoom`);
+  const beforeResize = await evaluate(`(() => {
+    const page = document.querySelector('[data-page-number="20"]');
+    return (document.getElementById('viewer-wrap').scrollTop + 64 - page.offsetTop) / Number(page.dataset.renderedZoom);
+  })()`);
+  await evaluate(`document.getElementById('page-input').value='80';document.getElementById('page-input').dispatchEvent(new Event('change'))`);
+  await until(`document.querySelector('[data-page-number="80"]')?.dataset.renderedZoom`);
+  const wideZoom = await evaluate(`document.querySelector('[data-page-number="80"]').dataset.renderedZoom`);
+  await send('Emulation.setDeviceMetricsOverride', { width: 800, height: 900, deviceScaleFactor: 1, mobile: false });
+  await until(`document.querySelector('[data-page-number="80"]')?.dataset.renderedZoom && document.querySelector('[data-page-number="80"]').dataset.renderedZoom !== ${JSON.stringify(wideZoom)}`);
+  await evaluate(`document.getElementById('btn-back').click()`);
+  await until(`document.getElementById('page-input').value === '20' && document.querySelector('[data-page-number="20"]')?.dataset.renderedZoom`);
+  const afterResize = await evaluate(`(() => {
+    const page = document.querySelector('[data-page-number="20"]');
+    return (document.getElementById('viewer-wrap').scrollTop + 64 - page.offsetTop) / Number(page.dataset.renderedZoom);
+  })()`);
+  assert.ok(Math.abs(afterResize - beforeResize) < 1, 'back restores the same PDF reading point after resizing');
+  console.log('history resize', { beforeResize, afterResize });
+
   console.log(JSON.stringify({ linkLayerPe, textLayerPe, outlineCount, selection, errors }, null, 2));
   assert.deepEqual(errors, []);
 } finally {
@@ -282,5 +320,5 @@ try {
   chrome.kill();
   server.kill();
   await sleep(500);
-  await rm(profile, { recursive: true, force: true });
+  await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }

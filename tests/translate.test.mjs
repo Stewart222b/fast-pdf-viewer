@@ -168,6 +168,7 @@ test('translateWithProvider uses Latin-1 fetch headers for OpenRouter', async ()
     const stream = new ReadableStream({
       start(controller) {
         controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'));
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
         controller.close();
       },
     });
@@ -201,6 +202,7 @@ test('translateWithProvider streams deltas via onDelta', async () => {
       start(controller) {
         controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"你"}}]}\n\n'));
         controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"好"}}]}\n\n'));
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
         controller.close();
       },
     });
@@ -223,6 +225,130 @@ test('translateWithProvider streams deltas via onDelta', async () => {
   );
   assert.equal(out, '你好');
   assert.deepEqual(partials, ['你', '你好']);
+  globalThis.fetch = original;
+});
+
+test('translateWithProvider parses JSON responses even when onDelta is provided', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => new Response(
+    JSON.stringify({ choices: [{ message: { content: 'json result' } }] }),
+    { headers: { 'content-type': 'application/json' } },
+  );
+  const partials = [];
+  const out = await translateWithProvider('hello', { apiKey: 'k' }, {
+    onDelta: (value) => partials.push(value),
+  });
+  globalThis.fetch = original;
+  assert.equal(out, 'json result');
+  assert.deepEqual(partials, ['json result']);
+});
+
+test('translateWithProvider preserves JSON errors and rejects incomplete finish reasons', async () => {
+  const original = globalThis.fetch;
+  const responseFor = (data) => new Response(JSON.stringify(data), {
+    headers: { 'content-type': 'application/json' },
+  });
+  globalThis.fetch = async () => responseFor({ error: { message: 'json provider failed' } });
+  await assert.rejects(
+    () => translateWithProvider('hello', { apiKey: 'k' }),
+    /json provider failed/,
+  );
+  for (const reason of ['length', 'content_filter', 'error']) {
+    globalThis.fetch = async () => responseFor({
+      choices: [{ message: { content: 'partial' }, finish_reason: reason }],
+    });
+    await assert.rejects(
+      () => translateWithProvider('hello', { apiKey: 'k' }),
+      /did not complete|翻译未完成/,
+      reason,
+    );
+  }
+  globalThis.fetch = original;
+});
+
+test('translateWithProvider requires a successful SSE terminator', async () => {
+  const original = globalThis.fetch;
+  const encoder = new TextEncoder();
+  const stream = (payload) => new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(payload));
+      controller.close();
+    },
+  });
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: { get: () => 'text/event-stream' },
+    body: stream('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'),
+  });
+  await assert.rejects(
+    () => translateWithProvider('hello', { apiKey: 'k' }),
+    /did not complete|翻译未完成/,
+  );
+  globalThis.fetch = original;
+});
+
+test('translateWithProvider rejects stream errors after partial output', async () => {
+  const original = globalThis.fetch;
+  const encoder = new TextEncoder();
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: { get: () => 'text/event-stream' },
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'));
+        controller.enqueue(encoder.encode('data: {"error":{"message":"provider failed"}}\n\n'));
+        controller.close();
+      },
+    }),
+  });
+  await assert.rejects(() => translateWithProvider('hello', { apiKey: 'k' }), /provider failed/);
+  globalThis.fetch = original;
+});
+
+test('translateWithProvider rejects incomplete SSE finish reasons', async () => {
+  const original = globalThis.fetch;
+  const encoder = new TextEncoder();
+  for (const reason of ['length', 'content_filter', 'error']) {
+    globalThis.fetch = async () => ({
+      ok: true,
+      headers: { get: () => 'text/event-stream' },
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: {"choices":[{"delta":{"content":"partial"},"finish_reason":"${reason}"}]}\n\n`));
+          controller.close();
+        },
+      }),
+    });
+    await assert.rejects(
+      () => translateWithProvider('hello', { apiKey: 'k' }),
+      /did not complete|翻译未完成/,
+      reason,
+    );
+  }
+  globalThis.fetch = original;
+});
+
+test('translateWithProvider handles multiline SSE JSON across byte chunks and stop', async () => {
+  const original = globalThis.fetch;
+  const encoder = new TextEncoder();
+  let cancelled = false;
+  const payload = 'data: {\ndata: "choices":[{"delta":{"content":"ok"}}]\ndata: }\n\n'
+    + 'data: {"choices":[{"finish_reason":"stop"}]}\n\n';
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: { get: () => 'text/event-stream; charset=utf-8' },
+    body: new ReadableStream({
+      start(controller) {
+        const bytes = encoder.encode(payload);
+        controller.enqueue(bytes.slice(0, 9));
+        controller.enqueue(bytes.slice(9, 23));
+        controller.enqueue(bytes.slice(23));
+      },
+      cancel() { cancelled = true; },
+    }),
+  });
+  assert.equal(await translateWithProvider('hello', { apiKey: 'k' }), 'ok');
+  assert.equal(cancelled, true);
   globalThis.fetch = original;
 });
 

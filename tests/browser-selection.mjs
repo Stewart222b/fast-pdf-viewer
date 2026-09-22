@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const profile = await mkdtemp(path.join(os.tmpdir(), 'fast-pdf-selection-'));
-const server = spawn('python3', ['tests/browser_server.py'], { stdio: ['ignore', 'pipe', 'pipe'] });
+const server = spawn(process.env.PYTHON_PATH || 'python3', ['tests/browser_server.py'], { stdio: ['ignore', 'pipe', 'pipe'] });
 const fixtures = JSON.parse(await new Promise((resolve, reject) => {
   let output = '';
   server.stdout.on('data', chunk => { output += chunk; if (output.includes('\n')) resolve(output.split('\n')[0]); });
@@ -282,5 +282,5 @@ try {
   chrome.kill();
   server.kill();
   await sleep(500);
-  try { await rm(profile, { recursive: true, force: true }); } catch {}
+  try { await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch {}
 }

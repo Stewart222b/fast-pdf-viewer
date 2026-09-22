@@ -20,7 +20,7 @@ async function setup(load = () => { throw new Error('unexpected load'); }) {
   const context = vm.createContext({
     URL, console, setTimeout, clearTimeout,
     window: { devicePixelRatio: 1 },
-    document: { createElement: () => ({ style: {}, getContext() { return {}; }, addEventListener() {}, href: '' }) },
+    document: { createElement: () => ({ style: {}, listeners: {}, getContext() { return {}; }, addEventListener(type, fn) { this.listeners[type] = fn; }, href: '' }) },
     requestAnimationFrame: f => f(),
   });
   const mock = new vm.SyntheticModule(['getDocument', 'GlobalWorkerOptions', 'TextLayer', 'TextLayerBuilder', 'setLayerDimensions'], function () {
@@ -116,6 +116,52 @@ test('restoreScrollAnchor keeps the PDF reading point when zoom changes', async 
   viewer.restoreScrollAnchor(anchor);
   const point = viewer.getReadingPoint();
   assert.ok(Math.abs(point.pdfY - anchor.pdfY) < 0.5);
+});
+
+test('history restores the same PDF point after layout and zoom changes', async () => {
+  const { viewer, history, wrapEl } = await setup();
+  viewer.zoom = 1;
+  viewer.pageCount = 80;
+  viewer.pageSizes = Array.from({ length: 80 }, () => ({
+    width: 612,
+    height: 792,
+    viewBox: [0, 0, 612, 792],
+    rotation: 0,
+    userUnit: 1,
+  }));
+  const makePages = (scale) => Array.from({ length: 80 }, (_, index) => {
+    const el = pageElement();
+    el.dataset.pageNumber = String(index + 1);
+    el.offsetTop = index * 800 * scale;
+    el.offsetLeft = 0;
+    el.offsetHeight = 792 * scale;
+    return el;
+  });
+  viewer.pageEls = makePages(1);
+  viewer.currentPage = 20;
+  wrapEl.clientWidth = 800;
+  wrapEl.scrollTop = viewer.pageEls[19].offsetTop + 300;
+  const first = viewer.getState();
+  history.reset(first);
+  viewer.currentPage = 80;
+  wrapEl.scrollTop = viewer.pageEls[79].offsetTop + 200;
+  history.push(viewer.getState());
+
+  viewer.zoom = 1.5;
+  viewer.pageEls = makePages(1.5);
+  viewer.currentPage = 80;
+  viewer.back();
+
+  const restored = viewer.getReadingPoint();
+  assert.equal(restored.page, 20);
+  assert.ok(Math.abs(restored.pdfY - first.anchor.pdfY) < 0.5);
+});
+
+test('history with legacy anchors still compares pixel positions', async () => {
+  const { history } = await setup();
+  history.reset({ page: 1, zoom: '100', scrollTop: 100, scrollLeft: 0, anchor: { page: 1 } });
+  history.push({ page: 1, zoom: '100', scrollTop: 102, scrollLeft: 0, anchor: { page: 1 } });
+  assert.equal(history.stack.length, 1);
 });
 
 test('latest open wins when an earlier loading task finishes late', async () => {
@@ -465,6 +511,30 @@ test('link annotations render without convertToViewportRectangle', async () => {
   assert.match(linkLayer.children[0].style.left, /^\d/);
 });
 
+test('link annotations execute only supported named page actions', async () => {
+  const { viewer } = await setup();
+  viewer.pageCount = 4;
+  viewer.currentPage = 2;
+  const calls = [];
+  viewer.goToPage = (page, options) => calls.push([page, options]);
+  const linkLayer = layer();
+  const page = {
+    getAnnotations: async () => [
+      { subtype: 'Link', rect: [0, 0, 10, 10], action: 'NextPage' },
+      { subtype: 'Link', rect: [0, 0, 10, 10], action: 'JavaScript' },
+    ],
+  };
+  await viewer.renderLinks(page, viewport, linkLayer);
+  linkLayer.children[0].listeners.click({ preventDefault() {} });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], 3);
+  assert.equal(calls[0][1].push, true);
+  assert.equal(calls[0][1].instant, true);
+  assert.equal(typeof linkLayer.children[1].listeners.click, 'function');
+  linkLayer.children[1].listeners.click({ preventDefault() {} });
+  assert.equal(calls.length, 1);
+});
+
 test('zoom invalidates geometry and hides stale text even on offscreen pages', async () => {
   const { viewer } = await setup();
   viewer.pageEls = [pageElement(), pageElement()];
@@ -664,6 +734,23 @@ test('mouse wheel uses preset steps, not a relative 10% of current zoom', async 
   viewer.zoom = 1.5;
   viewer.pinchZoom({ deltaY: -1, deltaMode: 0, clientX: 100, clientY: 100 });
   assert.ok(Math.abs(viewer.pinch.target - 1.5 * Math.exp(0.01)) < 1e-9);
+});
+
+test('native gesture scale uses the exact incremental multiplier and clamps bounds', async () => {
+  const { viewer, wrapEl } = await setup();
+  viewer.pdf = {};
+  viewer.pagesEl = { style: {} };
+  viewer.pageEls = [pageElement()];
+  wrapEl.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
+  viewer.zoom = 1;
+  viewer.pinchZoom({ scaleFactor: 0.9, clientX: 100, clientY: 100 });
+  assert.equal(viewer.pinch.target, 0.9);
+  viewer.pinchZoom({ scaleFactor: 1.389, clientX: 100, clientY: 100 });
+  assert.ok(Math.abs(viewer.pinch.target - 1.2501) < 1e-9);
+  viewer.pinchZoom({ scaleFactor: 10, clientX: 100, clientY: 100 });
+  assert.equal(viewer.pinch.target, 5);
+  viewer.pinchZoom({ scaleFactor: 0.01, clientX: 100, clientY: 100 });
+  assert.equal(viewer.pinch.target, 0.25);
 });
 
 test('finishPinch calls onPinchCommit', async () => {

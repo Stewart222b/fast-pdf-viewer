@@ -143,6 +143,7 @@ export class PdfViewer {
       zoom: this.zoomMode,
       scrollTop: this.wrapEl.scrollTop,
       scrollLeft: this.wrapEl.scrollLeft,
+      anchor: this.captureScrollAnchor(),
     };
   }
 
@@ -202,8 +203,16 @@ export class PdfViewer {
   }
 
   restoreScrollAnchor(anchor) {
+    if (!anchor) return;
     const el = this.pageEls[anchor.page - 1];
-    if (!el) return;
+    if (!el) {
+      this.wrapEl.scrollTo({
+        top: anchor.scrollTop ?? 0,
+        left: anchor.scrollLeft ?? 0,
+        behavior: "auto",
+      });
+      return;
+    }
     const layout = this.pageLayout(anchor.page);
     const zoom = this.zoom || 1;
     if (Number.isFinite(anchor.pdfX) && Number.isFinite(anchor.pdfY) && layout?.viewBox) {
@@ -452,7 +461,9 @@ export class PdfViewer {
   // Keep the raster and text together on the compositor during a gesture.
   // Layout and PDF rendering happen only once the input stream settles.
   pinchZoom(event) {
-    if (!this.pdf || !this.pageEls.length || !Number.isFinite(event.deltaY) || !event.deltaY) return;
+    const nativeScale = Number(event.scaleFactor);
+    const hasNativeScale = Number.isFinite(nativeScale) && nativeScale > 0;
+    if (!this.pdf || !this.pageEls.length || (!hasNativeScale && (!Number.isFinite(event.deltaY) || !event.deltaY))) return;
     if (!this.pinch) {
       const rect = this.wrapEl.getBoundingClientRect();
       const x = event.clientX - rect.left;
@@ -470,12 +481,16 @@ export class PdfViewer {
       this.pagesEl.style.transformOrigin = `${this.wrapEl.scrollLeft + x}px ${contentY}px`;
       this.pagesEl.style.willChange = "transform";
     }
-    this.pinch.target = applyWheelZoomScale(
-      this.pinch.target,
-      event.deltaY,
-      event.deltaMode,
-      this.wrapEl.clientHeight,
-    );
+    if (hasNativeScale) {
+      this.pinch.target = Math.min(5, Math.max(0.25, this.pinch.target * nativeScale));
+    } else {
+      this.pinch.target = applyWheelZoomScale(
+        this.pinch.target,
+        event.deltaY,
+        event.deltaMode,
+        this.wrapEl.clientHeight,
+      );
+    }
     if (!this.pinchFrame) {
       this.pinchFrame = requestAnimationFrame(() => {
         this.pinchFrame = null;
@@ -713,6 +728,10 @@ export class PdfViewer {
       const height = Math.abs(rect[3] - rect[1]);
       const a = document.createElement("a");
       a.href = annotation.url || "#";
+      const action = annotation.action || "";
+      const namedAction = ["NextPage", "PrevPage", "FirstPage", "LastPage", "GoBack", "GoForward"].includes(action)
+        ? action
+        : "";
       a.title = annotation.url || t("jump");
       a.style.left = `${left}px`;
       a.style.top = `${top}px`;
@@ -725,6 +744,12 @@ export class PdfViewer {
           return;
         }
         if (annotation.dest) this.goToDest(annotation.dest, true);
+        else if (namedAction === "NextPage") this.goToPage(this.currentPage + 1, { push: true, instant: true });
+        else if (namedAction === "PrevPage") this.goToPage(this.currentPage - 1, { push: true, instant: true });
+        else if (namedAction === "FirstPage") this.goToPage(1, { push: true, instant: true });
+        else if (namedAction === "LastPage") this.goToPage(this.pageCount, { push: true, instant: true });
+        else if (namedAction === "GoBack") this.back();
+        else if (namedAction === "GoForward") this.forward();
       });
       layer.appendChild(a);
     }
@@ -842,11 +867,15 @@ export class PdfViewer {
       this.setZoom(state.zoom, { keepPage: false });
     }
     if (state.page) this.currentPage = state.page;
-    this.wrapEl.scrollTo({
-      top: state.scrollTop ?? 0,
-      left: state.scrollLeft ?? 0,
-      behavior: "auto",
-    });
+    if (state.anchor) {
+      this.restoreScrollAnchor(state.anchor);
+    } else {
+      this.wrapEl.scrollTo({
+        top: state.scrollTop ?? 0,
+        left: state.scrollLeft ?? 0,
+        behavior: "auto",
+      });
+    }
     this.notify();
     requestAnimationFrame(() => {
       if (fromHistory) this.applyingHistory = false;
