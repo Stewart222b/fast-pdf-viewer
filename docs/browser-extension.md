@@ -44,6 +44,8 @@ CI also runs the full Node test command and the `--zip` build in `.github/workfl
 
 ## Privacy and data handling
 
+The public, bilingual privacy policy for store review is `web/privacy.html`. After a deployment from `main`, it is available at <https://stewart222b.github.io/fast-pdf-viewer/privacy.html>. Verify that the live URL opens before entering it in Partner Center; the page does not load extension-package assets.
+
 The extension settings use the browser’s local extension storage. The configured API key is stored in `chrome.storage.local` and is not encrypted by this application; treat it as a credential available to the local browser profile and remove it when no longer needed.
 
 For translation, only text the user selects in the PDF is sent to the configured provider, together with the request authentication and prompt needed for that provider. Model-list requests, when enabled, contact the configured provider but do not upload the PDF. PDF content is fetched in the browser from the remote PDF’s source host (or read from a local file in the normal web/desktop viewer); this packaging work does not send whole PDF files to the translation provider. Provider retention, logging, and training practices are outside this repository and must be checked before publication.
