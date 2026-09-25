@@ -185,64 +185,117 @@ export function extractStreamDelta(parsed) {
  */
 export function parseSseTranslationChunk(chunk) {
   const deltas = [];
-  for (const line of chunk.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("data:")) continue;
-    const payload = trimmed.slice(5).trim();
-    if (!payload || payload === "[DONE]") continue;
-    try {
-      const parsed = JSON.parse(payload);
-      const piece = extractStreamDelta(parsed);
-      if (piece) deltas.push(piece);
-    } catch {
-      // ignore malformed SSE lines
-    }
+  const state = createSseState((piece) => deltas.push(piece));
+  for (const line of String(chunk).split(/\r?\n/)) {
+    processSseLine(line, state);
   }
+  finishSseFrame(state);
   return deltas;
+}
+
+function createSseState(onDelta) {
+  return { dataLines: [], completed: false, translated: "", onDelta };
+}
+
+function processSseLine(line, state) {
+  if (line.trim() === "") {
+    finishSseFrame(state);
+    return;
+  }
+  if (line.startsWith(":") || !line.startsWith("data:")) return;
+  let payload = line.slice(5);
+  if (payload.startsWith(" ")) payload = payload.slice(1);
+  state.dataLines.push(payload);
+}
+
+function finishSseFrame(state) {
+  if (!state.dataLines.length) return;
+  const payload = state.dataLines.join("\n").trim();
+  state.dataLines = [];
+  if (!payload) return;
+  if (payload === "[DONE]") {
+    state.completed = true;
+    return;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    // A malformed frame is not a successful completion, but later frames may recover.
+    return;
+  }
+  if (parsed?.error) {
+    throw new Error(parsed.error.message || parsed.error.type || t("translationFailed", { status: "stream" }));
+  }
+  const reason = parsed?.choices?.[0]?.finish_reason;
+  if (reason) {
+    if (reason !== "stop") throw new Error(t("modelIncompleteTranslation", { reason }));
+    state.completed = true;
+  }
+  const piece = extractStreamDelta(parsed);
+  if (piece) {
+    state.translated += piece;
+    state.onDelta?.(piece, state.translated);
+  }
+}
+
+function extractJsonTranslation(data, onDelta) {
+  if (data?.error) {
+    throw new Error(data.error.message || data.error.type || t("translationFailed", { status: "response" }));
+  }
+  const reason = data?.choices?.[0]?.finish_reason;
+  if (reason !== undefined && reason !== null && reason !== "stop") {
+    throw new Error(t("modelIncompleteTranslation", { reason }));
+  }
+  const content = data?.choices?.[0]?.message?.content?.trim();
+  if (!content) throw new Error(t("modelNoTranslation"));
+  onDelta?.(content);
+  return content;
 }
 
 async function readStreamingTranslation(response, { onDelta, signal } = {}) {
   if (!response.body) {
     const data = await response.json().catch(() => ({}));
-    const content = data?.choices?.[0]?.message?.content?.trim();
-    if (!content) throw new Error(t("modelNoTranslation"));
-    onDelta?.(content);
-    return content;
+    return extractJsonTranslation(data, onDelta);
   }
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let translated = "";
-
-  while (true) {
-    if (signal?.aborted) {
-      await reader.cancel().catch(() => {});
-      const error = new Error("aborted");
-      error.name = "AbortError";
-      throw error;
+  const state = createSseState((piece, complete) => onDelta?.(complete));
+  try {
+    while (!state.completed) {
+      if (signal?.aborted) {
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        throw error;
+      }
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        processSseLine(line, state);
+        if (state.completed) break;
+      }
     }
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lastNewline = buffer.lastIndexOf("\n");
-    if (lastNewline === -1) continue;
-    const lines = buffer.slice(0, lastNewline + 1);
-    buffer = buffer.slice(lastNewline + 1);
-    for (const piece of parseSseTranslationChunk(lines)) {
-      translated += piece;
-      onDelta?.(translated);
+    if (!state.completed) {
+      buffer += decoder.decode();
+      if (buffer) processSseLine(buffer, state);
+      finishSseFrame(state);
     }
+    if (state.completed) await reader.cancel().catch(() => {});
+    const trimmed = state.translated.trim();
+    if (!state.completed) throw new Error(t("modelIncompleteTranslation", { reason: "EOF" }));
+    if (!trimmed) throw new Error(t("modelNoTranslation"));
+    return trimmed;
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock?.();
   }
-  if (buffer.trim()) {
-    for (const piece of parseSseTranslationChunk(buffer)) {
-      translated += piece;
-      onDelta?.(translated);
-    }
-  }
-  const trimmed = translated.trim();
-  if (!trimmed) throw new Error(t("modelNoTranslation"));
-  return trimmed;
 }
 
 /**
@@ -301,14 +354,11 @@ export async function translateWithProvider(
       throw new Error(message);
     }
     const contentType = response.headers.get("content-type") || "";
-    if (contentType.includes("text/event-stream") || onDelta) {
+    if (contentType.toLowerCase().includes("text/event-stream")) {
       return await readStreamingTranslation(response, { onDelta, signal: controller.signal });
     }
     const data = await response.json().catch(() => ({}));
-    const content = data?.choices?.[0]?.message?.content?.trim();
-    if (!content) throw new Error(t("modelNoTranslation"));
-    onDelta?.(content);
-    return content;
+    return extractJsonTranslation(data, onDelta);
   } catch (error) {
     if (error?.name === "AbortError") {
       if (signal?.aborted) throw new Error(t("translationCancelled"));

@@ -550,6 +550,31 @@ test('page input arrows immediately navigate like reading shortcuts, including b
   assert.deepEqual(jumps, [645, 644, 700, 701]);
 });
 
+test('page input rejects malformed values and restores the actual page on Enter and blur', async () => {
+  const app = await setup();
+  const input = app.get('page-input');
+  input.disabled = false;
+  app.viewer.pageCount = 120;
+  app.viewer.currentPage = 15;
+  const jumps = [];
+  app.viewer.goToPage = page => { jumps.push(page); app.viewer.currentPage = page; };
+  for (const value of ['1.5', 'abc', '-2', '0', '', '12abc', '9007199254740992']) {
+    for (const type of ['keydown', 'change']) {
+      input.value = value;
+      input.listeners[type]({key: 'Enter', target: input, preventDefault() {}});
+      assert.equal(input.value, '15', `${type}: ${value}`);
+    }
+  }
+  assert.deepEqual(jumps, []);
+  input.value = ' 020 ';
+  input.listeners.keydown({key: 'Enter', target: input, preventDefault() {}});
+  assert.equal(input.value, '20');
+  input.value = '999';
+  input.listeners.change({target: input});
+  assert.equal(input.value, '120');
+  assert.deepEqual(jumps, [20, 120]);
+});
+
 test('Enter follows the active search result inside its own scroller, including result batches', async () => {
   const app = await setup();
   const list = app.get('search-list');

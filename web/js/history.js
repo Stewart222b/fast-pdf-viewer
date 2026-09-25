@@ -11,6 +11,7 @@ export class ViewHistory {
       zoom: state.zoom,
       scrollTop: state.scrollTop,
       scrollLeft: state.scrollLeft,
+      anchor: state.anchor ? { ...state.anchor } : null,
     };
   }
 
@@ -77,6 +78,21 @@ export class ViewHistory {
 }
 
 function same(a, b) {
+  const aa = a.anchor;
+  const ba = b.anchor;
+  if (
+    aa && ba &&
+    Number.isFinite(aa.pdfX) && Number.isFinite(aa.pdfY) &&
+    Number.isFinite(ba.pdfX) && Number.isFinite(ba.pdfY)
+  ) {
+    return (
+      a.page === b.page &&
+      aa.page === ba.page &&
+      Math.abs((aa.pdfX ?? 0) - (ba.pdfX ?? 0)) < 2 &&
+      Math.abs((aa.pdfY ?? 0) - (ba.pdfY ?? 0)) < 2 &&
+      a.zoom === b.zoom
+    );
+  }
   return (
     a.page === b.page &&
     a.zoom === b.zoom &&

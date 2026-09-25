@@ -6,7 +6,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const profile = await mkdtemp(path.join(os.tmpdir(), 'fast-pdf-chrome-'));
-const server = spawn('python3', ['tests/browser_server.py'], { stdio: ['ignore', 'pipe', 'pipe'] });
+const server = spawn(process.env.PYTHON_PATH || 'python3', ['tests/browser_server.py'], { stdio: ['ignore', 'pipe', 'pipe'] });
 const chrome = spawn(process.env.CHROME_PATH || '/usr/local/bin/google-chrome', [
   '--headless=new', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0',
   `--user-data-dir=${profile}`, '--window-size=1280,900', 'about:blank',
@@ -74,5 +74,5 @@ try {
   if (process.env.RESULT_PATH) await writeFile(process.env.RESULT_PATH, JSON.stringify(results, null, 2));
 } finally {
   socket?.close(); chrome.kill(); server.kill();
-  await sleep(500); await rm(profile, { recursive: true, force: true });
+  await sleep(500); await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }

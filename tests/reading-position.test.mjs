@@ -39,3 +39,17 @@ test('save and load roundtrip', () => {
   assert.equal(loaded.scrollTop, 120);
   globalThis.localStorage = original;
 });
+
+test('save and load preserves a PDF-space reading anchor', () => {
+  const store = new Map();
+  const original = globalThis.localStorage;
+  globalThis.localStorage = {
+    getItem: (k) => store.get(k) ?? null,
+    setItem: (k, v) => store.set(k, v),
+  };
+  const fp = readingFingerprint({ name: 'doc.pdf', url: 'blob:x', size: 10, lastModified: 3 });
+  const anchor = { page: 8, pdfX: 12.5, pdfY: 640 };
+  saveReadingPosition(fp, { page: 8, zoom: 'page-width', scrollTop: 4000, scrollLeft: 0, anchor });
+  assert.deepEqual(loadReadingPosition(fp).anchor, anchor);
+  globalThis.localStorage = original;
+});

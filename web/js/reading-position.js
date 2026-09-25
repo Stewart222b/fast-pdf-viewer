@@ -35,6 +35,7 @@ export function saveReadingPosition(fingerprint, state) {
         zoom: state.zoom,
         scrollTop: state.scrollTop,
         scrollLeft: state.scrollLeft,
+        anchor: state.anchor ? { ...state.anchor } : undefined,
         savedAt: Date.now(),
       }),
     );

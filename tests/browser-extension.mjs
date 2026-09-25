@@ -646,7 +646,7 @@ async function runBrowser(browserPath, fixtures) {
   } finally {
     page?.close();
     await stop(browser);
-    await rm(profile, { recursive: true, force: true });
+    await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   }
 }
 
@@ -673,7 +673,7 @@ async function main() {
       throw new Error("no supported Chrome/Edge executable found; set CHROME_PATH to the browser executable");
     }
 
-    server = spawn("python3", ["tests/browser_server.py"], {
+    server = spawn(process.env.PYTHON_PATH || "python3", ["tests/browser_server.py"], {
       cwd: ROOT,
       stdio: ["ignore", "pipe", "pipe"],
     });
