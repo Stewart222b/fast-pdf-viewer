@@ -2,7 +2,7 @@
 
 const AUTO_OPEN_KEY = "autoOpenPdf";
 const READER_SETTINGS_KEY = "fast-pdf-viewer-settings";
-const DEFAULT_SETTINGS = { [AUTO_OPEN_KEY]: false, [READER_SETTINGS_KEY]: { uiLanguage: "zh-CN" } };
+const DEFAULT_SETTINGS = { [AUTO_OPEN_KEY]: false, [READER_SETTINGS_KEY]: {} };
 const MESSAGES = {
   "zh-CN": {
     pageTitle: "Fast PDF Viewer – AI Translation 设置", brandHome: "Fast PDF Viewer – AI Translation 设置首页",
@@ -75,7 +75,10 @@ async function saveAutoOpenSetting(enabled) {
 
 async function loadSettings() {
   const settings = await chrome.storage.local.get(DEFAULT_SETTINGS);
-  uiLanguage = settings[READER_SETTINGS_KEY]?.uiLanguage === "en" ? "en" : "zh-CN";
+  const savedLanguage = settings[READER_SETTINGS_KEY]?.uiLanguage;
+  uiLanguage = savedLanguage === "en" || savedLanguage === "zh-CN"
+    ? savedLanguage
+    : /^en(?:-|$)/i.test(globalThis.navigator?.language || "") ? "en" : "zh-CN";
   applyTranslations();
   autoOpenInput.checked = settings[AUTO_OPEN_KEY] === true;
 }

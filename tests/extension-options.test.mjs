@@ -23,7 +23,7 @@ function createElement() {
   };
 }
 
-async function setup({ stored = false, native = false, permissionResult = true } = {}) {
+async function setup({ stored = false, native = false, permissionResult = true, browserLanguage = "zh-CN", readerSettings = {} } = {}) {
   const elements = new Map([
     ["auto-open-pdf", createElement()],
     ["open-reader", createElement()],
@@ -44,7 +44,7 @@ async function setup({ stored = false, native = false, permissionResult = true }
     storage: {
       local: {
         async get(defaults) {
-          return { ...defaults, autoOpenPdf: stored };
+          return { ...defaults, autoOpenPdf: stored, "fast-pdf-viewer-settings": readerSettings };
         },
         async set(value) {
           storageSets.push(value);
@@ -73,25 +73,38 @@ async function setup({ stored = false, native = false, permissionResult = true }
     };
   }
 
+  const document = {
+    documentElement: {},
+    getElementById(id) {
+      return elements.get(id);
+    },
+  };
   vm.runInNewContext(source, {
     chrome,
     console,
-    document: {
-      getElementById(id) {
-        return elements.get(id);
-      },
-    },
+    document,
+    navigator: { language: browserLanguage },
   });
 
   await new Promise(resolve => setImmediate(resolve));
   return {
     elements,
+    document,
     mimeCalls,
     permissionCalls,
     storageSets,
     tabCalls,
   };
 }
+
+test("extension options follow browser language until reader language is saved", async () => {
+  const firstRun = await setup({ browserLanguage: "en-US" });
+  assert.equal(firstRun.document.documentElement.lang, "en");
+  assert.equal(firstRun.elements.get("settings-status").textContent, "");
+
+  const saved = await setup({ browserLanguage: "en-US", readerSettings: { uiLanguage: "zh-CN" } });
+  assert.equal(saved.document.documentElement.lang, "zh-CN");
+});
 
 test("native MIME handling uses the exact PDF signature and skips broad permissions", async () => {
   const harness = await setup({ native: true });

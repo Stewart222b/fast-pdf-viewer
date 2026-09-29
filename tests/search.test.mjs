@@ -25,6 +25,51 @@ test('collapsed whitespace, ligatures and fullwidth text map to original charact
   assert.equal(hits.length, 1); assert.equal(hits[0].offset, 5); assert.equal(hits[0].length, 5);
   assert.equal(search([item('ﬃ')], 'fi').hits[0].length, 1);
 });
+test('soft hyphens are searchable as invisible characters with raw offsets preserved', () => {
+  const raw = 'co\u00ADoperate';
+  const { hits } = search([item(raw)], 'cooperate');
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].offset, 0);
+  assert.equal(hits[0].length, raw.length);
+  assert.equal(search([item(raw)], 'co\u00ADoperate').hits.length, 1);
+  const wrapped = search([item('co\u00AD', 0, true), item('operate')], 'cooperate').hits[0];
+  assert.equal(wrapped.offset, 0);
+  assert.equal(wrapped.length, 'co\u00ADoperate'.length);
+});
+test('EOL hyphenation joins lowercase continuations and maps the removed hyphen', () => {
+  const raw = ['inspec-', 'tion'];
+  const { hits } = search([item(raw[0], 0, true), item(raw[1])], 'inspection');
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].offset, 0);
+  assert.equal(hits[0].length, raw.join('').length);
+
+  const compoundItems = [item('well-', 0, true), item('known')];
+  const compound = search(compoundItems, 'well-known').hits[0];
+  const joinedVariant = search(compoundItems, 'wellknown').hits[0];
+  assert.equal(compound.offset, 0);
+  assert.equal(compound.length, 'well-known'.length);
+  assert.equal(joinedVariant.offset, 0);
+  assert.equal(joinedVariant.length, 'well-known'.length);
+
+  assert.equal(search([item('well-', 0, true), item('Known')], 'wellknown').hits.length, 0);
+});
+test('EOL hyphen characters share the same optional dehyphenated search path', () => {
+  for (const hyphen of ['-', '\u2010', '\u2011']) {
+    const raw = `inter${hyphen}national`;
+    const hits = search([item(`inter${hyphen}`, 0, true), item('national')], 'international').hits;
+    assert.equal(hits.length, 1, JSON.stringify(hyphen));
+    assert.equal(hits[0].offset, 0);
+    assert.equal(hits[0].length, raw.length);
+  }
+});
+test('canonical combining sequences search and map to the full UTF-16 source range', () => {
+  const raw = '😀 cafe\u0301 foo';
+  const { hits } = search([item(raw)], 'CAFÉ');
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].offset, 3);
+  assert.equal(hits[0].length, 5);
+  assert.equal(search([item(raw)], 'foo').hits[0].offset, 9);
+});
 test('ligature partial queries keep non-zero raw highlight ranges', () => {
   const { content, hits: fHits } = search([item('ﬃ')], 'f');
   const fHit = fHits.find((hit) => hit.length > 0);

@@ -70,6 +70,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
   }
   function get(id) { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); }
   const workspace = element();
+  const toolbarMore = element();
   get('btn-sidebar');
   class Viewer {
     constructor(options = {}) {
@@ -97,8 +98,11 @@ async function setup({ platform = 'Linux x86_64', startup = null,
     clearHits() { this.shown.push(''); this.hitIndex = -1; this.query = ''; }
     async showHits(hits, query, index = 0, _options) { this.shown.push(query); this.hitIndex = hits.length ? index : -1; this.query = query; }
   }
+  class TestURL extends URL {}
+  TestURL.createObjectURL = () => `blob:test-${++nextBlob}`;
+  TestURL.revokeObjectURL = url => revoked.push(url);
   const context = vm.createContext({
-    URL: { createObjectURL: () => `blob:test-${++nextBlob}`, revokeObjectURL: url => revoked.push(url) },
+    URL: TestURL,
     console, fetch: async () => ({ ok: false }),
     document: {
       title: 'Fast PDF Viewer – AI Translation',
@@ -113,12 +117,13 @@ async function setup({ platform = 'Linux x86_64', startup = null,
       body: element(),
       documentElement,
       activeElement: null,
-      querySelector: sel => (sel === '.workspace' ? workspace : null),
+      querySelector: sel => (sel === '.workspace' ? workspace : sel === '.toolbar-more' ? toolbarMore : null),
       querySelectorAll: () => [],
       addEventListener(name, fn) { (documentListeners[name] ||= []).push(fn); },
     },
     window: {
       innerWidth: 1280,
+      matchMedia: () => ({ matches: false, addEventListener() {} }),
       addEventListener(type, fn) { (windowListeners[type] ||= []).push(fn); },
       getSelection() { return currentSelection; },
     },
@@ -151,8 +156,10 @@ async function setup({ platform = 'Linux x86_64', startup = null,
     },
     './translate.js': { translateText() {}, MAX_TRANSLATE_CHARS: 4000 },
     './reading-position.js': {
+      clearReadingPositions: () => {},
       readingFingerprint: () => '',
       loadReadingPosition: () => null,
+      pruneReadingPositions: () => {},
       saveReadingPosition: () => {},
     },
     './platform/index.js': {
@@ -165,7 +172,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
       }),
     },
     './model-picker.js': {
-      wireModelPicker: () => ({ refresh() {}, hideMenu() {}, invalidatePending() {} }),
+      wireModelPicker: () => ({ refresh() {}, hideMenu() {}, invalidatePending() {}, showPrompt() {} }),
     },
   };
   const main = new vm.SourceTextModule(await readFile(new URL('../web/js/main.js', import.meta.url), 'utf8'), { context });
@@ -199,6 +206,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
   get('settings-modal').hidden = true;
   get('pdf-password-modal').hidden = true;
   get('zoom-menu').hidden = true;
+  get('doc-title-popover').hidden = true;
   get('btn-original-pdf').hidden = true;
   return { viewer, get, fileInput, revoked, document: context.document, localStorageStore,
     setSelection(selection) { currentSelection = selection; },
@@ -548,6 +556,51 @@ test('page input arrows immediately navigate like reading shortcuts, including b
   app.viewer.currentPage = 779; key('ArrowDown'); assert.equal(input.value, '779');
   app.viewer.currentPage = 1; key('ArrowUp'); assert.equal(input.value, '1');
   assert.deepEqual(jumps, [645, 644, 700, 701]);
+});
+
+test('automatic zoom modes reflow on viewport resize without overriding fixed zoom', async () => {
+  const app = await setup();
+  app.viewer.pdf = {};
+  app.viewer.zoomMode = 'page-fit';
+  app.viewer.zoomCalls = [];
+  app.dispatch('resize', {});
+  app.runTimer();
+  assert.equal(app.viewer.zoomCalls.at(-1).mode, 'page-fit');
+  assert.equal(app.viewer.zoomCalls.at(-1).options.silent, true);
+
+  app.viewer.zoomMode = '150';
+  app.viewer.zoomCalls = [];
+  app.dispatch('resize', {});
+  app.runTimer();
+  assert.deepEqual(app.viewer.zoomCalls, []);
+});
+
+test('reader arrows scroll within a page and Alt+PageDown changes PDF page', async () => {
+  const app = await setup();
+  const wrap = app.get('viewer-wrap');
+  wrap.scrollTop = 0;
+  wrap.clientHeight = 600;
+  app.viewer.pdf = {};
+  app.viewer.pageCount = 3;
+  app.viewer.currentPage = 1;
+  const jumps = [];
+  app.viewer.goToPage = page => { jumps.push(page); app.viewer.currentPage = page; };
+  const target = { matches: () => false, closest: () => null };
+  const key = (name, modifiers = {}, focused = target) => {
+    let prevented = false;
+    app.dispatch('keydown', { key: name, target: focused, ...modifiers, preventDefault() { prevented = true; } });
+    return prevented;
+  };
+  assert.equal(key('ArrowDown'), true);
+  assert.equal(wrap.scrollTop, 48);
+  assert.equal(key('PageDown'), true);
+  assert.equal(wrap.scrollTop, 588);
+  assert.deepEqual(jumps, []);
+  assert.equal(key('ArrowDown', { shiftKey: true }), false);
+  assert.equal(wrap.scrollTop, 588);
+  assert.equal(key('PageDown', {}, { matches: () => false, closest: () => ({}) }), false);
+  assert.equal(key('PageDown', { altKey: true }), true);
+  assert.deepEqual(jumps, [2]);
 });
 
 test('page input rejects malformed values and restores the actual page on Enter and blur', async () => {
@@ -1042,7 +1095,7 @@ test('extension chrome sits in the toolbar and settings footer', async () => {
   const html = await readFile(new URL('../web/index.html', import.meta.url), 'utf8');
   const toolbar = html.slice(html.indexOf('class="toolbar"'), html.indexOf('id="settings-modal"'));
   const settings = html.slice(html.indexOf('id="settings-modal"'));
-  assert.match(toolbar, /id="btn-open"[\s\S]*id="btn-original-pdf"[\s\S]*id="btn-sidebar"/);
+  assert.match(toolbar, /id="btn-open"[\s\S]*id="btn-sidebar"[\s\S]*id="btn-original-pdf"/);
   assert.match(toolbar, /原始 PDF/);
   assert.doesNotMatch(toolbar, /id="btn-extension-options"/);
   assert.doesNotMatch(settings, /id="btn-original-pdf"/);

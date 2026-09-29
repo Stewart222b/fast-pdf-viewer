@@ -33,12 +33,12 @@
         <p>PDF data is parsed locally by the extension. The extension does not upload PDF files to a Fast PDF Viewer server. When you open an online PDF, your browser makes the normal request to the PDF's original server; that server receives the request and network information ordinarily associated with it. A PDF opened from your device is read locally.</p>
 
         <h2>Selected-text translation</h2>
-        <p>Translation is sent only after you enable/use translation and select text. The selected text, along with the authentication and prompt needed for the request, is sent directly to the translation provider configured in the extension settings. The extension does not proxy the request. The provider's own privacy, retention, logging, and use practices apply; please review that provider's terms. Model-list requests, if enabled, contact the configured provider and do not upload the PDF.</p>
+        <p>Translation is off by default. After selecting text, click the translation button or use the keyboard shortcut to send a request, or enable automatic translation in settings. The selected text, along with the authentication and prompt needed for the request, is sent directly to the translation provider configured in the extension settings. The extension does not proxy the request. The provider's own privacy, retention, logging, and use practices apply; please review that provider's terms. Clicking "Check model list" contacts the configured provider but does not upload the PDF.</p>
 
         <h2>Local settings and reading progress</h2>
         <ul>
           <li>Your configured API key is stored in the browser's <code>chrome.storage.local</code>. It is not encrypted by the extension and is not synchronized to other devices.</li>
-          <li>Reading progress is stored in the extension page's own <code>localStorage</code>; it is not shared with the ordinary web reader.</li>
+          <li>Reading progress is stored in the extension page's own <code>localStorage</code>; it is not shared with the ordinary web reader. Document identifiers do not contain the original URL in plain text. Records expire after 30 days, are limited to 100 documents, and can be cleared in reader settings.</li>
           <li>The extension contains no analytics, advertising, or telemetry code.</li>
           <li>Uninstalling the extension removes its settings and the reading progress stored by its pages.</li>
         </ul>
@@ -55,12 +55,12 @@
         <p>PDF 数据由扩展在本地解析，扩展不会把 PDF 文件上传到 Fast PDF Viewer 服务器。打开在线 PDF 时，浏览器会向 PDF 原始服务器发起正常请求；该服务器会收到请求及普通网络请求包含的信息。从设备打开的 PDF 在本地读取。</p>
 
         <h2>划词翻译</h2>
-        <p>只有在你启用并使用翻译、选中文本后，扩展才会发送翻译请求。选中的文本以及请求所需的身份验证信息和提示词，会直接发送到你在扩展设置中配置的翻译提供商；扩展不代理该请求。提供商自己的隐私、保留、日志和数据使用规则适用，请查看其条款。若启用了模型列表请求，该请求会联系所配置的提供商，但不会上传 PDF。</p>
+        <p>默认关闭自动翻译。选中文本后，点击翻译按钮或使用快捷键才会发送请求；也可在设置中开启自动翻译。选中的文本以及请求所需的身份验证信息和提示词，会直接发送到你在扩展设置中配置的翻译提供商；扩展不代理该请求。提供商自己的隐私、保留、日志和数据使用规则适用，请查看其条款。点击「检查模型列表」会联系所配置的提供商，但不会上传 PDF。</p>
 
         <h2>本地设置与阅读进度</h2>
         <ul>
           <li>API Key 保存在浏览器的 <code>chrome.storage.local</code> 中，扩展不会加密，也不会同步到其他设备。</li>
-          <li>阅读进度保存在扩展页面自身的 <code>localStorage</code> 中，不与普通网页版共用。</li>
+          <li>阅读进度保存在扩展页面自身的 <code>localStorage</code> 中，不与普通网页版共用。文档标识不包含明文原始 URL；记录在 30 天后过期，最多保留 100 份文档，也可在阅读器设置中清除。</li>
           <li>扩展不包含分析、广告或遥测代码。</li>
           <li>卸载扩展会清除扩展设置及其页面保存的阅读进度。</li>
         </ul>
