@@ -39,6 +39,73 @@ test('URL keys hide query values while preserving distinct documents', () => {
   );
 });
 
+function oldSampledContentFingerprint(data) {
+  const size = data.byteLength;
+  const sample = 16 * 1024;
+  const ranges = size <= sample * 3
+    ? [[0, size]]
+    : [[0, sample], [Math.floor(size / 2) - sample / 2, Math.floor(size / 2) + sample / 2], [size - sample, size]];
+  let a = 0x811c9dc5;
+  let b = 0x9e3779b9;
+  const update = value => {
+    a = Math.imul(a ^ value, 0x01000193);
+    b = Math.imul(b ^ value, 0x85ebca6b);
+  };
+  update(size);
+  for (const [start, end] of ranges) {
+    update(start);
+    update(end);
+    for (let i = start; i < end; i += 1) update(data[i]);
+  }
+  const hash = [a, b].map(n => (n >>> 0).toString(16).padStart(8, '0')).join('');
+  return `content:${size}:${hash}`;
+}
+
+test('large content fingerprints include bytes outside the old sample ranges', () => {
+  const firstBytes = new Uint8Array(64 * 1024);
+  const changedBytes = firstBytes.slice();
+  changedBytes[20 * 1024] = 1;
+  const first = readingFingerprint({
+    path: 'https://example.test/file.pdf?sig=old',
+    data: firstBytes,
+  });
+
+  assert.notEqual(
+    readingFingerprint({
+      path: 'https://example.test/file.pdf?sig=old',
+      data: changedBytes,
+    }),
+    first,
+  );
+  assert.equal(
+    readingFingerprint({
+      path: 'https://example.test/file.pdf?sig=rotated',
+      data: firstBytes,
+    }),
+    first,
+  );
+});
+
+test('large documents do not migrate an ambiguous old sampled position key', () => withStore(store => {
+  const sampledBytes = new Uint8Array(64 * 1024);
+  const differentBytes = sampledBytes.slice();
+  differentBytes[20 * 1024] = 1;
+  const oldKeyFingerprint = oldSampledContentFingerprint(sampledBytes);
+  assert.equal(oldSampledContentFingerprint(differentBytes), oldKeyFingerprint);
+
+  const oldKey = `fast-pdf-reader-position:${oldKeyFingerprint}`;
+  store.set(oldKey, JSON.stringify({ page: 14, savedAt: Date.now() }));
+  const source = { data: differentBytes };
+  assert.equal(loadReadingPosition(readingFingerprint(source), source), null);
+  assert.equal(store.has(oldKey), true);
+
+  const smallBytes = new Uint8Array([37, 80, 68, 70, 1, 2]);
+  assert.equal(
+    readingFingerprint({ data: smallBytes }),
+    oldSampledContentFingerprint(smallBytes),
+  );
+}));
+
 function withStore(run) {
   const store = new Map();
   const original = globalThis.localStorage;

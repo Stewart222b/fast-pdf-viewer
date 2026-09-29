@@ -73,12 +73,18 @@ async function saveAutoOpenSetting(enabled) {
   await chrome.storage.local.set({ [AUTO_OPEN_KEY]: enabled });
 }
 
+function getBrowserUiLanguage() {
+  return /^en(?:-|$)/i.test(globalThis.navigator?.language || "") ? "en" : "zh-CN";
+}
+
 async function loadSettings() {
   const settings = await chrome.storage.local.get(DEFAULT_SETTINGS);
-  const savedLanguage = settings[READER_SETTINGS_KEY]?.uiLanguage;
-  uiLanguage = savedLanguage === "en" || savedLanguage === "zh-CN"
-    ? savedLanguage
-    : /^en(?:-|$)/i.test(globalThis.navigator?.language || "") ? "en" : "zh-CN";
+  const readerSettings = settings[READER_SETTINGS_KEY] || {};
+  const savedLanguage = readerSettings.uiLanguage;
+  const hasSavedLanguage = savedLanguage === "en" || savedLanguage === "zh-CN";
+  uiLanguage = readerSettings.uiLanguageSelected === false || !hasSavedLanguage
+    ? getBrowserUiLanguage()
+    : savedLanguage;
   applyTranslations();
   autoOpenInput.checked = settings[AUTO_OPEN_KEY] === true;
 }

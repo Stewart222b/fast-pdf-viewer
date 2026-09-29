@@ -1,6 +1,7 @@
 const KEY_PREFIX = "fast-pdf-reader-position:";
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_RECORDS = 100;
+const LEGACY_SMALL_DOCUMENT_LIMIT = 48 * 1024;
 
 function hashValues(values) {
   let a = 0x811c9dc5;
@@ -9,6 +10,10 @@ function hashValues(values) {
     a = Math.imul(a ^ value, 0x01000193);
     b = Math.imul(b ^ value, 0x85ebca6b);
   }
+  return formatHash(a, b);
+}
+
+function formatHash(a, b) {
   return [a, b].map((n) => (n >>> 0).toString(16).padStart(8, "0")).join("");
 }
 
@@ -18,17 +23,26 @@ function hashText(value) {
 }
 
 function hashDocumentBytes(data) {
-  const size = data.byteLength;
-  const sample = 16 * 1024;
-  const ranges = size <= sample * 3
-    ? [[0, size]]
-    : [[0, sample], [Math.floor(size / 2) - sample / 2, Math.floor(size / 2) + sample / 2], [size - sample, size]];
-  const values = [size];
-  for (const [start, end] of ranges) {
-    values.push(start, end);
-    for (let i = start; i < end; i += 1) values.push(data[i]);
+  if (data.byteLength <= LEGACY_SMALL_DOCUMENT_LIMIT) {
+    return legacySmallDocumentHash(data);
   }
-  return hashValues(values);
+  let a = Math.imul(0x811c9dc5 ^ data.byteLength, 0x01000193);
+  let b = Math.imul(0x9e3779b9 ^ data.byteLength, 0x85ebca6b);
+  for (const byte of data) {
+    a = Math.imul(a ^ byte, 0x01000193);
+    b = Math.imul(b ^ byte, 0x85ebca6b);
+  }
+  return formatHash(a, b);
+}
+
+function legacySmallDocumentHash(data) {
+  function* values() {
+    yield data.byteLength;
+    yield 0;
+    yield data.byteLength;
+    for (const byte of data) yield byte;
+  }
+  return hashValues(values());
 }
 
 function legacyFingerprint(source) {

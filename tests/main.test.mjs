@@ -13,7 +13,9 @@ async function setup({ platform = 'Linux x86_64', startup = null,
   loadSettings = () => ({}), initSettings = async () => {},
   platformId = 'test', canFallbackToBrowser = undefined,
   clearBrowserFallback = undefined,
-  chrome = undefined, localStorageStore = new Map(), clipboardWrite = async () => {} } = {}) {
+  chrome = undefined, localStorageStore = new Map(), clipboardWrite = async () => {},
+  toolbarCompact = false, readingFingerprint = () => '',
+  saveReadingPosition = () => {}, clearReadingPositions = () => {} } = {}) {
   const elements = new Map(), timers = new Map(), documentListeners = {};
   let currentSelection = { rangeCount: 0 };
   let timerId = 0, viewer, fileInput;
@@ -91,6 +93,11 @@ async function setup({ platform = 'Linux x86_64', startup = null,
       return this;
     }
     async getOutline() { return this.outlinePromise || null; }
+    getState() {
+      const wrap = get('viewer-wrap');
+      return { page: this.currentPage || 1, zoom: this.zoomMode || 'page-width',
+        scrollTop: wrap.scrollTop || 0, scrollLeft: wrap.scrollLeft || 0 };
+    }
     getReadingPoint() { return { page: this.currentPage || 1, pdfY: this.readingPdfY }; }
     async goToDest() {}
     setZoom(mode, options) { (this.zoomCalls ||= []).push({ mode, options }); }
@@ -123,7 +130,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
     },
     window: {
       innerWidth: 1280,
-      matchMedia: () => ({ matches: false, addEventListener() {} }),
+      matchMedia: () => ({ matches: toolbarCompact, addEventListener() {} }),
       addEventListener(type, fn) { (windowListeners[type] ||= []).push(fn); },
       getSelection() { return currentSelection; },
     },
@@ -156,11 +163,11 @@ async function setup({ platform = 'Linux x86_64', startup = null,
     },
     './translate.js': { translateText() {}, MAX_TRANSLATE_CHARS: 4000 },
     './reading-position.js': {
-      clearReadingPositions: () => {},
-      readingFingerprint: () => '',
+      clearReadingPositions,
+      readingFingerprint,
       loadReadingPosition: () => null,
       pruneReadingPositions: () => {},
-      saveReadingPosition: () => {},
+      saveReadingPosition,
     },
     './platform/index.js': {
       createPlatform: () => ({
@@ -230,6 +237,51 @@ test('tab title matches the open document name', async () => {
   });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(app.document.title, '1706.03762');
+});
+
+test('clearing reading records does not recreate them on pagehide until the position changes', async () => {
+  const writes = [];
+  let clears = 0;
+  const app = await setup({
+    startup: { data: new Uint8Array([37, 80, 68, 70]), name: 'sample.pdf' },
+    readingFingerprint: () => 'content:sample',
+    saveReadingPosition: (fingerprint, state) => writes.push({ fingerprint, state }),
+    clearReadingPositions: () => { clears += 1; },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+
+  app.click('btn-clear-reading-positions');
+  app.dispatch('pagehide', {});
+  app.document.visibilityState = 'hidden';
+  app.dispatchDocument('visibilitychange', {});
+  assert.equal(clears, 1);
+  assert.deepEqual(writes, []);
+
+  app.viewer.currentPage = 2;
+  app.viewer.onState?.(app.viewer.getState());
+  app.dispatch('pagehide', {});
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].fingerprint, 'content:sample');
+  assert.equal(writes[0].state.page, 2);
+});
+
+test('Escape closes only the compact toolbar menu', async () => {
+  const app = await setup({ toolbarCompact: true });
+  app.get('translate-bubble').hidden = false;
+  app.click('btn-toolbar-more');
+  assert.equal(app.get('btn-toolbar-more').getAttribute('aria-expanded'), 'true');
+
+  let stopped = false;
+  const event = {
+    key: 'Escape', target: app.get('btn-toolbar-more'),
+    preventDefault() {}, stopPropagation() { stopped = true; },
+  };
+  app.dispatchDocument('keydown', event);
+  if (!stopped) app.dispatch('keydown', event);
+
+  assert.equal(stopped, true);
+  assert.equal(app.get('btn-toolbar-more').getAttribute('aria-expanded'), 'false');
+  assert.equal(app.get('translate-bubble').hidden, false);
 });
 
 test('startup forwards MIME bytes and legacy credentials through the real reader entry', async () => {

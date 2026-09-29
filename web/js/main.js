@@ -136,6 +136,7 @@ toolbarMore.addEventListener("focusout", event => {
 document.addEventListener("keydown", event => {
   if (event.key !== "Escape" || !toolbarMoreMenu.classList.contains("is-open")) return;
   event.preventDefault();
+  event.stopPropagation();
   setToolbarMoreOpen(false, true);
 });
 toolbarMoreBreakpoint.addEventListener("change", syncToolbarMoreMode);
@@ -265,6 +266,7 @@ let indexRefreshTimer = 0;
 let objectUrl = null;
 let currentFingerprint = "";
 let positionSaveTimer = 0;
+let clearedReadingPosition = null;
 let translateAbort = null;
 let translateRequestId = 0;
 let bubbleSelectionId = 0;
@@ -333,19 +335,33 @@ function stepPage(delta) {
   viewer.goToPage(next, { push: true });
 }
 
+function readingStateToSave() {
+  if (!currentFingerprint || !viewer.pdf) return null;
+  const state = viewer.getState();
+  if (clearedReadingPosition?.fingerprint === currentFingerprint) {
+    const previous = clearedReadingPosition.state;
+    if (state.page === previous.page && state.zoom === previous.zoom &&
+        state.scrollTop === previous.scrollTop && state.scrollLeft === previous.scrollLeft) return null;
+    clearedReadingPosition = null;
+  }
+  return state;
+}
+
 function scheduleSaveReadingPosition() {
-  if (!currentFingerprint || !viewer.pdf) return;
+  if (!readingStateToSave()) return;
   clearTimeout(positionSaveTimer);
   positionSaveTimer = setTimeout(() => {
-    saveReadingPosition(currentFingerprint, viewer.getState());
+    positionSaveTimer = 0;
+    const state = readingStateToSave();
+    if (state) saveReadingPosition(currentFingerprint, state);
   }, 400);
 }
 
 function flushReadingPosition() {
-  if (!currentFingerprint || !viewer.pdf) return;
   clearTimeout(positionSaveTimer);
   positionSaveTimer = 0;
-  saveReadingPosition(currentFingerprint, viewer.getState());
+  const state = readingStateToSave();
+  if (state) saveReadingPosition(currentFingerprint, state);
 }
 
 function scheduleOutlineActive() {
@@ -476,6 +492,7 @@ async function openSource(getSource) {
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   objectUrl = null;
   currentFingerprint = "";
+  clearedReadingPosition = null;
   $("search-input").value = "";
   $("search-clear").hidden = true;
   renderSearchList([], "");
@@ -1989,6 +2006,9 @@ $("btn-settings-cancel").addEventListener("click", () => {
 $("btn-clear-reading-positions").addEventListener("click", () => {
   clearTimeout(positionSaveTimer);
   positionSaveTimer = 0;
+  clearedReadingPosition = currentFingerprint && viewer.pdf
+    ? { fingerprint: currentFingerprint, state: viewer.getState() }
+    : null;
   clearReadingPositions();
   const status = $("reading-positions-status");
   status.textContent = t("readingPositionsCleared");

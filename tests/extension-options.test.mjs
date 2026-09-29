@@ -97,13 +97,34 @@ async function setup({ stored = false, native = false, permissionResult = true, 
   };
 }
 
-test("extension options follow browser language until reader language is saved", async () => {
+test("extension options use the current browser language when reader language is not selected", async () => {
   const firstRun = await setup({ browserLanguage: "en-US" });
   assert.equal(firstRun.document.documentElement.lang, "en");
   assert.equal(firstRun.elements.get("settings-status").textContent, "");
 
-  const saved = await setup({ browserLanguage: "en-US", readerSettings: { uiLanguage: "zh-CN" } });
-  assert.equal(saved.document.documentElement.lang, "zh-CN");
+  const notSelected = { uiLanguage: "en", uiLanguageSelected: false };
+  const inChineseBrowser = await setup({ browserLanguage: "zh-CN", readerSettings: notSelected });
+  assert.equal(inChineseBrowser.document.documentElement.lang, "zh-CN");
+
+  // The same saved settings should follow a changed browser language on the next page load.
+  const inEnglishBrowser = await setup({ browserLanguage: "en-US", readerSettings: notSelected });
+  assert.equal(inEnglishBrowser.document.documentElement.lang, "en");
+});
+
+test("extension options keep an explicitly selected reader language", async () => {
+  const selected = await setup({
+    browserLanguage: "en-US",
+    readerSettings: { uiLanguage: "zh-CN", uiLanguageSelected: true },
+  });
+  assert.equal(selected.document.documentElement.lang, "zh-CN");
+});
+
+test("extension options treat a legacy saved reader language as an explicit preference", async () => {
+  const legacy = await setup({
+    browserLanguage: "en-US",
+    readerSettings: { uiLanguage: "zh-CN" },
+  });
+  assert.equal(legacy.document.documentElement.lang, "zh-CN");
 });
 
 test("native MIME handling uses the exact PDF signature and skips broad permissions", async () => {
