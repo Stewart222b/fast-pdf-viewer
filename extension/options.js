@@ -75,8 +75,10 @@ async function saveAutoOpenSetting(enabled) {
 
 async function loadSettings() {
   const settings = await chrome.storage.local.get(DEFAULT_SETTINGS);
-  const savedLanguage = settings[READER_SETTINGS_KEY]?.uiLanguage;
-  uiLanguage = savedLanguage === "en" || savedLanguage === "zh-CN"
+  const readerSettings = settings[READER_SETTINGS_KEY] || {};
+  const savedLanguage = readerSettings.uiLanguage;
+  const languageExplicit = readerSettings.uiLanguageSelected === true;
+  uiLanguage = languageExplicit && (savedLanguage === "en" || savedLanguage === "zh-CN")
     ? savedLanguage
     : /^en(?:-|$)/i.test(globalThis.navigator?.language || "") ? "en" : "zh-CN";
   applyTranslations();

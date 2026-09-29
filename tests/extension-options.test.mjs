@@ -102,8 +102,17 @@ test("extension options follow browser language until reader language is saved",
   assert.equal(firstRun.document.documentElement.lang, "en");
   assert.equal(firstRun.elements.get("settings-status").textContent, "");
 
-  const saved = await setup({ browserLanguage: "en-US", readerSettings: { uiLanguage: "zh-CN" } });
-  assert.equal(saved.document.documentElement.lang, "zh-CN");
+  const automatic = await setup({
+    browserLanguage: "en-US",
+    readerSettings: { uiLanguage: "zh-CN", uiLanguageSelected: false },
+  });
+  assert.equal(automatic.document.documentElement.lang, "en");
+
+  const explicit = await setup({
+    browserLanguage: "en-US",
+    readerSettings: { uiLanguage: "zh-CN", uiLanguageSelected: true },
+  });
+  assert.equal(explicit.document.documentElement.lang, "zh-CN");
 });
 
 test("native MIME handling uses the exact PDF signature and skips broad permissions", async () => {

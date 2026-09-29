@@ -23,6 +23,21 @@ test('readingFingerprint uses stable file identity without storing a raw path', 
   );
 });
 
+test('content fingerprints hash every byte so sampled regions cannot collide', () => {
+  const sample = 16 * 1024;
+  const size = sample * 3 + 1;
+  const first = new Uint8Array(size);
+  const second = new Uint8Array(size);
+  first.fill(1);
+  second.fill(1);
+  first[sample * 2] = 9;
+  second[sample * 2] = 8;
+  assert.notEqual(
+    readingFingerprint({ name: 'large-a.pdf', data: first }),
+    readingFingerprint({ name: 'large-b.pdf', data: second }),
+  );
+});
+
 test('URL keys hide query values while preserving distinct documents', () => {
   const first = readingFingerprint({ path: 'https://example.test/download?id=one&token=secret' });
   const second = readingFingerprint({ path: 'https://example.test/download?id=two&token=secret' });

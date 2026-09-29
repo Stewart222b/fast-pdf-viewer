@@ -136,6 +136,7 @@ toolbarMore.addEventListener("focusout", event => {
 document.addEventListener("keydown", event => {
   if (event.key !== "Escape" || !toolbarMoreMenu.classList.contains("is-open")) return;
   event.preventDefault();
+  event.stopPropagation();
   setToolbarMoreOpen(false, true);
 });
 toolbarMoreBreakpoint.addEventListener("change", syncToolbarMoreMode);
@@ -265,6 +266,34 @@ let indexRefreshTimer = 0;
 let objectUrl = null;
 let currentFingerprint = "";
 let positionSaveTimer = 0;
+let readingPositionSaveSuppressed = false;
+let readingPositionSuppressBaseline = "";
+
+function readingPositionStateKey(state) {
+  return JSON.stringify({
+    page: state.page,
+    zoom: state.zoom,
+    scrollTop: state.scrollTop,
+    scrollLeft: state.scrollLeft,
+    anchor: state.anchor,
+  });
+}
+
+function clearReadingPositionSaveSuppression() {
+  readingPositionSaveSuppressed = false;
+  readingPositionSuppressBaseline = "";
+}
+
+function readingPositionSaveBlocked() {
+  if (!readingPositionSaveSuppressed || !viewer.pdf) return false;
+  const state = viewer.getState?.();
+  if (!state) return true;
+  if (readingPositionSuppressBaseline && readingPositionStateKey(state) !== readingPositionSuppressBaseline) {
+    clearReadingPositionSaveSuppression();
+    return false;
+  }
+  return true;
+}
 let translateAbort = null;
 let translateRequestId = 0;
 let bubbleSelectionId = 0;
@@ -334,15 +363,16 @@ function stepPage(delta) {
 }
 
 function scheduleSaveReadingPosition() {
-  if (!currentFingerprint || !viewer.pdf) return;
+  if (!currentFingerprint || !viewer.pdf || readingPositionSaveBlocked()) return;
   clearTimeout(positionSaveTimer);
   positionSaveTimer = setTimeout(() => {
+    if (readingPositionSaveBlocked()) return;
     saveReadingPosition(currentFingerprint, viewer.getState());
   }, 400);
 }
 
 function flushReadingPosition() {
-  if (!currentFingerprint || !viewer.pdf) return;
+  if (!currentFingerprint || !viewer.pdf || readingPositionSaveBlocked()) return;
   clearTimeout(positionSaveTimer);
   positionSaveTimer = 0;
   saveReadingPosition(currentFingerprint, viewer.getState());
@@ -476,6 +506,7 @@ async function openSource(getSource) {
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   objectUrl = null;
   currentFingerprint = "";
+  clearReadingPositionSaveSuppression();
   $("search-input").value = "";
   $("search-clear").hidden = true;
   renderSearchList([], "");
@@ -1990,6 +2021,13 @@ $("btn-clear-reading-positions").addEventListener("click", () => {
   clearTimeout(positionSaveTimer);
   positionSaveTimer = 0;
   clearReadingPositions();
+  if (viewer.pdf) {
+    readingPositionSaveSuppressed = true;
+    const state = viewer.getState?.();
+    readingPositionSuppressBaseline = state ? readingPositionStateKey(state) : "";
+  } else {
+    clearReadingPositionSaveSuppression();
+  }
   const status = $("reading-positions-status");
   status.textContent = t("readingPositionsCleared");
   status.hidden = false;

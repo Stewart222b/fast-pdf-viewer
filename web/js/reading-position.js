@@ -18,17 +18,16 @@ function hashText(value) {
 }
 
 function hashDocumentBytes(data) {
-  const size = data.byteLength;
-  const sample = 16 * 1024;
-  const ranges = size <= sample * 3
-    ? [[0, size]]
-    : [[0, sample], [Math.floor(size / 2) - sample / 2, Math.floor(size / 2) + sample / 2], [size - sample, size]];
-  const values = [size];
-  for (const [start, end] of ranges) {
-    values.push(start, end);
-    for (let i = start; i < end; i += 1) values.push(data[i]);
+  let a = 0x811c9dc5;
+  let b = 0x9e3779b9;
+  a = Math.imul(a ^ data.byteLength, 0x01000193);
+  b = Math.imul(b ^ data.byteLength, 0x85ebca6b);
+  for (let i = 0; i < data.byteLength; i += 1) {
+    const byte = data[i];
+    a = Math.imul(a ^ byte, 0x01000193);
+    b = Math.imul(b ^ byte, 0x85ebca6b);
   }
-  return hashValues(values);
+  return [a, b].map((n) => (n >>> 0).toString(16).padStart(8, "0")).join("");
 }
 
 function legacyFingerprint(source) {

@@ -13,7 +13,8 @@ async function setup({ platform = 'Linux x86_64', startup = null,
   loadSettings = () => ({}), initSettings = async () => {},
   platformId = 'test', canFallbackToBrowser = undefined,
   clearBrowserFallback = undefined,
-  chrome = undefined, localStorageStore = new Map(), clipboardWrite = async () => {} } = {}) {
+  chrome = undefined, localStorageStore = new Map(), clipboardWrite = async () => {},
+  compactToolbar = false, readingPosition = null } = {}) {
   const elements = new Map(), timers = new Map(), documentListeners = {};
   let currentSelection = { rangeCount: 0 };
   let timerId = 0, viewer, fileInput;
@@ -92,6 +93,15 @@ async function setup({ platform = 'Linux x86_64', startup = null,
     }
     async getOutline() { return this.outlinePromise || null; }
     getReadingPoint() { return { page: this.currentPage || 1, pdfY: this.readingPdfY }; }
+    getState() {
+      return {
+        page: this.currentPage || 1,
+        zoom: this.zoom || '100',
+        scrollTop: this.scrollTop || 0,
+        scrollLeft: this.scrollLeft || 0,
+        anchor: this.anchor,
+      };
+    }
     async goToDest() {}
     setZoom(mode, options) { (this.zoomCalls ||= []).push({ mode, options }); }
     bumpZoom() { return '150'; }
@@ -123,7 +133,10 @@ async function setup({ platform = 'Linux x86_64', startup = null,
     },
     window: {
       innerWidth: 1280,
-      matchMedia: () => ({ matches: false, addEventListener() {} }),
+      matchMedia: query => ({
+        matches: compactToolbar && String(query).includes('1020'),
+        addEventListener() {},
+      }),
       addEventListener(type, fn) { (windowListeners[type] ||= []).push(fn); },
       getSelection() { return currentSelection; },
     },
@@ -161,6 +174,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
       loadReadingPosition: () => null,
       pruneReadingPositions: () => {},
       saveReadingPosition: () => {},
+      ...readingPosition,
     },
     './platform/index.js': {
       createPlatform: () => ({
@@ -444,6 +458,50 @@ test('Escape closes search when focus is on a hit, not the search box', async ()
   assert.equal(app.get('sidebar').inert, true);
   assert.equal(app.get('btn-search-toggle').attrs['aria-expanded'], 'false');
   assert.equal(app.get('search-input').value, 'manual');
+});
+
+test('Escape on the compact toolbar more menu closes only the menu while search stays open', async () => {
+  const app = await setup({ compactToolbar: true });
+  app.click('btn-search-toggle');
+  app.click('btn-toolbar-more');
+  assert.equal(app.get('toolbar-more-menu').toggles['is-open'], true);
+  assert.equal(app.get('sidebar').inert, false);
+  const event = {
+    key: 'Escape',
+    preventDefault() {},
+    stopPropagation() { this.stopped = true; },
+  };
+  app.dispatchDocument('keydown', event);
+  assert.equal(event.stopped, true);
+  assert.equal(app.get('toolbar-more-menu').toggles['is-open'], false);
+  assert.equal(app.get('sidebar').inert, false);
+  assert.equal(app.get('btn-search-toggle').attrs['aria-expanded'], 'true');
+});
+
+test('clearing reading records suppresses flush until the reader moves', async () => {
+  const saves = [];
+  const app = await setup({
+    startup: { name: 'doc.pdf', url: 'blob:x', size: 10, lastModified: 3 },
+    readingPosition: {
+      readingFingerprint: () => 'fp-test',
+      loadReadingPosition: () => null,
+      saveReadingPosition: (fp, state) => saves.push({ fp, state }),
+      clearReadingPositions() {},
+      pruneReadingPositions() {},
+    },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  app.viewer.currentPage = 4;
+  app.viewer.scrollTop = 900;
+  app.dispatchElement('btn-clear-reading-positions', 'click', { preventDefault() {}, stopPropagation() {} });
+  assert.equal(saves.length, 0);
+  for (const fn of app.document.windowListeners?.pagehide || []) fn();
+  assert.equal(saves.length, 0);
+  app.viewer.currentPage = 5;
+  app.dispatch('pagehide', {});
+  assert.equal(saves.length, 1);
+  assert.equal(saves[0].fp, 'fp-test');
+  assert.equal(saves[0].state.page, 5);
 });
 
 test('Escape on the zoom menu closes only the menu while search stays open', async () => {
