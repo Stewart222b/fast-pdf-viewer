@@ -179,7 +179,7 @@ test("toolbar layout at narrow and wide viewport widths", {
       const rects = await evaluate("(() => {\n"
         + "const box = selector => { const element = document.querySelector(selector); const rect = element.getBoundingClientRect(); return { left: rect.left, right: rect.right, width: rect.width, display: getComputedStyle(element).display }; };\n"
         + "const toolbar = document.querySelector('.toolbar');\n"
-        + "return { viewport: document.documentElement.clientWidth, documentWidth: document.documentElement.scrollWidth, toolbar: { width: toolbar.clientWidth, scrollWidth: toolbar.scrollWidth }, left: box('.toolbar-left'), center: box('.toolbar-center'), right: box('.toolbar-right'), page: box('#page-controls'), more: box('#btn-toolbar-more') };\n"
+        + "return { viewport: document.documentElement.clientWidth, documentWidth: document.documentElement.scrollWidth, toolbar: { width: toolbar.clientWidth, scrollWidth: toolbar.scrollWidth }, left: box('.toolbar-left'), center: box('.toolbar-center'), right: box('.toolbar-right'), page: box('#page-controls'), more: box('#btn-toolbar-more'), moreMenu: box('#toolbar-more-menu'), back: box('#btn-back') };\n"
         + "})()");
 
       assert.equal(rects.viewport, width, width + "px: emulated viewport width");
@@ -192,6 +192,10 @@ test("toolbar layout at narrow and wide viewport widths", {
       }
       if (width <= 1020) {
         assert.ok(rects.more.width > 0, width + "px: More entry remains visible");
+      } else {
+        assert.equal(rects.more.display, "none", width + "px: More entry is hidden");
+        assert.notEqual(rects.moreMenu.display, "none", width + "px: secondary toolbar actions remain visible");
+        assert.ok(rects.back.width > 0, width + "px: back action remains visible");
       }
     }
 
