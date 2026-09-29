@@ -205,10 +205,6 @@ select {
   flex: 0 0 auto;
 }
 
-.toolbar-more-button {
-  display: none;
-}
-
 .toolbar-more-menu {
   display: flex;
   align-items: center;
@@ -236,6 +232,10 @@ select {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.toolbar-more-button {
+  display: none;
 }
 
 .btn:hover:not(:disabled) {
