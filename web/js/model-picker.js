@@ -20,8 +20,11 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
   let requestTimeout = null;
   let menuHideTimer = null;
   let activeIndex = -1;
+  let visibleModels = [];
   let suppressMenuOnInput = false;
   let modelListLoaded = false;
+  let modelInputGeneration = 0;
+  let showAllModelsOnFocus = false;
 
   const clearRequestTimeout = () => {
     if (requestTimeout !== null) clearTimeout(requestTimeout);
@@ -33,6 +36,7 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
     menuHideTimer = null;
     menu.hidden = true;
     activeIndex = -1;
+    visibleModels = [];
     input.setAttribute?.("aria-expanded", "false");
     input.removeAttribute?.("aria-activedescendant");
   };
@@ -86,15 +90,15 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
 
   const renderMenu = (query) => {
     menu.replaceChildren();
-    const matches = models.filter((model) => modelMatchesQuery(model, query)).slice(0, 80);
+    visibleModels = models.filter((model) => modelMatchesQuery(model, query)).slice(0, 80);
     // Only open under the model field. Opening Settings focuses API Key and
     // refresh() must not dump the list over that input.
-    if (!matches.length || !isModelFieldFocused()) {
+    if (!visibleModels.length || !isModelFieldFocused()) {
       hideMenu();
       return;
     }
     activeIndex = -1;
-    for (const [index, model] of matches.entries()) {
+    for (const [index, model] of visibleModels.entries()) {
       const item = document.createElement("li");
       item.id = `setting-model-option-${index}`;
       item.setAttribute("role", "option");
@@ -138,7 +142,7 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
       return;
     }
     if (!currentModel) {
-      setStatus(t("modelIdRequired"), "warning");
+      setStatus(t("modelsAvailableChoose", { count: models.length }));
       return;
     }
     const found = models.some((model) => model.id.toLowerCase() === currentModel.toLowerCase());
@@ -156,7 +160,7 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
     setStatus(t("missingCredentials", { fields: missing.join(t("and")) }));
   };
 
-  const refresh = async () => {
+  const refresh = async ({ focusInput = false } = {}) => {
     const credentials = getCredentials();
     if (!credentials.apiKey?.trim() || !credentials.apiBaseUrl?.trim()) {
       invalidatePending();
@@ -176,7 +180,10 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
     let timedOut = false;
     models = [];
     modelListLoaded = false;
+    showAllModelsOnFocus = false;
     hideMenu();
+    if (focusInput) input.focus?.({ preventScroll: true });
+    const modelInputGenerationAtStart = modelInputGeneration;
     setStatus(t("loadingModels"));
     const timeoutId = setTimeout(() => {
       if (token !== loadToken) return;
@@ -191,20 +198,31 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
       models = loadedModels;
       modelListLoaded = true;
       const latest = getCredentials();
-      if (!latest.apiKey?.trim() || !latest.apiBaseUrl?.trim()) {
+      if (latest.apiKey?.trim() !== credentials.apiKey?.trim()
+          || latest.apiBaseUrl?.trim() !== credentials.apiBaseUrl?.trim()) {
         models = [];
         modelListLoaded = false;
         hideMenu();
-        setMissingCredentialsStatus(latest);
+        if (latest.apiKey?.trim() && latest.apiBaseUrl?.trim()) {
+          setStatus(t("configChanged"));
+        } else {
+          setMissingCredentialsStatus(latest);
+        }
         return;
       }
-      setStatus(models.length ? t("modelsLoaded", { count: models.length }) : t("noModels"));
       updateModelStatus();
-      renderMenu(input.value);
+      showAllModelsOnFocus = focusInput && modelInputGeneration === modelInputGenerationAtStart;
+      if (isModelFieldFocused()) {
+        const query = showAllModelsOnFocus ? "" : input.value;
+        renderMenu(query);
+      } else {
+        hideMenu();
+      }
     } catch (error) {
       if (token !== loadToken) return;
       models = [];
       modelListLoaded = false;
+      showAllModelsOnFocus = false;
       hideMenu();
       if (timedOut) setStatus(t("modelListTimeout"), "error");
       else if (!controller.signal.aborted) setStatus(error.message || t("unableLoadModels"), "error");
@@ -221,6 +239,7 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
     activeController = null;
     models = [];
     modelListLoaded = false;
+    showAllModelsOnFocus = false;
     hideMenu();
     const credentials = getCredentials();
     if (credentials.apiKey?.trim() && credentials.apiBaseUrl?.trim()) {
@@ -236,9 +255,13 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
   };
 
   input.addEventListener("focus", () => {
-    if (models.length) renderMenu(input.value);
+    if (menuHideTimer !== null) clearTimeout(menuHideTimer);
+    menuHideTimer = null;
+    if (models.length) renderMenu(showAllModelsOnFocus ? "" : input.value);
   });
   input.addEventListener("input", () => {
+    modelInputGeneration += 1;
+    showAllModelsOnFocus = false;
     updateModelStatus();
     if (suppressMenuOnInput) return;
     renderMenu(input.value);
@@ -269,9 +292,7 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
     }
     if (event.key === "Enter" && !menu.hidden && options[activeIndex]) {
       event.preventDefault();
-      const activeId = options[activeIndex].id;
-      const modelIndex = Number(activeId.replace("setting-model-option-", ""));
-      const model = models.filter((item) => modelMatchesQuery(item, input.value)).slice(0, 80)[modelIndex];
+      const model = visibleModels[activeIndex];
       if (model) selectModel(model);
     }
   });

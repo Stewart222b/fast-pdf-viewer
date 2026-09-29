@@ -16,6 +16,11 @@ function element() {
     attributes: {},
     listeners: {},
     addEventListener(name, fn) { this.listeners[name] = fn; },
+    focus() {
+      this.focusCalls = (this.focusCalls || 0) + 1;
+      if (globalThis.document) globalThis.document.activeElement = this;
+      this.listeners.focus?.();
+    },
     setAttribute(name, value) { this.attributes[name] = String(value); },
     removeAttribute(name) { delete this.attributes[name]; },
     replaceChildren() { this.children = []; },
@@ -26,6 +31,10 @@ function element() {
     scrollIntoView() {},
   };
   return el;
+}
+
+function optionModelId(option) {
+  return option.children.find((child) => child?.className === 'model-id')?.textContent ?? option.textContent;
 }
 
 function setupPicker({
@@ -66,7 +75,10 @@ function setupPicker({
     return {
       ok: true,
       async json() {
-        return { data: [{ id: 'openai/gpt-4o-mini', name: 'OpenAI: GPT-4o-mini' }] };
+        return { data: [
+          { id: 'openai/gpt-4o-mini', name: 'OpenAI: GPT-4o-mini' },
+          { id: 'openai/gpt-4.1-mini', name: 'OpenAI: GPT-4.1-mini' },
+        ] };
       },
     };
   };
@@ -123,6 +135,120 @@ test('focusing the model field opens the loaded list', async () => {
   }
 });
 
+test('explicit model check focuses an empty model field and shows all choices without selecting one', async () => {
+  const env = setupPicker({ focused: false, model: '' });
+  try {
+    await env.picker.refresh({ focusInput: true });
+    assert.equal(globalThis.document.activeElement, env.input);
+    assert.equal(env.input.focusCalls, 1);
+    assert.equal(env.input.value, '');
+    assert.equal(env.menu.hidden, false);
+    assert.equal(env.menu.children.length, 2);
+    assert.equal(env.menu.children.every((option) => option.attributes['aria-selected'] === 'false'), true);
+    assert.equal(env.status.classList.contains('warning'), false);
+    assert.equal(env.status.classList.contains('error'), false);
+    assert.match(env.status.textContent, /找到 2 个模型；请选择或输入模型 ID/);
+  } finally {
+    env.restore();
+  }
+});
+
+test('explicit model check shows all choices for a stable configured model query', async () => {
+  const env = setupPicker({ focused: false, model: 'openai/gpt-4o-mini' });
+  try {
+    await env.picker.refresh({ focusInput: true });
+    assert.equal(env.input.value, 'openai/gpt-4o-mini');
+    assert.equal(env.menu.children.length, 2);
+    assert.equal(env.menu.children.filter((option) => option.attributes['aria-selected'] === 'true').length, 1);
+  } finally {
+    env.restore();
+  }
+});
+
+test('checking an obsolete model shows all choices and Enter selects the displayed option', async () => {
+  const env = setupPicker({ focused: false, model: 'legacy/retired-model' });
+  try {
+    await env.picker.refresh({ focusInput: true });
+    assert.equal(env.input.value, 'legacy/retired-model');
+    assert.equal(env.menu.children.length, 2);
+    assert.equal(env.menu.children.every((option) => option.attributes['aria-selected'] === 'false'), true);
+    const expectedModel = optionModelId(env.menu.children[1]);
+
+    env.input.listeners.keydown({ key: 'ArrowDown', preventDefault() {} });
+    env.input.listeners.keydown({ key: 'ArrowDown', preventDefault() {} });
+    env.input.listeners.keydown({ key: 'Enter', preventDefault() {} });
+    assert.equal(env.input.value, expectedModel);
+  } finally {
+    env.restore();
+  }
+});
+
+test('a query typed during model loading filters the returned choices', async () => {
+  const env = setupPicker({ focused: false, model: 'legacy/retired-model' });
+  const previousFetch = globalThis.fetch;
+  let resolveResponse;
+  try {
+    globalThis.fetch = () => new Promise((resolve) => { resolveResponse = resolve; });
+    const pending = env.picker.refresh({ focusInput: true });
+    env.input.value = 'gpt-4.1';
+    env.input.listeners.input();
+    resolveResponse({
+      ok: true,
+      async json() {
+        return { data: [
+          { id: 'openai/gpt-4o-mini', name: 'OpenAI: GPT-4o-mini' },
+          { id: 'openai/gpt-4.1-mini', name: 'OpenAI: GPT-4.1-mini' },
+        ] };
+      },
+    });
+    await pending;
+
+    assert.equal(env.input.value, 'gpt-4.1');
+    assert.equal(env.menu.children.length, 1);
+    assert.match(optionModelId(env.menu.children[0]), /gpt-4\.1/);
+  } finally {
+    globalThis.fetch = previousFetch;
+    env.restore();
+  }
+});
+
+test('moving focus away during an explicit model check does not reopen the menu or steal focus', async () => {
+  const env = setupPicker({ focused: false, model: '' });
+  const previousFetch = globalThis.fetch;
+  let resolveResponse;
+  try {
+    globalThis.fetch = () => new Promise((resolve) => { resolveResponse = resolve; });
+    const pending = env.picker.refresh({ focusInput: true });
+    assert.equal(globalThis.document.activeElement, env.input);
+
+    const otherField = { id: 'setting-key' };
+    globalThis.document.activeElement = otherField;
+    env.input.listeners.blur();
+    resolveResponse({
+      ok: true,
+      async json() {
+        return { data: [
+          { id: 'openai/gpt-4o-mini', name: 'OpenAI: GPT-4o-mini' },
+          { id: 'openai/gpt-4.1-mini', name: 'OpenAI: GPT-4.1-mini' },
+        ] };
+      },
+    });
+    await pending;
+
+    assert.equal(globalThis.document.activeElement, otherField);
+    assert.equal(env.input.focusCalls, 1);
+    assert.equal(env.menu.hidden, true);
+
+    globalThis.document.activeElement = env.input;
+    env.input.listeners.focus();
+    assert.equal(env.menu.hidden, false, 'returning to the model field opens the loaded choices');
+    assert.equal(env.menu.children.length, 2);
+  } finally {
+    globalThis.fetch = previousFetch;
+    env.restore();
+  }
+});
+
 test('model picker supports combobox arrow, enter, and escape keys', async () => {
   const env = setupPicker({ focused: false, model: '' });
   try {
@@ -138,7 +264,7 @@ test('model picker supports combobox arrow, enter, and escape keys', async () =>
     assert.equal(env.input.attributes['aria-activedescendant'], 'setting-model-option-0');
 
     env.input.listeners.keydown({ key: 'Enter', preventDefault() { prevented = true; } });
-    assert.equal(env.input.value, 'openai/gpt-4o-mini');
+    assert.equal(env.input.value, 'openai/gpt-4.1-mini');
     assert.equal(globalThis.document.activeElement, env.input);
     assert.equal(env.menu.hidden, true);
     assert.equal(env.input.attributes['aria-expanded'], 'false');
@@ -163,7 +289,7 @@ test('clicking any model option selects it without moving focus out of the combo
     option.listeners.mousedown({ preventDefault() { prevented = true; } });
     option.listeners.click();
     assert.equal(prevented, true);
-    assert.equal(env.input.value, 'openai/gpt-4o-mini');
+    assert.equal(env.input.value, 'openai/gpt-4.1-mini');
     assert.equal(env.menu.hidden, true);
     assert.equal(env.input.attributes['aria-expanded'], 'false');
   } finally {

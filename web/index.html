@@ -272,15 +272,17 @@
           <input id="setting-key" type="password" autocomplete="off" placeholder="sk-or-v1-..." />
         </div>
         <div class="setting-field">
-          <label id="setting-model-label" class="setting-label" for="setting-model" data-i18n="model">模型</label>
+          <div class="setting-label-row">
+            <label id="setting-model-label" class="setting-label" for="setting-model" data-i18n="model">模型</label>
+            <button id="btn-check-models" class="setting-action model-check-button" type="button" data-i18n="checkModels">检查模型列表</button>
+          </div>
           <div class="model-picker">
-            <input id="setting-model" type="text" autocomplete="off" placeholder="openai/gpt-4o-mini"
+            <input id="setting-model" type="text" autocomplete="off" placeholder="选择或输入模型 ID" data-i18n-placeholder="modelInputPlaceholder"
               role="combobox" aria-autocomplete="list" aria-haspopup="listbox"
               aria-controls="setting-model-menu" aria-expanded="false" />
             <ul id="setting-model-menu" class="model-menu" role="listbox" aria-labelledby="setting-model-label" hidden></ul>
             <div id="setting-model-status" class="model-picker-status" role="status" aria-live="polite" hidden></div>
           </div>
-          <button id="btn-check-models" class="btn model-check-button" type="button" data-i18n="checkModels">检查模型列表</button>
         </div>
         <div class="setting-field">
           <label class="setting-label" for="setting-lang" data-i18n="targetLanguage">目标语言</label>
@@ -306,14 +308,14 @@
           <summary data-i18n="servicePrivacy">服务地址与隐私</summary>
           <p class="hint compact" data-i18n="localPrivacy">Base URL 与 Key 只保存在本机浏览器中；翻译直接从本机发往你配置的端点。</p>
           <div class="setting-field">
-            <button id="btn-clear-reading-positions" class="btn" type="button" data-i18n="clearReadingPositions">清除阅读记录</button>
+            <button id="btn-clear-reading-positions" class="setting-action setting-action-danger" type="button" data-i18n="clearReadingPositions">清除阅读记录</button>
             <p id="reading-positions-status" class="hint compact" role="status" aria-live="polite" hidden></p>
           </div>
         </details>
         <div class="modal-actions">
           <button id="btn-extension-options" class="modal-link" type="button" data-i18n="extensionSettings" hidden>扩展设置</button>
           <span class="modal-actions-spacer" aria-hidden="true"></span>
-          <button id="btn-settings-cancel" class="btn" data-i18n="cancel">取消</button>
+          <button id="btn-settings-cancel" class="btn modal-ghost" data-i18n="cancel">取消</button>
           <button id="btn-settings-save" class="btn primary" data-i18n="save">保存</button>
         </div>
         <p id="settings-error" class="hint error" role="alert" hidden></p>

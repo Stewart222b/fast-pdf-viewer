@@ -1907,7 +1907,7 @@ function updateApiBaseHost() {
 }
 
 $("btn-check-models").addEventListener("click", () => {
-  void modelPicker.refresh();
+  void modelPicker.refresh({ focusInput: true });
 });
 
 let lastSettingsTrigger = null;

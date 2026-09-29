@@ -23,6 +23,7 @@ async function createSettingsDialog() {
   const timerCallbacks = new Map();
   const pendingRequests = [];
   const refreshes = [];
+  const refreshOptions = [];
   const sentRequests = [];
   let invalidations = 0;
   let timerId = 0;
@@ -61,7 +62,8 @@ async function createSettingsDialog() {
   };
   const clearTimer = (id) => timers.delete(id);
   const wireModelPicker = ({ getCredentials }) => ({
-    refresh() {
+    refresh(options) {
+      refreshOptions.push(options);
       const credentials = getCredentials();
       refreshes.push(credentials);
       if (!credentials.apiKey) return;
@@ -108,6 +110,7 @@ async function createSettingsDialog() {
     timers,
     timerCallbacks,
     refreshes,
+    refreshOptions,
     sentRequests,
     get invalidations() { return invalidations; },
   };
@@ -123,6 +126,7 @@ test('settings require an explicit model check and clear the old key after endpo
 
   app.get('btn-check-models').listeners.click();
   assert.equal(app.refreshes.length, 1, 'the explicit check button starts model loading');
+  assert.equal(app.refreshOptions[0].focusInput, true, 'the explicit check moves focus into the model field');
   assert.equal(app.refreshes[0].apiKey, 'saved-key');
   assert.equal(app.refreshes[0].apiBaseUrl, 'https://old.example/v1');
   assert.equal(app.timers.size, 1);
@@ -168,4 +172,12 @@ test('Escape invalidates model loading before closing the settings dialog', asyn
   assert.equal(app.timers.size, 0);
   for (const callback of app.timerCallbacks.values()) callback();
   assert.equal(app.sentRequests.length, 0);
+});
+
+test('model input uses a provider-neutral localized placeholder', async () => {
+  const html = await readFile(new URL('../web/index.html', import.meta.url), 'utf8');
+  const translations = await readFile(new URL('../web/js/i18n.js', import.meta.url), 'utf8');
+  assert.match(html, /id="setting-model"[^>]*placeholder="选择或输入模型 ID"[^>]*data-i18n-placeholder="modelInputPlaceholder"/);
+  assert.match(translations, /modelInputPlaceholder: "选择或输入模型 ID"/);
+  assert.match(translations, /modelInputPlaceholder: "Select or enter a model ID"/);
 });

@@ -205,10 +205,6 @@ select {
   flex: 0 0 auto;
 }
 
-.toolbar-more-button {
-  display: none;
-}
-
 .toolbar-more-menu {
   display: flex;
   align-items: center;
@@ -236,6 +232,10 @@ select {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.toolbar-more-button {
+  display: none;
 }
 
 .btn:hover:not(:disabled) {
@@ -316,6 +316,7 @@ select {
 .toolbar .btn.toolbar-ghost {
   border-color: transparent;
   background: transparent;
+  border-radius: 2px;
   height: 30px;
 }
 
@@ -1535,6 +1536,45 @@ select {
   margin-bottom: 0;
 }
 
+.modal-card .setting-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-card .setting-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  margin: 0;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.modal-card .setting-action:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.modal-card .setting-action:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.modal-card .setting-action-danger {
+  color: var(--danger);
+}
+
 .modal-card input,
 .modal-card select {
   display: block;
@@ -1600,8 +1640,14 @@ select {
   color: var(--warning);
 }
 
-.model-check-button {
-  margin-top: 8px;
+.modal-actions .btn.modal-ghost {
+  border-color: transparent;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.modal-actions .btn.modal-ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
 }
 
 .model-menu {
