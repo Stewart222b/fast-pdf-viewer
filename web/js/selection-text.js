@@ -80,8 +80,9 @@ function groupFragmentsByLine(fragments, slop = 3) {
 }
 
 function collectRangeCharacterFragments(range) {
+  const root = range.commonAncestorContainer;
   const walker = document.createTreeWalker(
-    range.commonAncestorContainer,
+    root,
     NodeFilter.SHOW_TEXT,
     {
       acceptNode(node) {
@@ -93,8 +94,10 @@ function collectRangeCharacterFragments(range) {
   );
 
   const fragments = [];
-  while (walker.nextNode()) {
-    const node = walker.currentNode;
+  // TreeWalker.nextNode() visits descendants, not a Text root itself.
+  const textNodes = root.nodeType === Node.TEXT_NODE ? [root] : [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+  for (const node of textNodes) {
     const text = node.nodeValue || "";
     for (let i = 0; i < text.length; i += 1) {
       const sub = document.createRange();
@@ -104,8 +107,10 @@ function collectRangeCharacterFragments(range) {
       } catch {
         continue;
       }
-      if (sub.compareBoundaryPoints(Range.END_TO_START, range) <= 0) continue;
-      if (sub.compareBoundaryPoints(Range.START_TO_END, range) >= 0) continue;
+      // Compare the selection boundaries with this character range. Equality
+      // means the ranges only touch, so adjacent unselected characters stay out.
+      if (range.compareBoundaryPoints(Range.END_TO_START, sub) >= 0) continue;
+      if (range.compareBoundaryPoints(Range.START_TO_END, sub) <= 0) continue;
       const r = sub.getBoundingClientRect();
       if (!r.width && !r.height) continue;
       fragments.push({

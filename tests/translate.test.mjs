@@ -10,12 +10,24 @@ import {
   modelsUrl,
   normalizeApiBase,
   formatBubbleModelLabel,
+  isAllowedApiBaseUrl,
   translateWithProvider,
   parseSseTranslationChunk,
 } from '../web/js/translate-provider.js';
 
 test('normalizeApiBase trims trailing slashes', () => {
   assert.equal(normalizeApiBase('https://api.example.com/v1/'), 'https://api.example.com/v1');
+});
+
+test('API bases require remote HTTPS while allowing HTTP on localhost', () => {
+  assert.equal(isAllowedApiBaseUrl('https://api.example.com/v1'), true);
+  assert.equal(isAllowedApiBaseUrl('http://localhost:11434/v1'), true);
+  assert.equal(isAllowedApiBaseUrl('http://127.0.0.1:11434/v1'), true);
+  assert.equal(isAllowedApiBaseUrl('http://api.example.com/v1'), false);
+  assert.equal(isAllowedApiBaseUrl('https://user:pass@api.example.com/v1'), false);
+  assert.equal(normalizeApiBase('http://localhost:11434/v1'), 'http://localhost:11434/v1');
+  assert.throws(() => normalizeApiBase('http://api.example.com/v1'), /HTTPS/);
+  assert.throws(() => chatCompletionsUrl('http://api.example.com/v1'), /HTTPS/);
 });
 
 test('formatBubbleModelLabel reflects API endpoint not model vendor prefix', () => {
@@ -146,6 +158,27 @@ test('translateWithProvider rejects empty key and long text', async () => {
     () => translateWithProvider('x'.repeat(MAX_TRANSLATE_CHARS + 1), { apiKey: 'k' }),
     /过长/,
   );
+});
+
+test('translation blocks legacy remote HTTP settings before sending the saved key', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestStarted = false;
+  globalThis.fetch = async () => {
+    requestStarted = true;
+    return { ok: true };
+  };
+  try {
+    await assert.rejects(
+      () => translateWithProvider('selected text', {
+        apiKey: 'previously-saved-key',
+        apiBaseUrl: 'http://legacy-remote.example/v1',
+      }),
+      /HTTPS/,
+    );
+    assert.equal(requestStarted, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('parseSseTranslationChunk extracts delta content', () => {

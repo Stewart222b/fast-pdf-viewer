@@ -147,13 +147,80 @@ select {
 }
 
 .doc-title {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 500;
   font-size: 13px;
-  color: var(--muted);
+}
+
+.doc-title:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.doc-title:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.doc-title-popover {
+  position: absolute;
+  z-index: 32;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(92vw, 520px);
+  max-height: min(50vh, 240px);
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  overflow-wrap: anywhere;
+  white-space: normal;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.doc-title-popover[hidden] {
+  display: none;
+}
+
+.toolbar-more {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.toolbar-more-button {
+  display: none;
+}
+
+.toolbar-more-menu {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.toolbar-more-menu .toolbar-menu-label {
+  display: none;
+}
+
+#btn-doc-title-menu {
+  display: none;
 }
 
 .btn {
@@ -1533,6 +1600,10 @@ select {
   color: var(--warning);
 }
 
+.model-check-button {
+  margin-top: 8px;
+}
+
 .model-menu {
   position: fixed;
   left: 0;
@@ -1553,11 +1624,9 @@ select {
   display: none;
 }
 
-.model-menu li button {
+.model-menu li {
   width: 100%;
   text-align: left;
-  border: 0;
-  background: transparent;
   color: var(--text);
   padding: 8px 10px;
   border-radius: 4px;
@@ -1565,8 +1634,8 @@ select {
   font-size: 13px;
 }
 
-.model-menu li button:hover,
-.model-menu li button:focus-visible {
+.model-menu li:hover,
+.model-menu li.active {
   background: var(--bg-hover);
 }
 
@@ -1661,9 +1730,6 @@ summary:focus-visible,
 }
 
 @media (max-width: 1020px) {
-  .toolbar-center {
-    display: none;
-  }
   .toolbar {
     grid-template-columns: auto minmax(0, 1fr);
     gap: 8px;
@@ -1672,6 +1738,80 @@ summary:focus-visible,
   .toolbar-left,
   .toolbar-right {
     gap: 8px;
+  }
+  .toolbar-more-button {
+    display: inline-flex;
+  }
+  .toolbar-more-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 30;
+    display: none;
+    width: max-content;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - var(--toolbar-h) - 16px);
+    overflow: auto;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    padding: 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg-raised);
+    box-shadow: var(--shadow);
+  }
+  .toolbar-more-menu.is-open {
+    display: flex;
+  }
+  .toolbar-more-menu.is-open #btn-doc-title-menu {
+    display: flex;
+  }
+  .toolbar-more-menu > .btn {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 8px;
+    padding-inline: 8px;
+  }
+  .toolbar-more-menu > .btn.icon::after {
+    content: attr(aria-label);
+  }
+  .toolbar-more-menu .toolbar-menu-label {
+    display: inline;
+  }
+  .toolbar-more-menu .tb-divider {
+    width: 100%;
+    height: 1px;
+  }
+  #btn-original-pdf .toolbar-menu-label,
+  #btn-sidebar .toolbar-menu-label {
+    display: inline;
+  }
+  #btn-doc-title-menu {
+    max-width: min(420px, calc(100vw - 32px));
+    justify-content: flex-start;
+  }
+  #doc-title-menu-label {
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+  .toolbar-more-menu[aria-hidden="true"] {
+    visibility: hidden;
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1020px) {
+  .toolbar {
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, auto);
+  }
+  .toolbar-center {
+    display: block;
+  }
+}
+
+@media (max-width: 900px) {
+  .toolbar-center {
+    display: none;
   }
 }
 
@@ -1688,21 +1828,14 @@ summary:focus-visible,
   .workspace.sidebar-collapsed .sidebar {
     visibility: hidden;
   }
-  #btn-forward {
-    display: none;
-  }
 }
 
 @media (max-width: 360px) {
-  /* 320–360px: keep one-row toolbar; icon-only 打开/目录 if labels still overflow. */
-  #btn-open span,
-  #btn-original-pdf span,
-  #btn-sidebar span {
+  /* 320–360px: keep the always-visible toolbar actions compact. */
+  #btn-open span {
     display: none;
   }
-  #btn-open,
-  #btn-original-pdf,
-  #btn-sidebar {
+  #btn-open {
     width: 36px;
     padding: 0;
     justify-content: center;
@@ -1732,9 +1865,6 @@ summary:focus-visible,
     padding: 0;
     justify-content: center;
   }
-  #btn-back {
-    display: none;
-  }
   #btn-zoom-in,
   #btn-zoom-out {
     display: none;
@@ -1763,6 +1893,9 @@ summary:focus-visible,
   #page-count {
     width: 2.6em;
   }
+  #btn-sidebar .toolbar-menu-label {
+    display: none;
+  }
 }
 
 @media (max-width: 360px) {
@@ -1770,6 +1903,10 @@ summary:focus-visible,
   #btn-open,
   #btn-sidebar {
     width: 28px;
+  }
+  #btn-sidebar {
+    padding: 0;
+    justify-content: center;
   }
   #zoom-button {
     max-width: 76px;

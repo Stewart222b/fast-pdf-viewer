@@ -1,9 +1,12 @@
 // Keep normalized search positions mapped to the original concatenated PDF text.
+const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
 export function buildTextIndex(textContent) {
   let text = "", raw = 0, previous = null;
   /** normToRaw[i] = raw UTF-16 start; normToRawEnd[i] = raw UTF-16 end for normalized char i */
   const normToRaw = [];
   const normToRawEnd = [];
+  const dehyphenatedPositions = new Set();
   const appendNormalized = (value, rawStart, rawEnd) => {
     if (!value) return;
     if (value === " " && text.endsWith(" ")) return;
@@ -24,23 +27,58 @@ export function buildTextIndex(textContent) {
         previous.dir !== "rtl" && item.dir !== "rtl";
       const gap = horizontal && Math.abs(a[5] - b[5]) < height * 0.5 &&
         b[4] - (a[4] + previous.width) > height * 0.2;
-      if ((!cjkBoundary && previous.hasEOL) || gap) appendNormalized(" ", raw, raw);
+      const discretionaryBreak = /\u00AD$/u.test(previous.str);
+      const continuation = item.str.replace(/^\u00AD+/u, "");
+      const lineEndHyphen = previous.hasEOL && /\p{L}[-\u2010\u2011]$/u.test(previous.str) &&
+        /^\p{L}/u.test(continuation);
+      const dehyphenatableBreak = lineEndHyphen && /^\p{Ll}/u.test(continuation);
+      if (lineEndHyphen) {
+        // Keep the source hyphen in the primary index. A separate, optional
+        // index supports the common discretionary break without losing true
+        // compounds such as "well-known".
+        const hyphenIndex = text.length - 1;
+        if (dehyphenatableBreak && /[-\u2010\u2011]$/u.test(text)) {
+          dehyphenatedPositions.add(hyphenIndex);
+        }
+      } else if ((!cjkBoundary && previous.hasEOL && !discretionaryBreak) || gap) {
+        appendNormalized(" ", raw, raw);
+      }
     }
-    for (const char of item.str) {
-      const normalized = char.normalize("NFKC").replace(/\s+/gu, " ");
-      const rawEnd = raw + char.length;
-      appendNormalized(normalized, raw, rawEnd);
-      raw = rawEnd;
+    for (const { segment, index } of GRAPHEME_SEGMENTER.segment(item.str)) {
+      const normalized = segment.replace(/\u00AD/gu, "").normalize("NFKC").replace(/\s+/gu, " ");
+      appendNormalized(normalized, raw + index, raw + index + segment.length);
     }
+    raw += item.str.length;
     // Empty EOL items must carry their line break to the next text item.
     if (item.str) previous = item;
     else if (item.hasEOL && previous) previous = { ...previous, hasEOL: true };
   }
-  return { text, normToRaw, normToRawEnd, rawLength: raw };
+
+  // Most pages have no discretionary line-end hyphens. Only those pages pay
+  // for an alternate text and mapping so search can try both spellings.
+  let alternateIndex;
+  if (dehyphenatedPositions.size) {
+    let alternateText = "";
+    const alternateNormToRaw = [];
+    const alternateNormToRawEnd = [];
+    for (let i = 0; i < text.length; i += 1) {
+      if (dehyphenatedPositions.has(i)) continue;
+      alternateText += text[i];
+      alternateNormToRaw.push(normToRaw[i]);
+      alternateNormToRawEnd.push(normToRawEnd[i]);
+    }
+    alternateIndex = {
+      text: alternateText,
+      normToRaw: alternateNormToRaw,
+      normToRawEnd: alternateNormToRawEnd,
+      rawLength: raw,
+    };
+  }
+  return { text, normToRaw, normToRawEnd, rawLength: raw, alternateIndex };
 }
 
 function queryPattern(query) {
-  const needle = query.normalize("NFKC").replace(/\s+/gu, " ").trim();
+  const needle = query.replace(/\u00AD/gu, "").normalize("NFKC").replace(/\s+/gu, " ").trim();
   return needle ? new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu") : null;
 }
 
@@ -60,15 +98,26 @@ export function searchDocument(pageTexts, query) {
   const hits = [];
   for (const page of pageTexts) {
     if (!page) continue;
-    for (const match of page.text.matchAll(pattern)) {
-      const index = match.index, length = match[0].length;
-      const start = Math.max(0, index - 28), end = Math.min(page.text.length, index + length + 42);
-      hits.push({
-        pageNumber: page.pageNumber,
-        ...rawRange(page, index, index + length),
-        snippet: `${start > 0 ? "…" : ""}${page.text.slice(start, end)}${end < page.text.length ? "…" : ""}`,
-      });
+    const pageHits = [];
+    const seenRanges = new Set();
+    for (const [variant, index] of [page, page.alternateIndex].filter(Boolean).entries()) {
+      for (const match of index.text.matchAll(pattern)) {
+        const start = match.index;
+        const end = start + match[0].length;
+        const range = rawRange(index, start, end);
+        const key = `${range.offset}:${range.length}`;
+        if (variant && seenRanges.has(key)) continue;
+        const snippetStart = Math.max(0, start - 28);
+        const snippetEnd = Math.min(index.text.length, end + 42);
+        pageHits.push({
+          pageNumber: page.pageNumber,
+          ...range,
+          snippet: `${snippetStart > 0 ? "…" : ""}${index.text.slice(snippetStart, snippetEnd)}${snippetEnd < index.text.length ? "…" : ""}`,
+        });
+        seenRanges.add(key);
+      }
     }
+    hits.push(...pageHits.sort((a, b) => a.offset - b.offset));
   }
   return hits;
 }

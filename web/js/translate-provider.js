@@ -11,6 +11,18 @@ export const MAX_TRANSLATE_CHARS = 4000;
 export const DEFAULT_API_BASE = "https://openrouter.ai/api/v1";
 export const DEFAULT_MODEL = "openai/gpt-4o-mini";
 
+export function isAllowedApiBaseUrl(value) {
+  try {
+    const url = new URL(String(value || DEFAULT_API_BASE).trim());
+    if (url.username || url.password) return false;
+    const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+    const local = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+    return url.protocol === "https:" || (url.protocol === "http:" && local);
+  } catch {
+    return false;
+  }
+}
+
 const API_PROVIDER_HOSTS = new Map([
   ["api.openai.com", "OpenAI"],
   ["api.anthropic.com", "Anthropic"],
@@ -72,7 +84,9 @@ export function formatBubbleModelLabel(settings) {
 
 export function normalizeApiBase(url) {
   const trimmed = String(url || DEFAULT_API_BASE).trim().replace(/\/+$/, "");
-  return trimmed || DEFAULT_API_BASE;
+  const normalized = trimmed || DEFAULT_API_BASE;
+  if (!isAllowedApiBaseUrl(normalized)) throw new Error(t("modelEndpointMustUseHttps"));
+  return normalized;
 }
 
 export function chatCompletionsUrl(apiBase) {

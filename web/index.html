@@ -66,6 +66,11 @@
         <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
         <circle cx="12" cy="12" r="3" />
       </symbol>
+      <symbol id="i-more" viewBox="0 0 24 24">
+        <circle cx="5" cy="12" r="1" />
+        <circle cx="12" cy="12" r="1" />
+        <circle cx="19" cy="12" r="1" />
+      </symbol>
       <symbol id="i-copy" viewBox="0 0 24 24">
         <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
         <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
@@ -106,10 +111,7 @@
         <div class="toolbar-left">
           <span class="tb-group" role="group" aria-label="文件与导航" data-i18n-aria="fileNavigation">
             <button id="btn-open" class="btn toolbar-ghost has-icon" title="打开 PDF (Ctrl+O)"><svg class="icon" aria-hidden="true"><use href="#i-folder-open" /></svg><span data-i18n="open">打开</span></button>
-            <button id="btn-original-pdf" class="btn toolbar-ghost has-icon" type="button" hidden title="用浏览器打开原始 PDF" data-i18n-title="openOriginalPdf"><svg class="icon" aria-hidden="true"><use href="#i-external-link" /></svg><span data-i18n="originalPdf">原始 PDF</span></button>
-            <button id="btn-sidebar" class="btn toolbar-ghost has-icon" title="显示/隐藏目录侧栏" data-i18n-title="toggleSidebar" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-panel-left" /></svg><span data-i18n="outline">目录</span></button>
-            <button id="btn-back" class="btn toolbar-ghost icon" title="返回（鼠标侧键 / Alt+← / Backspace）" data-i18n-title="backHint" aria-label="返回" data-i18n-aria="back" disabled><svg class="icon" aria-hidden="true"><use href="#i-arrow-left" /></svg></button>
-            <button id="btn-forward" class="btn toolbar-ghost icon" title="前进（鼠标侧键 / Alt+→）" data-i18n-title="forwardHint" aria-label="前进" data-i18n-aria="forward" disabled><svg class="icon" aria-hidden="true"><use href="#i-arrow-right" /></svg></button>
+            <button id="btn-sidebar" class="btn toolbar-ghost has-icon" title="显示/隐藏目录侧栏" data-i18n-title="toggleSidebar" aria-label="显示/隐藏目录侧栏" data-i18n-aria="toggleSidebar" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-panel-left" /></svg><span class="toolbar-menu-label" data-i18n="outline">目录</span></button>
           </span>
           <span id="page-divider" class="tb-divider" aria-hidden="true" hidden></span>
           <span id="page-controls" class="tb-group" role="group" aria-label="页码" data-i18n-aria="pageNumber" hidden>
@@ -120,7 +122,7 @@
           </span>
         </div>
         <div class="toolbar-center">
-          <span id="doc-title" class="doc-title" title="未打开文件">未打开文件</span>
+          <button id="doc-title" class="doc-title" type="button" title="未打开文件" aria-controls="doc-title-popover" aria-expanded="false">未打开文件</button>
         </div>
         <div class="toolbar-right">
           <span class="tb-group" role="group" aria-label="缩放" data-i18n-aria="zoom">
@@ -146,12 +148,20 @@
           <span class="tb-group" role="group" aria-label="搜索" data-i18n-aria="search">
             <button id="btn-search-toggle" class="btn toolbar-ghost icon" type="button" title="搜索 (Ctrl+F)" aria-label="搜索" aria-controls="search-pane" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-search" /></svg></button>
           </span>
-          <span class="tb-divider" aria-hidden="true"></span>
-          <span class="tb-group" role="group" aria-label="更多" data-i18n-aria="more">
-            <button id="btn-theme" class="btn toolbar-ghost icon" type="button" title="切换到浅色主题" aria-label="切换到浅色主题"><svg class="icon" aria-hidden="true"><use id="theme-icon" href="#i-sun" /></svg></button>
-            <button id="btn-settings" class="btn toolbar-ghost icon" title="设置" data-i18n-title="settings" aria-label="设置" data-i18n-aria="settings"><svg class="icon" aria-hidden="true"><use href="#i-settings" /></svg></button>
+          <span class="toolbar-more">
+            <button id="btn-toolbar-more" class="btn toolbar-ghost icon toolbar-more-button" type="button" title="更多" data-i18n-title="more" aria-label="更多" data-i18n-aria="more" aria-haspopup="true" aria-expanded="false" aria-controls="toolbar-more-menu"><svg class="icon" aria-hidden="true"><use href="#i-more" /></svg></button>
+            <span id="toolbar-more-menu" class="toolbar-more-menu" role="group" aria-label="更多" data-i18n-aria="more" aria-hidden="false">
+              <button id="btn-doc-title-menu" class="btn toolbar-ghost has-icon" type="button" title="查看完整文件名" aria-label="查看完整文件名" aria-controls="doc-title-popover" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-folder-open" /></svg><span id="doc-title-menu-label" class="toolbar-menu-label">查看完整文件名</span></button>
+              <button id="btn-original-pdf" class="btn toolbar-ghost has-icon" type="button" hidden title="用浏览器打开原始 PDF" data-i18n-title="openOriginalPdf"><svg class="icon" aria-hidden="true"><use href="#i-external-link" /></svg><span class="toolbar-menu-label" data-i18n="originalPdf">原始 PDF</span></button>
+              <button id="btn-back" class="btn toolbar-ghost icon" title="返回（鼠标侧键 / Alt+← / Backspace）" data-i18n-title="backHint" aria-label="返回" data-i18n-aria="back" disabled><svg class="icon" aria-hidden="true"><use href="#i-arrow-left" /></svg></button>
+              <button id="btn-forward" class="btn toolbar-ghost icon" title="前进（鼠标侧键 / Alt+→）" data-i18n-title="forwardHint" aria-label="前进" data-i18n-aria="forward" disabled><svg class="icon" aria-hidden="true"><use href="#i-arrow-right" /></svg></button>
+              <span class="tb-divider" aria-hidden="true"></span>
+              <button id="btn-theme" class="btn toolbar-ghost icon" type="button" title="切换到浅色主题" aria-label="切换到浅色主题"><svg class="icon" aria-hidden="true"><use id="theme-icon" href="#i-sun" /></svg></button>
+              <button id="btn-settings" class="btn toolbar-ghost icon" title="设置" data-i18n-title="settings" aria-label="设置" data-i18n-aria="settings"><svg class="icon" aria-hidden="true"><use href="#i-settings" /></svg></button>
+            </span>
           </span>
         </div>
+        <div id="doc-title-popover" class="doc-title-popover" role="tooltip" hidden></div>
       </header>
 
       <div class="workspace sidebar-collapsed">
@@ -253,16 +263,24 @@
       <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <h2 id="settings-title" data-i18n="translationSettings">翻译设置</h2>
         <div class="setting-field">
+          <label class="setting-label" for="setting-base" data-i18n="apiBase">API Base URL（OpenAI 兼容）</label>
+          <input id="setting-base" type="url" autocomplete="off" placeholder="https://openrouter.ai/api/v1" />
+          <p id="setting-base-host" class="hint compact" role="status" aria-live="polite"></p>
+        </div>
+        <div class="setting-field">
           <label class="setting-label" for="setting-key">API Key</label>
           <input id="setting-key" type="password" autocomplete="off" placeholder="sk-or-v1-..." />
         </div>
         <div class="setting-field">
-          <label class="setting-label" for="setting-model" data-i18n="model">模型</label>
+          <label id="setting-model-label" class="setting-label" for="setting-model" data-i18n="model">模型</label>
           <div class="model-picker">
-            <input id="setting-model" type="text" autocomplete="off" placeholder="openai/gpt-4o-mini" />
-            <ul id="setting-model-menu" class="model-menu" hidden></ul>
+            <input id="setting-model" type="text" autocomplete="off" placeholder="openai/gpt-4o-mini"
+              role="combobox" aria-autocomplete="list" aria-haspopup="listbox"
+              aria-controls="setting-model-menu" aria-expanded="false" />
+            <ul id="setting-model-menu" class="model-menu" role="listbox" aria-labelledby="setting-model-label" hidden></ul>
             <div id="setting-model-status" class="model-picker-status" role="status" aria-live="polite" hidden></div>
           </div>
+          <button id="btn-check-models" class="btn model-check-button" type="button" data-i18n="checkModels">检查模型列表</button>
         </div>
         <div class="setting-field">
           <label class="setting-label" for="setting-lang" data-i18n="targetLanguage">目标语言</label>
@@ -281,15 +299,15 @@
           </select>
         </div>
         <label class="setting-checkbox" for="setting-auto-translate">
-          <input id="setting-auto-translate" type="checkbox" checked />
-          <span class="setting-checkbox-label" data-i18n="autoTranslate">划词后自动翻译</span>
+          <input id="setting-auto-translate" type="checkbox" />
+          <span class="setting-checkbox-label" data-i18n="autoTranslate">选中文本后自动翻译（关闭时点击“译”）</span>
         </label>
         <details class="settings-advanced">
           <summary data-i18n="servicePrivacy">服务地址与隐私</summary>
           <p class="hint compact" data-i18n="localPrivacy">Base URL 与 Key 只保存在本机浏览器中；翻译直接从本机发往你配置的端点。</p>
           <div class="setting-field">
-            <label class="setting-label" for="setting-base" data-i18n="apiBase">API Base URL（OpenAI 兼容）</label>
-            <input id="setting-base" type="url" autocomplete="off" placeholder="https://openrouter.ai/api/v1" />
+            <button id="btn-clear-reading-positions" class="btn" type="button" data-i18n="clearReadingPositions">清除阅读记录</button>
+            <p id="reading-positions-status" class="hint compact" role="status" aria-live="polite" hidden></p>
           </div>
         </details>
         <div class="modal-actions">

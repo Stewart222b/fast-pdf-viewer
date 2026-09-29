@@ -1,7 +1,9 @@
 import { ViewHistory } from "./history.js";
 import { createPlatform } from "./platform/index.js";
 import {
+  clearReadingPositions,
   loadReadingPosition,
+  pruneReadingPositions,
   readingFingerprint,
   saveReadingPosition,
 } from "./reading-position.js";
@@ -18,7 +20,7 @@ import {
 import { getSelectionAnchorFromSelection, getSelectionAnchorRect } from "./selection-anchor.js";
 import { prepareSelectionForTranslation } from "./selection-text.js";
 import { applyBubblePlacement } from "./translate-bubble-placement.js";
-import { formatBubbleModelLabel } from "./translate-provider.js";
+import { formatBubbleModelLabel, isAllowedApiBaseUrl } from "./translate-provider.js";
 import { MAX_TRANSLATE_CHARS, translateText } from "./translate.js";
 import { destPdfY, pickOutlineActive } from "./outline-active.js";
 import { PasswordResponses } from "../vendor/pdfjs/build/pdf.mjs";
@@ -89,6 +91,88 @@ $("zoom-picker").addEventListener("focusout", event => {
   if (!$("zoom-picker").contains(event.relatedTarget)) setZoomMenuOpen(false);
 });
 
+
+const toolbarMoreButton = $("btn-toolbar-more");
+const toolbarMore = document.querySelector(".toolbar-more");
+const toolbarMoreMenu = $("toolbar-more-menu");
+const toolbarMoreBreakpoint = window.matchMedia("(max-width: 1020px)");
+
+function setToolbarMoreOpen(open, restoreFocus = false) {
+  const compact = toolbarMoreBreakpoint.matches;
+  const nextOpen = compact && open;
+  toolbarMoreMenu.classList.toggle("is-open", nextOpen);
+  toolbarMoreMenu.inert = compact && !nextOpen;
+  toolbarMoreMenu.setAttribute("aria-hidden", String(compact && !nextOpen));
+  toolbarMoreButton.setAttribute("aria-expanded", String(nextOpen));
+  if (restoreFocus) toolbarMoreButton.focus({ preventScroll: true });
+}
+
+function syncToolbarMoreMode() {
+  setToolbarMoreOpen(false);
+  if (!toolbarMoreBreakpoint.matches) {
+    toolbarMoreMenu.inert = false;
+    toolbarMoreMenu.setAttribute("aria-hidden", "false");
+  }
+}
+
+toolbarMoreButton.addEventListener("click", event => {
+  const open = !toolbarMoreMenu.classList.contains("is-open");
+  setToolbarMoreOpen(open);
+  if (open && event.detail === 0) {
+    toolbarMoreMenu.querySelector("button:not(:disabled):not([hidden])")?.focus({ preventScroll: true });
+  }
+});
+toolbarMoreMenu.addEventListener("click", event => {
+  const button = event.target.closest("button");
+  if (!button || button === $("btn-doc-title-menu")) return;
+  setToolbarMoreOpen(false);
+});
+document.addEventListener("pointerdown", event => {
+  if (!toolbarMore.contains(event.target)) setToolbarMoreOpen(false);
+});
+toolbarMore.addEventListener("focusout", event => {
+  if (!toolbarMore.contains(event.relatedTarget)) setToolbarMoreOpen(false);
+});
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape" || !toolbarMoreMenu.classList.contains("is-open")) return;
+  event.preventDefault();
+  event.stopPropagation();
+  setToolbarMoreOpen(false, true);
+});
+toolbarMoreBreakpoint.addEventListener("change", syncToolbarMoreMode);
+syncToolbarMoreMode();
+
+const docTitleButtons = [$("doc-title"), $("btn-doc-title-menu")];
+const docTitlePopover = $("doc-title-popover");
+
+function closeDocTitlePopover() {
+  docTitlePopover.hidden = true;
+  for (const button of docTitleButtons) button.setAttribute("aria-expanded", "false");
+}
+
+for (const button of docTitleButtons) {
+  button.addEventListener("click", () => {
+    const open = docTitlePopover.hidden;
+    docTitlePopover.textContent = $("doc-title").textContent;
+    docTitlePopover.hidden = !open;
+    for (const titleButton of docTitleButtons) {
+      titleButton.setAttribute("aria-expanded", String(open && titleButton === button));
+    }
+  });
+  button.addEventListener("focusout", event => {
+    if (event.relatedTarget !== docTitlePopover) closeDocTitlePopover();
+  });
+}
+document.addEventListener("pointerdown", event => {
+  if (!docTitlePopover.hidden
+      && !docTitlePopover.contains(event.target)
+      && !docTitleButtons.some(button => button.contains(event.target))) {
+    closeDocTitlePopover();
+  }
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && !docTitlePopover.hidden) closeDocTitlePopover();
+});
 
 const history = new ViewHistory();
 let passwordDialog = null;
@@ -182,6 +266,7 @@ let indexRefreshTimer = 0;
 let objectUrl = null;
 let currentFingerprint = "";
 let positionSaveTimer = 0;
+let clearedReadingPosition = null;
 let translateAbort = null;
 let translateRequestId = 0;
 let bubbleSelectionId = 0;
@@ -219,13 +304,19 @@ function applyTabTitle(name) {
 
 function syncToolbar(state) {
   const hasDoc = Boolean(viewer.pdf);
+  const documentTitle = viewer.name || t("noFile");
   $("page-controls").hidden = !hasDoc;
   $("page-divider").hidden = !hasDoc;
   $("page-input").value = hasDoc ? String(state.page || 1) : "—";
   $("page-input").disabled = !hasDoc;
   $("page-count").textContent = hasDoc ? String(viewer.pageCount || 0) : "—";
-  $("doc-title").textContent = viewer.name || t("noFile");
-  $("doc-title").title = viewer.name || t("noFile");
+  $("doc-title").textContent = documentTitle;
+  $("doc-title").title = documentTitle;
+  $("doc-title").setAttribute("aria-label", documentTitle);
+  $("doc-title-menu-label").textContent = documentTitle;
+  $("btn-doc-title-menu").title = documentTitle;
+  $("btn-doc-title-menu").setAttribute("aria-label", documentTitle);
+  $("doc-title-popover").textContent = documentTitle;
   $("drop-hint").classList.toggle("hidden", hasDoc);
   // Empty state keeps a primary 打开; once a PDF is open it steps down.
   $("btn-open").classList.toggle("demoted", hasDoc);
@@ -244,19 +335,33 @@ function stepPage(delta) {
   viewer.goToPage(next, { push: true });
 }
 
+function readingStateToSave() {
+  if (!currentFingerprint || !viewer.pdf) return null;
+  const state = viewer.getState();
+  if (clearedReadingPosition?.fingerprint === currentFingerprint) {
+    const previous = clearedReadingPosition.state;
+    if (state.page === previous.page && state.zoom === previous.zoom &&
+        state.scrollTop === previous.scrollTop && state.scrollLeft === previous.scrollLeft) return null;
+    clearedReadingPosition = null;
+  }
+  return state;
+}
+
 function scheduleSaveReadingPosition() {
-  if (!currentFingerprint || !viewer.pdf) return;
+  if (!readingStateToSave()) return;
   clearTimeout(positionSaveTimer);
   positionSaveTimer = setTimeout(() => {
-    saveReadingPosition(currentFingerprint, viewer.getState());
+    positionSaveTimer = 0;
+    const state = readingStateToSave();
+    if (state) saveReadingPosition(currentFingerprint, state);
   }, 400);
 }
 
 function flushReadingPosition() {
-  if (!currentFingerprint || !viewer.pdf) return;
   clearTimeout(positionSaveTimer);
   positionSaveTimer = 0;
-  saveReadingPosition(currentFingerprint, viewer.getState());
+  const state = readingStateToSave();
+  if (state) saveReadingPosition(currentFingerprint, state);
 }
 
 function scheduleOutlineActive() {
@@ -387,6 +492,7 @@ async function openSource(getSource) {
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   objectUrl = null;
   currentFingerprint = "";
+  clearedReadingPosition = null;
   $("search-input").value = "";
   $("search-clear").hidden = true;
   renderSearchList([], "");
@@ -402,7 +508,7 @@ async function openSource(getSource) {
     const opened = await viewer.open(source);
     if (!opened || request !== openGeneration) return;
     currentFingerprint = readingFingerprint(source);
-    const saved = loadReadingPosition(currentFingerprint);
+    const saved = loadReadingPosition(currentFingerprint, source);
     if (saved) {
       viewer.applyReadingPosition(saved);
       markZoomTouched();
@@ -787,7 +893,7 @@ function saveSidebarWidth() {
 }
 
 function reflowAfterSidebarResize() {
-  if (Number(window.innerWidth) > 900) runPageWidthReflow();
+  if (Number(window.innerWidth) > 900) runAutoZoomReflow();
 }
 
 setSidebarWidth(sidebarWidth);
@@ -820,22 +926,22 @@ function openSearch() {
   $("search-input").focus();
 }
 
-let pageWidthReflowToken = 0;
+let autoZoomReflowToken = 0;
 
-function runPageWidthReflow() {
-  if (!viewer.pdf || viewer.zoomMode !== "page-width") return;
-  viewer.setZoom("page-width", { silent: true });
+function runAutoZoomReflow() {
+  if (!viewer.pdf || !["page-width", "page-fit"].includes(viewer.zoomMode)) return;
+  viewer.setZoom(viewer.zoomMode, { silent: true });
   syncZoom(viewer.zoomMode);
 }
 
-function schedulePageWidthReflow() {
-  if (!viewer.pdf || viewer.zoomMode !== "page-width") return;
+function scheduleAutoZoomReflow() {
+  if (!viewer.pdf || !["page-width", "page-fit"].includes(viewer.zoomMode)) return;
   const sidebar = $("sidebar");
-  const token = ++pageWidthReflowToken;
+  const token = ++autoZoomReflowToken;
   const finish = () => {
-    if (token !== pageWidthReflowToken) return;
-    pageWidthReflowToken += 1;
-    runPageWidthReflow();
+    if (token !== autoZoomReflowToken) return;
+    autoZoomReflowToken += 1;
+    runAutoZoomReflow();
   };
   const onTransitionEnd = (event) => {
     if (event.target !== sidebar) return;
@@ -897,7 +1003,7 @@ function setSidebarCollapsed(collapsed) {
   $("btn-sidebar").classList.toggle("active", !collapsed);
   $("btn-sidebar").setAttribute("aria-pressed", collapsed ? "false" : "true");
   syncSearchButton();
-  schedulePageWidthReflow();
+  scheduleAutoZoomReflow();
 }
 
 let sidebarResizeDrag = null;
@@ -966,7 +1072,7 @@ window.addEventListener("resize", () => {
   clearTimeout(viewportReflowTimer);
   viewportReflowTimer = setTimeout(() => {
     viewportReflowTimer = 0;
-    runPageWidthReflow();
+    runAutoZoomReflow();
   }, 120);
 });
 
@@ -1197,8 +1303,8 @@ window.addEventListener("keydown", (event) => {
     }
     return;
   }
-  const typing = event.target?.matches?.("input, textarea, select");
-  const inReaderChrome = event.target?.closest?.("#sidebar, #zoom-menu, #translate-bubble");
+  const typing = event.target?.matches?.("input, textarea, select, [contenteditable]") || event.target?.isContentEditable;
+  const inReaderChrome = event.target?.closest?.(".toolbar, #sidebar, #zoom-menu, #translate-bubble, #translate-chip");
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o") {
     event.preventDefault();
     pickFile();
@@ -1207,6 +1313,9 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     openSearch();
     $("search-input").select();
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && !event.shiftKey && !typing && !inReaderChrome) {
+    if (showPdfSelection({ explicit: true, dismissEmpty: false })) event.preventDefault();
   }
   if ((event.ctrlKey || event.metaKey) && (event.key === "=" || event.key === "+")) {
     event.preventDefault();
@@ -1230,13 +1339,17 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     viewer.back();
   }
-  if (!typing && !inReaderChrome && (event.key === "ArrowDown" || event.key === "PageDown")) {
-    event.preventDefault();
-    stepPage(1);
-  }
-  if (!typing && !inReaderChrome && (event.key === "ArrowUp" || event.key === "PageUp")) {
-    event.preventDefault();
-    stepPage(-1);
+  if (viewer.pdf && !typing && !inReaderChrome && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+    const direction = event.key === "ArrowDown" || event.key === "PageDown" ? 1
+      : event.key === "ArrowUp" || event.key === "PageUp" ? -1 : 0;
+    if (direction && event.altKey && event.key.startsWith("Page")) {
+      event.preventDefault();
+      stepPage(direction);
+    } else if (direction && !event.altKey) {
+      event.preventDefault();
+      const distance = event.key.startsWith("Page") ? Math.max(80, wrap.clientHeight * 0.9) : 48;
+      wrap.scrollTop = Math.max(0, wrap.scrollTop + direction * distance);
+    }
   }
   if (event.key === "Escape") {
     event.preventDefault();
@@ -1630,6 +1743,10 @@ document.addEventListener("mouseup", (event) => {
     hideBubble();
     return;
   }
+  showPdfSelection();
+});
+
+function showPdfSelection({ explicit = false, dismissEmpty = true } = {}) {
   const selection = window.getSelection();
   const prepared = selection?.rangeCount ? prepareSelectionForTranslation(selection) : null;
   if (prepared?.tooLong) {
@@ -1641,25 +1758,27 @@ document.addEventListener("mouseup", (event) => {
       t("textTooLong", { count: prepared.charCount, max: MAX_TRANSLATE_CHARS }),
       selectionId,
     );
-    return;
+    return true;
   }
   const text = prepared?.text || "";
-  if (!text || !selection.rangeCount) {
-    hideTranslateChip();
-    hideBubble();
-    return;
+  if (!text || !selection?.rangeCount) {
+    if (dismissEmpty) {
+      hideTranslateChip();
+      hideBubble();
+    }
+    return false;
   }
   const range = selection.getRangeAt(0);
   const inTextLayer =
     range.endContainer.parentElement?.closest(".textLayer") ||
     range.startContainer.parentElement?.closest(".textLayer");
   if (!inTextLayer) {
-    hideBubble();
-    return;
+    if (dismissEmpty) hideBubble();
+    return false;
   }
   selectedTranslationMode = prepared.mode;
   const anchor = getSelectionAnchorRect(range, wrap.getBoundingClientRect(), selection);
-  if (isAutoTranslateOn()) {
+  if (explicit || isAutoTranslateOn()) {
     openTranslatePanel(anchor, text);
   } else if (isBubblePinned) {
     showTranslateChip(anchor, text);
@@ -1668,7 +1787,8 @@ document.addEventListener("mouseup", (event) => {
     cancelTranslate();
     showTranslateChip(anchor, text);
   }
-});
+  return true;
+}
 
 wrap.addEventListener("scroll", scheduleRepositionBubble, { passive: true });
 window.addEventListener("resize", scheduleRepositionBubble);
@@ -1755,17 +1875,40 @@ const modelPicker = wireModelPicker({
     model: $("setting-model").value.trim(),
   }),
 });
-let modelRefreshTimer = 0;
-const scheduleModelRefresh = () => {
-  clearTimeout(modelRefreshTimer);
-  modelRefreshTimer = setTimeout(() => modelPicker.refresh(), 400);
-};
+let initialSettingsApiBase = "";
+let settingsEndpointChanged = false;
+let uiLanguageSelectionExplicit = false;
 const onCredentialInput = () => {
   modelPicker.invalidatePending();
-  scheduleModelRefresh();
 };
 $("setting-key").addEventListener("input", onCredentialInput);
-$("setting-base").addEventListener("input", onCredentialInput);
+$("setting-base").addEventListener("input", () => {
+  if (!settingsEndpointChanged && $("setting-base").value.trim() !== initialSettingsApiBase) {
+    settingsEndpointChanged = true;
+    $("setting-key").value = "";
+  }
+  onCredentialInput();
+  updateApiBaseHost();
+});
+$("setting-ui-language").addEventListener("change", () => {
+  uiLanguageSelectionExplicit = true;
+});
+
+function updateApiBaseHost() {
+  let host = "";
+  try {
+    host = new URL($("setting-base").value.trim()).hostname;
+  } catch {
+    /* show the localized invalid URL hint below */
+  }
+  const status = $("setting-base-host");
+  status.hidden = false;
+  status.textContent = host ? t("apiHost", { host }) : t("apiHostInvalid");
+}
+
+$("btn-check-models").addEventListener("click", () => {
+  void modelPicker.refresh();
+});
 
 let lastSettingsTrigger = null;
 
@@ -1798,8 +1941,12 @@ function trapModalTab(event, container) {
 function openSettings() {
   $("settings-error").hidden = true;
   settings = loadSettings();
+  uiLanguageSelectionExplicit = settings.uiLanguageSelected === true;
   $("setting-key").value = settings.apiKey;
   $("setting-base").value = settings.apiBaseUrl;
+  initialSettingsApiBase = settings.apiBaseUrl.trim();
+  settingsEndpointChanged = false;
+  updateApiBaseHost();
   $("setting-model").value = settings.model;
   $("setting-lang").value = settings.targetLang;
   $("setting-ui-language").value = settings.uiLanguage || "zh-CN";
@@ -1811,14 +1958,13 @@ function openSettings() {
   } catch {
     /* ignore */
   }
-  modelPicker.hideMenu();
-  modelPicker.refresh();
+  modelPicker.showPrompt?.();
   // Initial focus goes inside the dialog, not the background trigger.
   ($("setting-key") || $("settings-modal")).focus?.();
 }
 
 function closeSettings(restore = true) {
-  modelPicker.hideMenu();
+  modelPicker.invalidatePending();
   $("settings-modal").hidden = true;
   try {
     document.getElementById("app")?.removeAttribute("inert");
@@ -1857,6 +2003,17 @@ $("pdf-password-modal")?.addEventListener("keydown", (event) => {
 $("btn-settings-cancel").addEventListener("click", () => {
   closeSettings();
 });
+$("btn-clear-reading-positions").addEventListener("click", () => {
+  clearTimeout(positionSaveTimer);
+  positionSaveTimer = 0;
+  clearedReadingPosition = currentFingerprint && viewer.pdf
+    ? { fingerprint: currentFingerprint, state: viewer.getState() }
+    : null;
+  clearReadingPositions();
+  const status = $("reading-positions-status");
+  status.textContent = t("readingPositionsCleared");
+  status.hidden = false;
+});
 $("btn-settings-save").addEventListener("click", async () => {
   const button = $("btn-settings-save");
   const error = $("settings-error");
@@ -1866,9 +2023,11 @@ $("btn-settings-save").addEventListener("click", async () => {
     model: $("setting-model").value.trim() || "openai/gpt-4o-mini",
     targetLang: $("setting-lang").value,
     uiLanguage: $("setting-ui-language").value,
+    uiLanguageSelected: uiLanguageSelectionExplicit,
     autoTranslateOnSelect: $("setting-auto-translate").checked,
   };
   try {
+    if (!isAllowedApiBaseUrl(next.apiBaseUrl)) throw new Error(t("modelEndpointMustUseHttps"));
     // Request from the click handler, before yielding the user gesture.
     const permission = next.apiKey ? requestHostAccess(next.apiBaseUrl) : true;
     button.disabled = true;
@@ -1955,6 +2114,7 @@ function applyInterfaceLanguage(locale) {
 }
 
 async function boot() {
+  pruneReadingPositions();
   applyInterfaceLanguage(settings.uiLanguage);
   document.body.dataset.platform = platform.id;
   if (platform.id === "extension") {

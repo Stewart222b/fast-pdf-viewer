@@ -23,7 +23,7 @@ function createElement() {
   };
 }
 
-async function setup({ stored = false, native = false, permissionResult = true } = {}) {
+async function setup({ stored = false, native = false, permissionResult = true, browserLanguage = "zh-CN", readerSettings = {} } = {}) {
   const elements = new Map([
     ["auto-open-pdf", createElement()],
     ["open-reader", createElement()],
@@ -44,7 +44,7 @@ async function setup({ stored = false, native = false, permissionResult = true }
     storage: {
       local: {
         async get(defaults) {
-          return { ...defaults, autoOpenPdf: stored };
+          return { ...defaults, autoOpenPdf: stored, "fast-pdf-viewer-settings": readerSettings };
         },
         async set(value) {
           storageSets.push(value);
@@ -73,25 +73,59 @@ async function setup({ stored = false, native = false, permissionResult = true }
     };
   }
 
+  const document = {
+    documentElement: {},
+    getElementById(id) {
+      return elements.get(id);
+    },
+  };
   vm.runInNewContext(source, {
     chrome,
     console,
-    document: {
-      getElementById(id) {
-        return elements.get(id);
-      },
-    },
+    document,
+    navigator: { language: browserLanguage },
   });
 
   await new Promise(resolve => setImmediate(resolve));
   return {
     elements,
+    document,
     mimeCalls,
     permissionCalls,
     storageSets,
     tabCalls,
   };
 }
+
+test("extension options use the current browser language when reader language is not selected", async () => {
+  const firstRun = await setup({ browserLanguage: "en-US" });
+  assert.equal(firstRun.document.documentElement.lang, "en");
+  assert.equal(firstRun.elements.get("settings-status").textContent, "");
+
+  const notSelected = { uiLanguage: "en", uiLanguageSelected: false };
+  const inChineseBrowser = await setup({ browserLanguage: "zh-CN", readerSettings: notSelected });
+  assert.equal(inChineseBrowser.document.documentElement.lang, "zh-CN");
+
+  // The same saved settings should follow a changed browser language on the next page load.
+  const inEnglishBrowser = await setup({ browserLanguage: "en-US", readerSettings: notSelected });
+  assert.equal(inEnglishBrowser.document.documentElement.lang, "en");
+});
+
+test("extension options keep an explicitly selected reader language", async () => {
+  const selected = await setup({
+    browserLanguage: "en-US",
+    readerSettings: { uiLanguage: "zh-CN", uiLanguageSelected: true },
+  });
+  assert.equal(selected.document.documentElement.lang, "zh-CN");
+});
+
+test("extension options treat a legacy saved reader language as an explicit preference", async () => {
+  const legacy = await setup({
+    browserLanguage: "en-US",
+    readerSettings: { uiLanguage: "zh-CN" },
+  });
+  assert.equal(legacy.document.documentElement.lang, "zh-CN");
+});
 
 test("native MIME handling uses the exact PDF signature and skips broad permissions", async () => {
   const harness = await setup({ native: true });

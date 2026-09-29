@@ -50,8 +50,8 @@
         <section class="privacy-section" aria-labelledby="translation-title">
           <h2 id="translation-title">划词翻译</h2>
           <p>
-            只有在你启用翻译并选中文本后，选中的文本才会发送到你在设置中配置的翻译提供商。Fast PDF Viewer – AI Translation 不代替该提供商处理请求，
-            具体数据处理方式以你选择的提供商为准。
+            默认关闭自动翻译。选中文本后，点击翻译按钮或使用快捷键才会发送请求；也可在设置中开启自动翻译。选中的文本会直接发送到你配置的翻译提供商，
+            具体数据处理方式以你选择的提供商为准。点击「检查模型列表」会联系该提供商，但不会上传 PDF。
           </p>
         </section>
 
@@ -60,7 +60,7 @@
           <ul>
             <li>API Key 保存在浏览器的 <code>chrome.storage.local</code> 中，未加密，也不会同步到其他设备。</li>
             <li>扩展不包含分析、广告或遥测代码。</li>
-            <li>扩展内的阅读进度保存在扩展自身同源的 <code>localStorage</code> 中，不与普通网页版共用。</li>
+            <li>扩展内的阅读进度保存在扩展自身同源的 <code>localStorage</code> 中，不与普通网页版共用。文档标识不包含明文原始 URL；记录在 30 天后过期，最多保留 100 份文档，也可在阅读器设置中清除。</li>
             <li>卸载扩展会清除扩展设置以及扩展页面保存的本地阅读进度。</li>
           </ul>
         </section>
