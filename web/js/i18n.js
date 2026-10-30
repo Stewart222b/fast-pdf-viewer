@@ -117,7 +117,7 @@ const messages = {
     modelListRequestFailed: "Could not load the model list ({status})", modelListTimeout: "The model-list request timed out. Check the service URL and try again.",
     modelEndpointMustUseHttps: "Remote services must use HTTPS. HTTP is allowed only for localhost.",
     modelCheckHint: "Enter the service URL and API key, then select Check model list.", checkModels: "Check model list",
-    apiHost: "Model-list requests and selected text will be sent to: {host}", apiHostInvalid: "Enter a valid HTTPS URL (HTTP is allowed only for localhost).",
+    apiHost: "Model-list requests, translations, and Ask excerpts will be sent to: {host}", apiHostInvalid: "Enter a valid HTTPS URL (HTTP is allowed only for localhost).",
     clearReadingPositions: "Clear reading records", readingPositionsCleared: "Reading records stored on this device were cleared.",
     configChanged: "Configuration changed. Select Check model list to load the list again.", modelNoTranslation: "The model returned no translation.",
     apiKeyRequired: "No API key is configured. Open Settings first.", noText: "There is no text to translate.",
