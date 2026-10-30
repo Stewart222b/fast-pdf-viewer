@@ -7,6 +7,7 @@ import {
   readingFingerprint,
   saveReadingPosition,
 } from "./reading-position.js";
+import { askDocument } from "./ask-document.js";
 import { highlightSnippet, searchDocument } from "./search.js";
 import { loadSettings, saveSettings, initSettings } from "./settings.js";
 import { applyDocumentTranslations, setLocale, t } from "./i18n.js";
@@ -270,6 +271,12 @@ let clearedReadingPosition = null;
 let translateAbort = null;
 let translateRequestId = 0;
 let bubbleSelectionId = 0;
+let askHits = [];
+let askCitationIndex = -1;
+let askAbort = null;
+let askGeneration = 0;
+let askLastQuestion = "";
+let outlineTitles = [];
 
 history.onChange(() => {
   $("btn-back").disabled = !history.canBack();
@@ -488,6 +495,8 @@ async function openSource(getSource) {
   indexRefreshTimer = 0;
   clearTimeout(searchTimer);
   cancelTranslate();
+  cancelAsk();
+  clearAskUi({ keepQuestion: false });
   viewer.close();
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   objectUrl = null;
@@ -498,6 +507,7 @@ async function openSource(getSource) {
   renderSearchList([], "");
   $("outline-pane").replaceChildren();
   outlineTreeApi = null;
+  outlineTitles = [];
   outlineAutoReveal = true;
   syncOutlineTreeActions();
   hideBubble({ force: true });
@@ -572,14 +582,15 @@ async function renderOutline(request) {
   if (!pdf || !outline?.length) {
     pane.replaceChildren();
     outlineTreeApi = null;
+    outlineTitles = [];
     outlineAutoReveal = true;
     syncOutlineTreeActions();
     pane.removeAttribute("role");
     pane.removeAttribute("aria-label");
     if (!outline?.length) {
       pane.innerHTML = `<div class="empty-side">${t("noOutline")}</div>`;
-      // Late outline with no entries must not kick the user out of search.
-      if (sidebarMode !== "search") {
+      // Late outline with no entries must not kick the user out of search/ask.
+      if (sidebarMode !== "search" && sidebarMode !== "ask") {
         selectSidebar("outline");
         setSidebarCollapsed(true);
       }
@@ -605,6 +616,7 @@ async function renderOutline(request) {
   // Flat entries in mount order with parent links, so the active path can be
   // revealed without DOM tree-walking.
   const entries = [];
+  const titles = [];
   const setEntryExpanded = (entry, expanded) => {
     entry.branch?.classList.toggle("expanded", expanded);
     entry.toggle?.setAttribute("aria-expanded", String(expanded));
@@ -613,6 +625,7 @@ async function renderOutline(request) {
   const mount = (items, depth, container, parentEntry) => {
     for (const item of items) {
       const title = item.title || t("unnamed");
+      if (item.title) titles.push(item.title);
       const hasChildren = Boolean(item.items?.length);
       const node = document.createElement("div");
       node.className = "outline-node";
@@ -687,6 +700,7 @@ async function renderOutline(request) {
     }
   };
   mount(roots, 0, pane, null);
+  outlineTitles = titles;
   outlineTreeApi = { entries, setEntryExpanded };
   outlineAutoReveal = true;
   syncOutlineTreeActions();
@@ -902,10 +916,13 @@ function selectSidebar(name) {
   sidebarMode = name;
   $("outline-pane").classList.toggle("active", name === "outline");
   $("search-pane").classList.toggle("active", name === "search");
+  $("ask-pane")?.classList.toggle("active", name === "ask");
   $("sidebar-tab-outline")?.setAttribute("aria-selected", String(name === "outline"));
   $("sidebar-tab-search")?.setAttribute("aria-selected", String(name === "search"));
+  $("sidebar-tab-ask")?.setAttribute("aria-selected", String(name === "ask"));
   $("sidebar-tab-outline")?.classList.toggle("active", name === "outline");
   $("sidebar-tab-search")?.classList.toggle("active", name === "search");
+  $("sidebar-tab-ask")?.classList.toggle("active", name === "ask");
   syncSearchButton();
   syncOutlineTreeActions();
 }
@@ -924,6 +941,187 @@ function openSearch() {
   selectSidebar("search");
   setSidebarCollapsed(false);
   $("search-input").focus();
+}
+
+function openAsk() {
+  selectSidebar("ask");
+  setSidebarCollapsed(false);
+  $("ask-input")?.focus();
+}
+
+function cancelAsk() {
+  askAbort?.abort();
+  askAbort = null;
+}
+
+function setAskStatus(message, { error = false } = {}) {
+  const status = $("ask-status");
+  if (!status) return;
+  if (!message) {
+    status.hidden = true;
+    status.textContent = "";
+    status.classList.remove("is-error");
+    return;
+  }
+  status.hidden = false;
+  status.textContent = message;
+  status.classList.toggle("is-error", error);
+}
+
+function clearAskUi({ keepQuestion = true } = {}) {
+  askHits = [];
+  askCitationIndex = -1;
+  askGeneration += 1;
+  if (!keepQuestion) {
+    askLastQuestion = "";
+    if ($("ask-input")) $("ask-input").value = "";
+  }
+  setAskStatus("");
+  $("ask-empty").hidden = false;
+  $("ask-result").hidden = true;
+  $("ask-answer").textContent = "";
+  $("ask-answer").classList.remove("is-streaming");
+  $("ask-citations").replaceChildren();
+  $("ask-citations-wrap").hidden = true;
+  $("ask-result-actions").hidden = true;
+  $("ask-retry").hidden = true;
+  $("ask-setup").hidden = true;
+  $("ask-stop").hidden = true;
+  $("ask-submit").disabled = false;
+}
+
+function renderAskCitations(hits) {
+  askHits = hits;
+  const list = $("ask-citations");
+  const wrap = $("ask-citations-wrap");
+  list.replaceChildren();
+  if (!hits.length) {
+    wrap.hidden = true;
+    return;
+  }
+  wrap.hidden = false;
+  hits.forEach((hit, index) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `search-hit${index === askCitationIndex ? " active" : ""}`;
+    const snippet = hit.snippet || hit.quote || t("pageDescription", { page: hit.pageNumber });
+    btn.innerHTML = `<div class="meta">${t("pageDescription", { page: hit.pageNumber })}</div>
+      <div class="snippet">${highlightSnippet(snippet, hit.quote || "")}</div>`;
+    btn.addEventListener("click", async () => {
+      try {
+        await jumpToAskCitation(index);
+        renderAskCitations(askHits);
+      } catch (error) {
+        setAskStatus(t("locateFailed", { message: error.message || error }), { error: true });
+      }
+    });
+    list.appendChild(btn);
+  });
+}
+
+async function jumpToAskCitation(index) {
+  const hit = askHits[index];
+  if (!hit) return;
+  askCitationIndex = index;
+  if (hit.kind === "quote" && hit.length > 0) {
+    await viewer.showHits(askHits, hit.quote || " ", index, {
+      jump: true,
+      historyGroup: "ask-citation",
+    });
+    return;
+  }
+  viewer.clearHits();
+  viewer.goToPage(hit.pageNumber, { push: true });
+}
+
+async function runAsk(question = $("ask-input")?.value || "") {
+  const trimmed = String(question || "").trim();
+  if (!trimmed) {
+    setAskStatus(t("askEmptyQuestion"), { error: true });
+    return;
+  }
+  if (!viewer.pdf) {
+    setAskStatus(t("noFile"), { error: true });
+    return;
+  }
+  const pages = (viewer.pageTexts || []).filter((page) => page && String(page.text || "").trim());
+  if (!pages.length && !outlineTitles.length) {
+    const indexing = viewer.indexedPages < viewer.pageCount;
+    setAskStatus(
+      indexing
+        ? t("askIndexing", { current: viewer.indexedPages, total: viewer.pageCount })
+        : t("askNoTextLayer"),
+      { error: !indexing },
+    );
+    return;
+  }
+
+  askLastQuestion = trimmed;
+  if ($("ask-input")) $("ask-input").value = trimmed;
+  cancelAsk();
+  const request = ++askGeneration;
+  const controller = new AbortController();
+  askAbort = controller;
+  askHits = [];
+  askCitationIndex = -1;
+  $("ask-empty").hidden = true;
+  $("ask-result").hidden = false;
+  $("ask-answer").textContent = "";
+  $("ask-answer").classList.add("is-streaming");
+  $("ask-citations").replaceChildren();
+  $("ask-citations-wrap").hidden = true;
+  $("ask-result-actions").hidden = true;
+  $("ask-retry").hidden = true;
+  $("ask-setup").hidden = true;
+  $("ask-stop").hidden = false;
+  $("ask-submit").disabled = true;
+  setAskStatus(t("askAnswering"));
+
+  try {
+    const result = await askDocument({
+      pageTexts: viewer.pageTexts,
+      outlineTitles,
+      question: trimmed,
+      settings: loadSettings(),
+      signal: controller.signal,
+      onDelta: (preview) => {
+        if (request !== askGeneration) return;
+        $("ask-answer").textContent = preview;
+      },
+    });
+    if (request !== askGeneration) return;
+    $("ask-answer").classList.remove("is-streaming");
+    $("ask-answer").textContent = result.answer;
+    renderAskCitations(result.hits);
+    const notes = [];
+    if (result.truncated) notes.push(t("partialIndex"));
+    if (viewer.indexedPages < viewer.pageCount) {
+      notes.push(t("askIndexing", { current: viewer.indexedPages, total: viewer.pageCount }));
+    }
+    setAskStatus(notes.join(" · "));
+    $("ask-result-actions").hidden = false;
+    $("ask-retry").hidden = false;
+  } catch (error) {
+    if (request !== askGeneration) return;
+    $("ask-answer").classList.remove("is-streaming");
+    const message = error?.message || String(error);
+    const missingKey = /API Key|api key/i.test(message) || message === t("apiKeyRequired");
+    if (!$("ask-answer").textContent.trim()) {
+      $("ask-empty").hidden = true;
+      $("ask-result").hidden = false;
+      $("ask-answer").textContent = "";
+    }
+    setAskStatus(missingKey ? t("apiKeyRequired") : t("askFailed", { message }), { error: true });
+    $("ask-result-actions").hidden = false;
+    $("ask-retry").hidden = missingKey;
+    $("ask-setup").hidden = !missingKey;
+  } finally {
+    if (request === askGeneration) {
+      askAbort = null;
+      $("ask-stop").hidden = true;
+      $("ask-submit").disabled = false;
+    }
+  }
 }
 
 let autoZoomReflowToken = 0;
@@ -1112,6 +1310,34 @@ $("sidebar-tab-outline")?.addEventListener("click", () => {
 });
 $("sidebar-tab-search")?.addEventListener("click", () => {
   openSearch();
+});
+$("sidebar-tab-ask")?.addEventListener("click", () => {
+  openAsk();
+});
+$("ask-submit")?.addEventListener("click", () => {
+  runAsk();
+});
+$("ask-stop")?.addEventListener("click", () => {
+  cancelAsk();
+});
+$("ask-retry")?.addEventListener("click", () => {
+  runAsk(askLastQuestion || $("ask-input")?.value || "");
+});
+$("ask-setup")?.addEventListener("click", () => {
+  openSettings();
+});
+$("ask-input")?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    runAsk();
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    if (askAbort) cancelAsk();
+    else {
+      setSidebarCollapsed(true);
+      $("btn-sidebar")?.focus();
+    }
+  }
 });
 const outlineExpandAllBtn = $("btn-outline-expand-all");
 if (outlineExpandAllBtn) {
@@ -1361,9 +1587,10 @@ window.addEventListener("keydown", (event) => {
       setZoomMenuOpen(false);
       return;
     }
-    if (!isSidebarCollapsed() && sidebarMode === "search") {
+    if (!isSidebarCollapsed() && (sidebarMode === "search" || sidebarMode === "ask")) {
       setSidebarCollapsed(true);
-      $("btn-search-toggle")?.focus();
+      if (sidebarMode === "search") $("btn-search-toggle")?.focus();
+      else $("btn-sidebar")?.focus();
     }
   }
 });

@@ -37,14 +37,14 @@ The combination that neighboring products cannot copy as a single claim: on-dema
 
 ## Capabilities and Constraints
 
-**In scope:** fast open, continuous scroll, zoom (fit width / fit page / percent), full-text search with hit counts, PDF outline, back/forward history, restore reading position, 划词 AI translation (auto-translate on select, optional 译 chip, streaming, term vs passage), compact UI.
+**In scope:** fast open, continuous scroll, zoom (fit width / fit page / percent), full-text search with hit counts, PDF outline, back/forward history, restore reading position, 划词 AI translation (auto-translate on select, optional 译 chip, streaming, term vs passage), sidebar 问文档 (single-shot Q&A with clickable citations that jump/highlight via the search hit path; local retrieval of page excerpts, then the same OpenAI-compatible API; not a chat transcript), compact UI.
 
-**Out of scope:** edit, convert to Word, signatures, cloud sync, accounts, AI Chat, RAG, large-scale annotation, PWA, browser extension (unless later explicitly requested).
+**Out of scope:** edit, convert to Word, signatures, cloud sync, accounts, AI Chat, RAG, PDF file upload to model providers, multi-document Spaces, embeddings/vector stores, large-scale annotation, PWA, browser extension (unless later explicitly requested).
 
 **Technical constraints to preserve:**
 - Keep `web/js/viewer.js` architecture (IntersectionObserver, on-demand render, page cache). Do not rewrite it as React/Vite/official Viewer.
 - Keep Python localhost + Range; do not switch the stack to Node for unification.
-- Translation stays OpenAI-compatible (Base URL / Key / Model / language), not a chat UI.
+- Translation and 问文档 stay OpenAI-compatible (Base URL / Key / Model / language). Translation is 划词, not a chat UI; 问文档 is a sidebar one-shot answer with citations, not a chat product.
 - Reader Core stays shared; Desktop and Web are adapters, not two viewers.
 
 **Undecided (visual only, not product truth):** UI visual world. A redesign is planned on `feat/ui-redesign`; no DESIGN.md yet.
@@ -65,7 +65,7 @@ The combination that neighboring products cannot copy as a single claim: on-dema
 ## Product Principles
 
 1. Reading first: every chrome decision should keep the page and the selection job faster, not add a toolbox.
-2. Instant translation at the pointer: 划词 is a core reading action, not a chat sidebar.
-3. Stay where you were: outline, search, and history must return the reader without losing place.
+2. Instant translation at the pointer: 划词 is a core reading action, not a chat sidebar. 问文档 lives as a third sidebar mode (目录 / 搜索 / 问答), not as Chat chrome on the page.
+3. Stay where you were: outline, search, ask citations, and history must return the reader without losing place.
 4. Ship as a local reader: files stay on disk; GitHub is the entry; adapters must not split the viewer.
 5. Preserve the proven render loop: do not trade smoothness for a framework rewrite.

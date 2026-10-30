@@ -171,6 +171,7 @@
               <div class="sidebar-tabs" role="tablist" aria-label="侧栏模式" data-i18n-aria="sidebarMode">
                 <button id="sidebar-tab-outline" class="sidebar-tab" type="button" role="tab" aria-selected="true" data-i18n="outline">目录</button>
                 <button id="sidebar-tab-search" class="sidebar-tab" type="button" role="tab" aria-selected="false" data-i18n="search">搜索</button>
+                <button id="sidebar-tab-ask" class="sidebar-tab" type="button" role="tab" aria-selected="false" data-i18n="ask">问答</button>
               </div>
               <span id="outline-tree-actions" class="outline-tree-actions" hidden>
                 <button id="btn-outline-expand-all" class="btn toolbar-ghost icon tiny" type="button" title="全部展开" data-i18n-title="expandAll" aria-label="全部展开" data-i18n-aria="expandAll"><svg class="icon" aria-hidden="true"><use href="#i-list-tree" /></svg></button>
@@ -195,6 +196,30 @@
               </div>
               </div>
               <div id="search-list" class="search-list"></div>
+            </div>
+            <div id="ask-pane" class="sidebar-pane">
+              <div class="ask-controls">
+                <label class="ask-label" for="ask-input" data-i18n="askDocument">问这份文档</label>
+                <textarea id="ask-input" class="ask-input" rows="3" placeholder="问这份 PDF 里的内容，例如冷却水规格在哪" data-i18n-placeholder="askPrompt" aria-label="问这份文档" data-i18n-aria="askDocument"></textarea>
+                <div class="ask-actions">
+                  <button id="ask-submit" class="btn primary tiny" type="button" data-i18n="askSubmit">提问</button>
+                  <button id="ask-stop" class="btn toolbar-ghost tiny" type="button" data-i18n="askStop" hidden>停止</button>
+                </div>
+                <p id="ask-status" class="ask-status" role="status" aria-live="polite" hidden></p>
+              </div>
+              <div id="ask-empty" class="empty-side" data-i18n="askPrompt">问这份 PDF 里的内容，例如冷却水规格在哪</div>
+              <div id="ask-result" class="ask-result" hidden>
+                <div class="ask-answer-label" data-i18n="askAnswer">答案</div>
+                <div id="ask-answer" class="ask-answer"></div>
+                <div id="ask-citations-wrap" class="ask-citations-wrap" hidden>
+                  <div class="ask-answer-label" data-i18n="askCitations">引用</div>
+                  <div id="ask-citations" class="search-list ask-citations"></div>
+                </div>
+                <div id="ask-result-actions" class="ask-result-actions" hidden>
+                  <button id="ask-retry" class="btn toolbar-ghost tiny" type="button" data-i18n="retry">重试</button>
+                  <button id="ask-setup" class="btn toolbar-ghost tiny" type="button" data-i18n="setupTranslation" hidden>设置翻译</button>
+                </div>
+              </div>
             </div>
           </div>
           <div id="sidebar-resize-handle" class="sidebar-resize-handle" role="separator" aria-orientation="vertical" aria-label="调整侧栏宽度" data-i18n-aria="resizeSidebar" aria-valuemin="272" aria-valuemax="480" aria-valuenow="272" tabindex="0"></div>
@@ -306,7 +331,8 @@
         </label>
         <details class="settings-advanced">
           <summary data-i18n="servicePrivacy">服务地址与隐私</summary>
-          <p class="hint compact" data-i18n="localPrivacy">Base URL 与 Key 只保存在本机浏览器中；翻译直接从本机发往你配置的端点。</p>
+          <p class="hint compact" data-i18n="localPrivacy">API Base URL 和 Key 保存在本机。划词翻译会发送选中文本；提问时会发送相关页的文本片段。PDF 文件本身不上传。</p>
+          <p class="hint compact" data-i18n="askSharedApi">问答与划词翻译使用同一套 API。</p>
           <div class="setting-field">
             <button id="btn-clear-reading-positions" class="setting-action setting-action-danger" type="button" data-i18n="clearReadingPositions">清除阅读记录</button>
             <p id="reading-positions-status" class="hint compact" role="status" aria-live="polite" hidden></p>

@@ -622,8 +622,9 @@ select {
 .sidebar-tabs {
   display: flex;
   align-self: stretch;
-  flex: 0 0 144px;
+  flex: 1 1 auto;
   min-width: 0;
+  max-width: calc(100% - 40px);
   gap: 2px;
   background: transparent;
   padding: 0;
@@ -719,11 +720,119 @@ select {
   display: block;
 }
 
-#search-pane.active {
+#search-pane.active,
+#ask-pane.active {
   display: flex;
   flex-direction: column;
   flex: 1;
   overflow: hidden;
+}
+
+.ask-controls {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.ask-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ask-input {
+  width: 100%;
+  min-height: 72px;
+  max-height: 160px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-elevated, var(--bg));
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 8px 10px;
+}
+
+.ask-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.ask-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ask-actions .btn.tiny,
+.ask-result-actions .btn.tiny {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.ask-status {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ask-status.is-error {
+  color: var(--danger, #d97757);
+}
+
+.ask-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-top: 8px;
+}
+
+.ask-answer-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ask-answer {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.ask-answer.is-streaming::after {
+  content: "▍";
+  margin-left: 1px;
+  color: var(--accent);
+  animation: ask-caret 1s steps(1) infinite;
+}
+
+@keyframes ask-caret {
+  50% { opacity: 0; }
+}
+
+.ask-citations-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+}
+
+.ask-citations {
+  overflow: visible;
+}
+
+.ask-result-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 4px;
 }
 
 .search-controls {

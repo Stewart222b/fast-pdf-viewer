@@ -192,6 +192,8 @@ async function setup({ platform = 'Linux x86_64', startup = null,
       spec === './selection-text.js' ||
       spec === './bubble-text-render.js' ||
       spec === './translate-provider.js' ||
+      spec === './openai-chat.js' ||
+      spec === './ask-document.js' ||
       spec === './i18n.js'
     ) {
       return new vm.SourceTextModule(await readFile(new URL(`../web/js/${spec.slice(2)}`, import.meta.url), 'utf8'), { context });
@@ -842,6 +844,40 @@ test('目录 always returns to outline without clearing the search query', async
   app.click('sidebar-tab-search');
   assert.equal(app.get('search-pane').toggles.active, true);
   assert.equal(app.get('search-input').value, 'Alpha');
+});
+
+test('ask tab opens the ask pane and keeps question across mode flips', async () => {
+  const app = await setup();
+  app.click('sidebar-tab-ask');
+  assert.equal(app.get('sidebar').inert, false);
+  assert.equal(app.get('sidebar-tab-ask').attrs['aria-selected'], 'true');
+  assert.equal(app.get('ask-pane').toggles.active, true);
+  assert.equal(app.get('search-pane').toggles.active, false);
+  app.get('ask-input').value = '冷却水规格在哪';
+  app.click('sidebar-tab-search');
+  assert.equal(app.get('search-pane').toggles.active, true);
+  assert.equal(app.get('ask-pane').toggles.active, false);
+  assert.equal(app.get('ask-input').value, '冷却水规格在哪');
+  app.click('sidebar-tab-ask');
+  assert.equal(app.get('ask-pane').toggles.active, true);
+  assert.equal(app.get('ask-input').value, '冷却水规格在哪');
+  app.click('btn-sidebar');
+  assert.equal(app.get('outline-pane').toggles.active, true);
+  assert.equal(app.get('ask-pane').toggles.active, false);
+  assert.equal(app.get('ask-input').value, '冷却水规格在哪');
+});
+
+test('Escape closes ask sidebar without clearing the question', async () => {
+  const app = await setup();
+  app.click('sidebar-tab-ask');
+  app.get('ask-input').value = 'cooling water';
+  app.dispatch('keydown', {
+    key: 'Escape',
+    target: { matches() { return false; } },
+    preventDefault() {},
+  });
+  assert.equal(app.get('sidebar').inert, true);
+  assert.equal(app.get('ask-input').value, 'cooling water');
 });
 
 test('collapsed sidebar leaves the tab order via inert', async () => {
