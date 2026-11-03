@@ -43,6 +43,8 @@ test('fresh settings follow the browser language and leave automatic translation
       assert.equal(settings.uiLanguage, expected);
       assert.equal(settings.uiLanguageSelected, false);
       assert.equal(settings.autoTranslateOnSelect, false);
+      assert.equal(settings.reasoningEffort, 'default');
+      assert.equal(settings.showThinking, false);
     } finally {
       env.restore();
     }
@@ -70,6 +72,23 @@ test('explicit interface-language choice remains fixed while an automatic choice
     assert.equal(settings.autoTranslateOnSelect, false);
   } finally {
     automatic.restore();
+  }
+});
+
+test('reasoning settings persist and reject unknown effort values', async () => {
+  const env = await withSettingsEnvironment('zh-CN');
+  try {
+    await env.settings.saveSettings({ reasoningEffort: 'high', showThinking: true });
+    assert.equal(env.settings.loadSettings().reasoningEffort, 'high');
+    assert.equal(env.settings.loadSettings().showThinking, true);
+    await env.settings.saveSettings({ reasoningEffort: 'none' });
+    assert.equal(env.settings.loadSettings().reasoningEffort, 'none');
+    assert.equal(env.settings.loadSettings().showThinking, true);
+    await env.settings.saveSettings({ reasoningEffort: 'max', showThinking: 'yes' });
+    assert.equal(env.settings.loadSettings().reasoningEffort, 'default');
+    assert.equal(env.settings.loadSettings().showThinking, false);
+  } finally {
+    env.restore();
   }
 });
 

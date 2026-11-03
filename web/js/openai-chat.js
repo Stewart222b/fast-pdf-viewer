@@ -56,12 +56,72 @@ export function openAiRequestHeaders(settings) {
   return headers;
 }
 
-export function extractStreamDelta(parsed) {
-  const choice = parsed?.choices?.[0];
-  if (!choice) return "";
-  if (typeof choice.delta?.content === "string") return choice.delta.content;
-  if (typeof choice.message?.content === "string") return choice.message.content;
+export const REASONING_EFFORTS = ["default", "none", "low", "medium", "high"];
+
+export function normalizeReasoningEffort(value) {
+  const key = String(value || "default").trim().toLowerCase();
+  return REASONING_EFFORTS.includes(key) ? key : "default";
+}
+
+function apiHostname(settings) {
+  try {
+    return new URL(normalizeApiBase(settings?.apiBaseUrl)).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * OpenRouter uses `reasoning.{effort,exclude}`; OpenAI uses `reasoning_effort`.
+ * Other OpenAI-compatible hosts get the OpenRouter object and typically ignore unknown fields.
+ */
+export function chatReasoningFields(settings = {}) {
+  const effort = normalizeReasoningEffort(settings.reasoningEffort);
+  const show = settings.showThinking === true;
+  if (apiHostname(settings) === "api.openai.com") {
+    return effort === "default" ? {} : { reasoning_effort: effort };
+  }
+  const reasoning = {};
+  if (effort !== "default") reasoning.effort = effort;
+  if (!show) reasoning.exclude = true;
+  return Object.keys(reasoning).length ? { reasoning } : {};
+}
+
+function stringifyModelText(value, { includeThinking = false } = {}) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    return value.map((part) => stringifyModelText(part, { includeThinking })).join("");
+  }
+  if (value && typeof value === "object") {
+    const type = String(value.type || "").toLowerCase();
+    if (!includeThinking && (type === "thinking" || type === "reasoning")) return "";
+    if (typeof value.text === "string") return value.text;
+    if (includeThinking && typeof value.thinking === "string") return value.thinking;
+  }
   return "";
+}
+
+export function extractStreamParts(parsed) {
+  const choice = parsed?.choices?.[0];
+  if (!choice) return { content: "", reasoning: "" };
+  const delta = choice.delta || {};
+  const message = choice.message || {};
+  return {
+    content: stringifyModelText(delta.content ?? message.content),
+    reasoning: stringifyModelText(
+      delta.reasoning
+      ?? delta.reasoning_content
+      ?? delta.thinking
+      ?? message.reasoning
+      ?? message.reasoning_content
+      ?? message.thinking,
+      { includeThinking: true },
+    ),
+  };
+}
+
+export function extractStreamDelta(parsed) {
+  return extractStreamParts(parsed).content;
 }
 
 /**
@@ -70,7 +130,9 @@ export function extractStreamDelta(parsed) {
  */
 export function parseSseTranslationChunk(chunk) {
   const deltas = [];
-  const state = createSseState((piece) => deltas.push(piece));
+  const state = createSseState((piece) => {
+    if (piece) deltas.push(piece);
+  });
   for (const line of String(chunk).split(/\r?\n/)) {
     processSseLine(line, state);
   }
@@ -79,7 +141,7 @@ export function parseSseTranslationChunk(chunk) {
 }
 
 function createSseState(onDelta) {
-  return { dataLines: [], completed: false, translated: "", onDelta };
+  return { dataLines: [], completed: false, translated: "", reasoning: "", onDelta };
 }
 
 function processSseLine(line, state) {
@@ -117,10 +179,11 @@ function finishSseFrame(state) {
     if (reason !== "stop") throw new Error(t("modelIncompleteTranslation", { reason }));
     state.completed = true;
   }
-  const piece = extractStreamDelta(parsed);
-  if (piece) {
-    state.translated += piece;
-    state.onDelta?.(piece, state.translated);
+  const parts = extractStreamParts(parsed);
+  if (parts.reasoning) state.reasoning += parts.reasoning;
+  if (parts.content) state.translated += parts.content;
+  if (parts.content || parts.reasoning) {
+    state.onDelta?.(parts.content, state.translated, { reasoning: state.reasoning });
   }
 }
 
@@ -132,9 +195,10 @@ function extractJsonCompletion(data, onDelta, emptyMessage) {
   if (reason !== undefined && reason !== null && reason !== "stop") {
     throw new Error(t("modelIncompleteTranslation", { reason }));
   }
-  const content = data?.choices?.[0]?.message?.content?.trim();
+  const parts = extractStreamParts(data);
+  const content = parts.content.trim();
   if (!content) throw new Error(emptyMessage);
-  onDelta?.(content);
+  onDelta?.(content, { reasoning: parts.reasoning });
   return content;
 }
 
@@ -147,7 +211,7 @@ async function readStreamingCompletion(response, { onDelta, signal, emptyMessage
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  const state = createSseState((piece, complete) => onDelta?.(complete));
+  const state = createSseState((_piece, complete, extras) => onDelta?.(complete, extras));
   try {
     while (!state.completed) {
       if (signal?.aborted) {
@@ -185,8 +249,8 @@ async function readStreamingCompletion(response, { onDelta, signal, emptyMessage
 
 /**
  * OpenAI-compatible chat completions (OpenRouter, OpenAI, local proxies, etc.).
- * @param {{ apiKey?: string, apiBaseUrl?: string, model?: string }} settings
- * @param {{ messages: Array<{role: string, content: string}>, signal?: AbortSignal, timeoutMs?: number, onDelta?: (text: string) => void, temperature?: number, emptyMessage?: string, cancelledMessage?: string, timeoutMessage?: string }} options
+ * @param {{ apiKey?: string, apiBaseUrl?: string, model?: string, reasoningEffort?: string, showThinking?: boolean }} settings
+ * @param {{ messages: Array<{role: string, content: string}>, signal?: AbortSignal, timeoutMs?: number, onDelta?: (text: string, extras?: { reasoning?: string }) => void, temperature?: number, emptyMessage?: string, cancelledMessage?: string, timeoutMessage?: string }} options
  */
 export async function completeChat(
   settings,
@@ -223,6 +287,7 @@ export async function completeChat(
         temperature,
         stream: true,
         messages,
+        ...chatReasoningFields(settings),
       }),
       signal: controller.signal,
     });
