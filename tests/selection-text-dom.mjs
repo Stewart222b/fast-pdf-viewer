@@ -120,6 +120,11 @@ if (process.argv.includes("--serve")) {
 try {
   browser = spawn(edgePath, [
     "--headless=new",
+    // Restricted/CI sandboxes cannot start Chrome's own renderer sandbox, and
+    // the browser then answers the DevTools handshake but never a single page
+    // command.
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
     "--no-first-run",
     "--disable-gpu",
     "--disable-gpu-compositing",
