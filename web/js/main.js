@@ -10,7 +10,8 @@ import {
 import { askDocument } from "./ask-document.js";
 import { highlightSnippet, searchDocument } from "./search.js";
 import { loadSettings, saveSettings, initSettings } from "./settings.js";
-import { applyDocumentTranslations, setLocale, t } from "./i18n.js";
+import { applyDocumentTranslations, getLocale, setLocale, t } from "./i18n.js";
+import { buildDocumentPropertyRows } from "./document-properties.js";
 import { formatExtensionError, requestHostAccess, fallbackToBrowser } from "./platform/extension.js";
 import { wireModelPicker } from "./model-picker.js";
 import {
@@ -93,39 +94,148 @@ $("zoom-picker").addEventListener("focusout", event => {
 });
 
 
+const docTitleButton = $("doc-title");
+const docTitleMenuButton = $("btn-doc-title-menu");
+const docTitleButtons = [docTitleButton, docTitleMenuButton];
+const docTitlePopover = $("doc-title-popover");
+let docTitleAnchorRect = null;
+
+/* The popover belongs under the filename, not under the middle of the window:
+   anchor it on the trigger and keep it inside the viewport. */
+function placeDocTitlePopover(anchorRect) {
+  const container = docTitlePopover.closest?.(".toolbar") || docTitlePopover.parentElement || document.body;
+  const containerRect = container.getBoundingClientRect();
+  const half = (docTitlePopover.offsetWidth || 0) / 2;
+  const margin = 8;
+  const center = anchorRect
+    ? anchorRect.left + anchorRect.width / 2
+    : containerRect.left + containerRect.width / 2;
+  const minCenter = margin + half;
+  const maxCenter = Math.max(minCenter, window.innerWidth - margin - half);
+  const clamped = Math.min(Math.max(center, minCenter), maxCenter);
+  docTitlePopover.style.left = `${Math.round(clamped - containerRect.left)}px`;
+}
+
+function closeDocTitlePopover() {
+  docTitlePopover.hidden = true;
+  docTitleAnchorRect = null;
+  for (const button of docTitleButtons) button.setAttribute("aria-expanded", "false");
+}
+
+function currentOutlinePath() {
+  if (typeof outlineTreeApi === "undefined" || typeof pickOutlineActive !== "function") return [];
+  if (typeof viewer === "undefined" || !outlineTreeApi?.entries?.length) return [];
+  const view = viewer.getReadingPoint?.() || { page: viewer.currentPage || 1, pdfY: NaN };
+  const active = pickOutlineActive(outlineTreeApi.entries, view);
+  if (!active) return [];
+  const path = [];
+  for (let entry = active; entry; entry = entry.parent) path.unshift(entry);
+  return path;
+}
+
+function fillDocTitlePopover() {
+  const fileName = docTitleButton.textContent;
+  const path = currentOutlinePath();
+  docTitlePopover.replaceChildren();
+  const file = document.createElement("div");
+  file.className = "doc-title-file";
+  file.textContent = fileName;
+  docTitlePopover.append(file);
+  if (!path.length) return;
+  const location = document.createElement("div");
+  location.className = "doc-title-location";
+  const label = document.createElement("div");
+  label.className = "doc-title-location-label";
+  label.textContent = typeof t === "function" ? t("currentLocation") : "";
+  location.append(label);
+  path.forEach((entry, index) => {
+    if (index > 0) {
+      const sep = document.createElement("span");
+      sep.className = "doc-title-sep";
+      sep.setAttribute("aria-hidden", "true");
+      sep.textContent = " › ";
+      location.append(sep);
+    }
+    const last = index === path.length - 1;
+    const crumb = document.createElement(last ? "span" : "button");
+    crumb.className = last ? "doc-title-crumb is-current" : "doc-title-crumb";
+    if (!last) {
+      crumb.type = "button";
+      crumb.addEventListener("click", () => {
+        for (let node = entry; node; node = node.parent) {
+          if (node.hasChildren) outlineTreeApi?.setEntryExpanded?.(node, true);
+        }
+        if (entry.dest != null) viewer.goToDest(entry.dest, true);
+        else if (Number.isFinite(entry.page) && entry.page > 0) viewer.goToPage(entry.page, { push: true });
+        closeDocTitlePopover();
+      });
+    }
+    crumb.textContent = entry.title || "";
+    location.append(crumb);
+  });
+  docTitlePopover.append(location);
+}
+
+function openDocTitlePopover(button) {
+  docTitleAnchorRect = button.getBoundingClientRect();
+  fillDocTitlePopover();
+  docTitlePopover.hidden = false;
+  for (const titleButton of docTitleButtons) {
+    titleButton.setAttribute("aria-expanded", String(titleButton === button));
+  }
+  placeDocTitlePopover(docTitleAnchorRect);
+}
+
+function repositionDocTitlePopover() {
+  if (docTitlePopover.hidden) return;
+  placeDocTitlePopover(docTitleAnchorRect);
+}
+
+function dismissToolbarMoreForDocTitle() {
+  setToolbarMoreOpen(false);
+  toolbarMoreButton.focus({ preventScroll: true });
+  if (docTitlePopover.hidden) return;
+  // The menu row just went away, so the popover follows the enduring 更多 seat.
+  docTitleAnchorRect = toolbarMoreButton.getBoundingClientRect();
+  placeDocTitlePopover(docTitleAnchorRect);
+}
+
 const toolbarMoreButton = $("btn-toolbar-more");
 const toolbarMore = document.querySelector(".toolbar-more");
 const toolbarMoreMenu = $("toolbar-more-menu");
-const toolbarMoreBreakpoint = window.matchMedia("(max-width: 1020px)");
 
+/* 更多 is the single secondary entry at every width, so it always opens the
+   same popover instead of turning into an inline strip on wide screens. */
 function setToolbarMoreOpen(open, restoreFocus = false) {
-  const compact = toolbarMoreBreakpoint.matches;
-  const nextOpen = compact && open;
-  toolbarMoreMenu.classList.toggle("is-open", nextOpen);
-  toolbarMoreMenu.inert = compact && !nextOpen;
-  toolbarMoreMenu.setAttribute("aria-hidden", String(compact && !nextOpen));
-  toolbarMoreButton.setAttribute("aria-expanded", String(nextOpen));
+  // One surface at a time: the menu and the filename popover share the same band.
+  if (open) closeDocTitlePopover();
+  toolbarMoreMenu.classList.toggle("is-open", open);
+  toolbarMoreMenu.inert = !open;
+  toolbarMoreMenu.setAttribute("aria-hidden", String(!open));
+  toolbarMoreButton.setAttribute("aria-expanded", String(open));
   if (restoreFocus) toolbarMoreButton.focus({ preventScroll: true });
-}
-
-function syncToolbarMoreMode() {
-  setToolbarMoreOpen(false);
-  if (!toolbarMoreBreakpoint.matches) {
-    toolbarMoreMenu.inert = false;
-    toolbarMoreMenu.setAttribute("aria-hidden", "false");
-  }
 }
 
 toolbarMoreButton.addEventListener("click", event => {
   const open = !toolbarMoreMenu.classList.contains("is-open");
   setToolbarMoreOpen(open);
   if (open && event.detail === 0) {
-    toolbarMoreMenu.querySelector("button:not(:disabled):not([hidden])")?.focus({ preventScroll: true });
+    // Keyboard entry lands on the first row that is actually rendered — the
+    // filename row exists in the DOM even when the centered title is visible.
+    const firstRow = [...toolbarMoreMenu.querySelectorAll("button:not(:disabled)")]
+      .find(row => row.offsetParent !== null);
+    firstRow?.focus({ preventScroll: true });
   }
 });
 toolbarMoreMenu.addEventListener("click", event => {
   const button = event.target.closest("button");
-  if (!button || button === $("btn-doc-title-menu")) return;
+  if (!button) return;
+  if (button === docTitleMenuButton) {
+    // The filename entry owns a popover, so the menu steps aside instead of
+    // stacking a second surface underneath it.
+    dismissToolbarMoreForDocTitle();
+    return;
+  }
   setToolbarMoreOpen(false);
 });
 document.addEventListener("pointerdown", event => {
@@ -140,40 +250,34 @@ document.addEventListener("keydown", event => {
   event.stopPropagation();
   setToolbarMoreOpen(false, true);
 });
-toolbarMoreBreakpoint.addEventListener("change", syncToolbarMoreMode);
-syncToolbarMoreMode();
-
-const docTitleButtons = [$("doc-title"), $("btn-doc-title-menu")];
-const docTitlePopover = $("doc-title-popover");
-
-function closeDocTitlePopover() {
-  docTitlePopover.hidden = true;
-  for (const button of docTitleButtons) button.setAttribute("aria-expanded", "false");
-}
+setToolbarMoreOpen(false);
 
 for (const button of docTitleButtons) {
   button.addEventListener("click", () => {
-    const open = docTitlePopover.hidden;
-    docTitlePopover.textContent = $("doc-title").textContent;
-    docTitlePopover.hidden = !open;
-    for (const titleButton of docTitleButtons) {
-      titleButton.setAttribute("aria-expanded", String(open && titleButton === button));
-    }
-  });
-  button.addEventListener("focusout", event => {
-    if (event.relatedTarget !== docTitlePopover) closeDocTitlePopover();
+    if (docTitlePopover.hidden) openDocTitlePopover(button);
+    else closeDocTitlePopover();
   });
 }
+document.addEventListener("focusin", event => {
+  if (docTitlePopover.hidden) return;
+  if (docTitlePopover.contains(event.target)) return;
+  if (docTitleButtons.some(button => button.contains(event.target))) return;
+  // Focus handed to the 更多 seat on purpose; the popover is still the target.
+  if (toolbarMore.contains(event.target)) return;
+  closeDocTitlePopover();
+});
 document.addEventListener("pointerdown", event => {
   if (!docTitlePopover.hidden
       && !docTitlePopover.contains(event.target)
-      && !docTitleButtons.some(button => button.contains(event.target))) {
+      && !docTitleButtons.some(button => button.contains(event.target))
+      && !toolbarMore.contains(event.target)) {
     closeDocTitlePopover();
   }
 });
 document.addEventListener("keydown", event => {
   if (event.key === "Escape" && !docTitlePopover.hidden) closeDocTitlePopover();
 });
+window.addEventListener("resize", repositionDocTitlePopover);
 
 const history = new ViewHistory();
 let passwordDialog = null;
@@ -261,22 +365,31 @@ document.body.appendChild(fileInput);
 
 let settings = loadSettings();
 let searchHits = [];
+const searchOptions = { matchCase: false, wholeWord: false };
+let searchResultOptions = null;
 let openGeneration = 0;
 let searchGeneration = 0;
 let indexRefreshTimer = 0;
 let objectUrl = null;
+let nativePdf = null;
+let activeDocument = null;
+let recoverableDocument = null;
+let readingNoticeTimer = 0;
 let currentFingerprint = "";
 let positionSaveTimer = 0;
 let clearedReadingPosition = null;
 let translateAbort = null;
 let translateRequestId = 0;
 let bubbleSelectionId = 0;
+let settingsSaveQueue = Promise.resolve();
+let bubbleTargetLangRevision = 0;
 let askHits = [];
 let askCitationIndex = -1;
 let askAbort = null;
 let askGeneration = 0;
 let askLastQuestion = "";
 let outlineTitles = [];
+let outlineEntries = [];
 
 history.onChange(() => {
   $("btn-back").disabled = !history.canBack();
@@ -309,6 +422,53 @@ function applyTabTitle(name) {
   }
 }
 
+function syncOriginalPdfButton() {
+  $("btn-original-pdf").hidden = !(
+    platform.canFallbackToBrowser?.() || nativePdf?.blob || nativePdf?.url || nativePdf?.path
+  );
+}
+
+function nativePdfFromSource(source, recoveryBlob) {
+  const next = {};
+  if (recoveryBlob) next.blob = recoveryBlob;
+  if (source?.path) next.path = source.path;
+  const url = String(source?.url || "");
+  if (/^https?:/i.test(url)) next.url = url;
+  else if (url.startsWith("/")) {
+    try {
+      next.url = new URL(url, globalThis.location?.href || "http://127.0.0.1/").href;
+    } catch {
+      /* keep blob/path only */
+    }
+  }
+  return next.blob || next.url || next.path ? next : null;
+}
+
+async function openInBrowserPdf() {
+  if (platform.canFallbackToBrowser?.()) {
+    await fallbackToBrowser();
+    return;
+  }
+  if (nativePdf?.path && typeof globalThis.pywebview?.api?.open_native === "function") {
+    if (await globalThis.pywebview.api.open_native()) return;
+  }
+  if (nativePdf?.blob) {
+    const url = URL.createObjectURL(nativePdf.blob);
+    const opened = window.open(url, "_blank");
+    if (opened == null) {
+      URL.revokeObjectURL(url);
+      throw new Error(t("openOriginalFailed"));
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    return;
+  }
+  if (nativePdf?.url) {
+    if (window.open(nativePdf.url, "_blank") == null) throw new Error(t("openOriginalFailed"));
+    return;
+  }
+  throw new Error(t("openOriginalFailed"));
+}
+
 function syncToolbar(state) {
   const hasDoc = Boolean(viewer.pdf);
   const documentTitle = viewer.name || t("noFile");
@@ -323,10 +483,12 @@ function syncToolbar(state) {
   $("doc-title-menu-label").textContent = documentTitle;
   $("btn-doc-title-menu").title = documentTitle;
   $("btn-doc-title-menu").setAttribute("aria-label", documentTitle);
-  $("doc-title-popover").textContent = documentTitle;
+  if (!docTitlePopover.hidden) fillDocTitlePopover();
+  repositionDocTitlePopover();
   $("drop-hint").classList.toggle("hidden", hasDoc);
-  // Empty state keeps a primary 打开; once a PDF is open it steps down.
-  $("btn-open").classList.toggle("demoted", hasDoc);
+  // The central empty state owns the primary open action until a document exists.
+  $("btn-open").hidden = !hasDoc;
+  $("btn-doc-properties").hidden = !hasDoc;
   syncZoom(viewer.pinch ? viewer.pinch.target * 100 : state.zoom);
   $("btn-back").disabled = !history.canBack();
   $("btn-forward").disabled = !history.canForward();
@@ -419,7 +581,9 @@ function syncOutlineTreeActions() {
   const actions = $("outline-tree-actions");
   if (!actions) return;
   const hasBranches = Boolean(outlineTreeApi?.entries?.some((entry) => entry.hasChildren));
-  const show = sidebarMode === "outline" && hasBranches;
+  // Dual-rail left pane is always outline; compact still gates on the outline tab.
+  // Collapsed chrome uses inert/CSS — keep the same mode+branches rule as before.
+  const show = (dualRailActive || sidebarMode === "outline") && hasBranches;
   actions.hidden = !show;
 }
 
@@ -469,6 +633,12 @@ function showViewerStatus(text, { action = false, descriptor = null } = {}) {
 function hideViewerStatus() {
   const box = $("viewer-status");
   if (box) box.hidden = true;
+  const text = $("viewer-status-text");
+  if (text) text.textContent = "";
+  const action = $("viewer-status-action");
+  if (action) action.hidden = true;
+  const restore = $("viewer-status-restore");
+  if (restore) restore.hidden = true;
   viewerStatusDescriptor = null;
 }
 
@@ -487,10 +657,38 @@ function markZoomTouched() {
   if (viewer.pdf) userZoomTouched = true;
 }
 
-async function openSource(getSource) {
+function hideReadingNotice() {
+  clearTimeout(readingNoticeTimer);
+  $("reading-notice").hidden = true;
+}
+
+function showReadingNotice(page) {
+  hideReadingNotice();
+  $("reading-notice-text").textContent = t("readingRestored", { page });
+  $("reading-notice").hidden = false;
+  readingNoticeTimer = setTimeout(hideReadingNotice, 10000);
+}
+
+$("btn-reading-notice-close").addEventListener("click", hideReadingNotice);
+$("btn-reading-start").addEventListener("click", () => {
+  viewer.goToPage(1, { push: true });
+  hideReadingNotice();
+});
+$("viewer-status-restore").addEventListener("click", async () => {
+  const previous = recoverableDocument;
+  if (previous) await openSource(previous.getSource, { restore: previous });
+});
+
+async function openSource(getSource, { restore = null } = {}) {
   const request = ++openGeneration;
   searchGeneration += 1;
   flushReadingPosition();
+  if (!restore && viewer.pdf && activeDocument) {
+    recoverableDocument = { ...activeDocument, state: viewer.getState() };
+  }
+  activeDocument = null;
+  hideReadingNotice();
+  $("viewer-status-restore").hidden = true;
   clearTimeout(indexRefreshTimer);
   indexRefreshTimer = 0;
   clearTimeout(searchTimer);
@@ -500,6 +698,8 @@ async function openSource(getSource) {
   viewer.close();
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   objectUrl = null;
+  nativePdf = null;
+  syncOriginalPdfButton();
   currentFingerprint = "";
   clearedReadingPosition = null;
   $("search-input").value = "";
@@ -508,30 +708,53 @@ async function openSource(getSource) {
   $("outline-pane").replaceChildren();
   outlineTreeApi = null;
   outlineTitles = [];
+  outlineEntries = [];
   outlineAutoReveal = true;
   syncOutlineTreeActions();
   hideBubble({ force: true });
   showViewerStatus(t("opening"), { descriptor: { key: "opening" } });
   try {
     const source = await getSource();
-    if (request !== openGeneration) return;
+    if (request !== openGeneration) return false;
+    const fingerprint = restore?.fingerprint || readingFingerprint(source);
+    // PDF.js can transfer MIME bytes to its worker. Retain a Blob source for
+    // recovery, without keeping a second PDF rendering context alive.
+    const recoveryBlob = source.data ? new Blob([source.data], { type: "application/pdf" }) : null;
+    const reopen = recoveryBlob ? () => {
+      objectUrl = URL.createObjectURL(recoveryBlob);
+      return { ...source, data: undefined, url: objectUrl };
+    } : getSource;
     const opened = await viewer.open(source);
-    if (!opened || request !== openGeneration) return;
-    currentFingerprint = readingFingerprint(source);
-    const saved = loadReadingPosition(currentFingerprint, source);
+    if (request !== openGeneration) return false;
+    if (!opened) {
+      // Closed mid-open without a newer open taking over the chrome.
+      hideViewerStatus();
+      return false;
+    }
+    // Drop the opening splash as soon as the PDF is ready — reading restore /
+    // outline work can still take a beat and must not keep covering the page.
+    hideViewerStatus();
+    currentFingerprint = fingerprint;
+    activeDocument = { getSource: reopen, fingerprint, name: source.name };
+    nativePdf = nativePdfFromSource(source, recoveryBlob);
+    syncOriginalPdfButton();
+    const saved = restore?.state || loadReadingPosition(currentFingerprint, source);
     if (saved) {
       viewer.applyReadingPosition(saved);
       markZoomTouched();
-      hideViewerStatus();
-    } else {
-      // First open fits the page width; later opens respect the user's zoom.
-      if (!userZoomTouched) viewer.setZoom("page-width", { silent: true });
-      hideViewerStatus();
+      showReadingNotice(saved.page || saved.anchor?.page || viewer.currentPage || 1);
+    } else if (!userZoomTouched) {
+      // First open fits the full page; later opens respect the user's zoom.
+      viewer.setZoom("page-fit", { silent: true });
     }
     await renderOutline(request);
-    if (request === openGeneration && $("search-input").value.trim()) {
+    if (request !== openGeneration) return false;
+    if ($("search-input").value.trim()) {
       await runSearch($("search-input").value);
     }
+    if (request !== openGeneration) return false;
+    recoverableDocument = null;
+    return true;
   } catch (error) {
     if (request === openGeneration) {
       const message = t("openFailed", { message: localizedErrorMessage(error) });
@@ -540,17 +763,15 @@ async function openSource(getSource) {
         action: true,
         descriptor: { key: "openFailed", values: { error } },
       });
+      $("viewer-status-restore").hidden = !recoverableDocument;
     }
+    return false;
   }
 }
 
 async function openFile(file) {
   applyTabTitle(file?.name);
-  if (platform.id === "extension") {
-    platform.clearBrowserFallback?.();
-    $("btn-original-pdf").hidden = true;
-  }
-  return openSource(() => {
+  const opened = await openSource(() => {
     objectUrl = URL.createObjectURL(file);
     return {
       url: objectUrl,
@@ -559,6 +780,12 @@ async function openFile(file) {
       lastModified: file.lastModified,
     };
   });
+  if (opened) {
+    if (platform.id === "extension") platform.clearBrowserFallback?.();
+    nativePdf = { blob: file };
+    syncOriginalPdfButton();
+  }
+  return opened;
 }
 
 async function openFromPlatform(meta) {
@@ -583,6 +810,7 @@ async function renderOutline(request) {
     pane.replaceChildren();
     outlineTreeApi = null;
     outlineTitles = [];
+    outlineEntries = [];
     outlineAutoReveal = true;
     syncOutlineTreeActions();
     pane.removeAttribute("role");
@@ -590,7 +818,10 @@ async function renderOutline(request) {
     if (!outline?.length) {
       pane.innerHTML = `<div class="empty-side">${t("noOutline")}</div>`;
       // Late outline with no entries must not kick the user out of search/ask.
-      if (sidebarMode !== "search" && sidebarMode !== "ask") {
+      // Dual-rail may keep the right pane open while the left outline stays empty.
+      if (dualRailActive) {
+        selectSidebar("outline");
+      } else if (sidebarMode !== "search" && sidebarMode !== "ask") {
         selectSidebar("outline");
         setSidebarCollapsed(true);
       }
@@ -643,6 +874,13 @@ async function renderOutline(request) {
         toggle.setAttribute("aria-expanded", depth === 0 ? "true" : "false");
         toggle.setAttribute("aria-label", `${t("toggleBranch")} ${title}`);
         toggle.title = t("toggleBranch");
+        const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        icon.setAttribute("class", "icon");
+        icon.setAttribute("aria-hidden", "true");
+        const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+        use.setAttribute("href", "#i-disclosure");
+        icon.append(use);
+        toggle.append(icon);
       } else {
         toggle.classList.add("is-leaf");
         toggle.setAttribute("aria-hidden", "true");
@@ -660,7 +898,7 @@ async function renderOutline(request) {
       }
       row.append(toggle, btn);
       node.append(row);
-      const entry = { node, branch: null, toggle, btn, parent: parentEntry, hasChildren, page, pdfY: Number(item.pdfY) };
+      const entry = { node, branch: null, toggle, btn, parent: parentEntry, hasChildren, title, page, pdfY: Number(item.pdfY), depth, dest: item.dest };
       entries.push(entry);
       btn.addEventListener("click", () => {
         setOutlineActive(entry);
@@ -701,6 +939,11 @@ async function renderOutline(request) {
   };
   mount(roots, 0, pane, null);
   outlineTitles = titles;
+  outlineEntries = entries.map((entry) => ({
+    title: entry.title,
+    pageNumber: Number.isFinite(entry.page) && entry.page > 0 ? entry.page : 0,
+    depth: entry.depth,
+  }));
   outlineTreeApi = { entries, setEntryExpanded };
   outlineAutoReveal = true;
   syncOutlineTreeActions();
@@ -742,6 +985,8 @@ function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)
   searchHits = hits;
   const list = $("search-list");
   const previousScroll = list.scrollTop;
+  const restoreHitFocus = list.contains(document.activeElement)
+    && document.activeElement.classList.contains("search-hit");
   let activeButton = null;
   const count = $("search-count");
   list.replaceChildren();
@@ -774,7 +1019,7 @@ function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)
     btn.className = `search-hit${index === viewer.hitIndex ? " active" : ""}`;
     if (index === viewer.hitIndex) activeButton = btn;
     btn.innerHTML = `<div class="meta">${t("pageMeta", { page: hit.pageNumber, current: index + 1, total: hits.length })}</div>
-      <div class="snippet">${highlightSnippet(hit.snippet, query)}</div>`;
+      <div class="snippet">${highlightSnippet(hit.snippet, query, searchOptions)}</div>`;
     btn.addEventListener("click", async () => {
       try {
         await viewer.jumpToHit(index, { push: true });
@@ -787,8 +1032,9 @@ function renderSearchList(hits, query, start = Math.max(0, viewer.hitIndex - 50)
   });
   if (end < hits.length) moreButton(t("nextResults"), end);
   list.scrollTop = previousScroll;
+  if (restoreHitFocus) activeButton?.focus({ preventScroll: true });
   if (reveal && activeButton && !isSidebarCollapsed() && sidebarMode === "search") {
-    // Scroll only the results container; never move the PDF or keyboard focus.
+    // Scroll only the results container; keep keyboard navigation within the list.
     const bounds = list.getBoundingClientRect?.();
     const item = activeButton.getBoundingClientRect?.();
     if (bounds && item) {
@@ -812,7 +1058,8 @@ async function runSearch(query, request = searchGeneration, jump = true) {
   try {
     if (!current()) return;
     const searchStarted = globalThis.__PDF_BENCH__ ? performance.now() : 0;
-    const hits = searchDocument(viewer.pageTexts, query);
+    const options = { ...searchOptions };
+    const hits = searchDocument(viewer.pageTexts, query, options);
     if (globalThis.__PDF_BENCH__) {
       globalThis.__pdfSearchBench = {
         searchDocumentMs: performance.now() - searchStarted,
@@ -820,24 +1067,24 @@ async function runSearch(query, request = searchGeneration, jump = true) {
         query,
       };
     }
-    const unchanged = !jump && hits.length === searchHits.length && viewer.query === query;
+    const unchanged = !jump && hits.length === searchHits.length && viewer.query === query
+      && searchResultOptions?.matchCase === options.matchCase
+      && searchResultOptions?.wholeWord === options.wholeWord;
     // Keep the result list independent of page rendering: showHits may await
     // jumpToHit → renderPage for the current target only.
     const shown = unchanged
       ? null
-      : viewer.showHits(hits, query, jump ? 0 : Math.max(0, viewer.hitIndex), { jump });
+      : viewer.showHits(hits, query, jump ? 0 : Math.max(0, viewer.hitIndex), { jump, historyGroup: jump ? "search-input" : null });
     if (!current()) {
       await shown;
       return;
     }
+    searchResultOptions = options;
     renderSearchList(unchanged ? searchHits : hits, query, undefined, jump);
     if (globalThis.__PDF_BENCH__) {
       globalThis.__pdfSearchBench.resultListVisibleMs = performance.now() - searchStarted;
     }
-    if (query && jump) {
-      selectSidebar("search");
-      setSidebarCollapsed(false);
-    }
+    if (query && jump) openSearch();
     if (shown) await shown;
     if (!current()) return;
     if (globalThis.__PDF_BENCH__) {
@@ -859,43 +1106,84 @@ async function runSearch(query, request = searchGeneration, jump = true) {
 }
 
 let sidebarMode = "outline";
+let railMode = "search";
+let dualRailActive = false;
+const DUAL_RAIL_MIN = 1280;
 const SIDEBAR_MIN_WIDTH = 272;
 const SIDEBAR_MAX_WIDTH = 480;
+
+/* Full-screen desktop displays get a wider outline by default; the compact
+   bounds above stay authoritative below 1920px so existing behavior and
+   saved widths are unchanged. */
+function sidebarBounds() {
+  const width = Number(window.innerWidth) || 0;
+  if (width >= 3840) return { min: 420, max: 720 };
+  if (width >= 2560) return { min: 360, max: 640 };
+  if (width >= 1920) return { min: 320, max: 560 };
+  return { min: SIDEBAR_MIN_WIDTH, max: SIDEBAR_MAX_WIDTH };
+}
+
 const SIDEBAR_WIDTH_STORAGE_KEY = "fast-pdf-viewer-sidebar-width-v1";
+const RAIL_WIDTH_STORAGE_KEY = "fast-pdf-viewer-rail-width-v1";
 const sidebarResizeHandle = $("sidebar-resize-handle");
+const railResizeHandle = $("rail-resize-handle");
 sidebarResizeHandle?.setAttribute("role", "separator");
 sidebarResizeHandle?.setAttribute("aria-orientation", "vertical");
 sidebarResizeHandle?.setAttribute("aria-label", t("resizeSidebar"));
-sidebarResizeHandle?.setAttribute("aria-valuemin", String(SIDEBAR_MIN_WIDTH));
+sidebarResizeHandle?.setAttribute("aria-valuemin", String(sidebarBounds().min));
+railResizeHandle?.setAttribute("role", "separator");
+railResizeHandle?.setAttribute("aria-orientation", "vertical");
+railResizeHandle?.setAttribute("aria-label", t("resizeRail"));
+railResizeHandle?.setAttribute("aria-valuemin", String(sidebarBounds().min));
 
-function readSavedSidebarWidth() {
+function isDualRail() {
+  return (Number(window.innerWidth) || 0) >= DUAL_RAIL_MIN;
+}
+
+function readSavedPanelWidth(key) {
+  const bounds = sidebarBounds();
   try {
-    const saved = Number(globalThis.localStorage?.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
+    const saved = Number(globalThis.localStorage?.getItem(key));
     return Number.isFinite(saved) && saved > 0
-      ? Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(saved)))
-      : SIDEBAR_MIN_WIDTH;
+      ? Math.min(bounds.max, Math.max(bounds.min, Math.round(saved)))
+      : bounds.min;
   } catch {
-    return SIDEBAR_MIN_WIDTH;
+    return bounds.min;
   }
 }
 
-function getSidebarWidthMax() {
+function getPanelWidthMax(otherOpenWidth = 0) {
   const workspace = document.querySelector(".workspace");
   const workspaceWidth = workspace?.getBoundingClientRect?.().width || 0;
   const viewportWidth = Number(window.innerWidth) || workspaceWidth || SIDEBAR_MAX_WIDTH;
+  const bounds = sidebarBounds();
   const availableWidth = viewportWidth <= 900
     ? viewportWidth - 24
-    : workspaceWidth - 320;
-  return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, availableWidth));
+    : Math.max(bounds.min, workspaceWidth - 320 - otherOpenWidth);
+  return Math.max(bounds.min, Math.min(bounds.max, availableWidth));
 }
 
-let sidebarWidth = readSavedSidebarWidth();
+let sidebarWidth = readSavedPanelWidth(SIDEBAR_WIDTH_STORAGE_KEY);
+let railWidth = readSavedPanelWidth(RAIL_WIDTH_STORAGE_KEY);
 
 function setSidebarWidth(width) {
-  sidebarWidth = Math.min(getSidebarWidthMax(), Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)));
+  const bounds = sidebarBounds();
+  const other = dualRailActive && !isRailCollapsed() ? railWidth : 0;
+  sidebarWidth = Math.min(getPanelWidthMax(other), Math.max(bounds.min, Math.round(width)));
   document.documentElement?.style?.setProperty("--sidebar-w", `${sidebarWidth}px`);
+  sidebarResizeHandle?.setAttribute("aria-valuemin", String(bounds.min));
   sidebarResizeHandle?.setAttribute("aria-valuenow", String(sidebarWidth));
-  sidebarResizeHandle?.setAttribute("aria-valuemax", String(getSidebarWidthMax()));
+  sidebarResizeHandle?.setAttribute("aria-valuemax", String(getPanelWidthMax(other)));
+}
+
+function setRailWidth(width) {
+  const bounds = sidebarBounds();
+  const other = !isSidebarCollapsed() ? sidebarWidth : 0;
+  railWidth = Math.min(getPanelWidthMax(other), Math.max(bounds.min, Math.round(width)));
+  document.documentElement?.style?.setProperty("--rail-w", `${railWidth}px`);
+  railResizeHandle?.setAttribute("aria-valuemin", String(bounds.min));
+  railResizeHandle?.setAttribute("aria-valuenow", String(railWidth));
+  railResizeHandle?.setAttribute("aria-valuemax", String(getPanelWidthMax(other)));
 }
 
 function saveSidebarWidth() {
@@ -906,48 +1194,175 @@ function saveSidebarWidth() {
   }
 }
 
+function saveRailWidth() {
+  try {
+    globalThis.localStorage?.setItem(RAIL_WIDTH_STORAGE_KEY, String(railWidth));
+  } catch {
+    // The current session can still use the resized width when storage is unavailable.
+  }
+}
+
 function reflowAfterSidebarResize() {
   if (Number(window.innerWidth) > 900) runAutoZoomReflow();
 }
 
-setSidebarWidth(sidebarWidth);
+function placeSearchAskPanes(dual) {
+  const search = $("search-pane");
+  const ask = $("ask-pane");
+  if (!search || !ask) return;
+  if (dual) {
+    const host = $("rail-panes");
+    if (host && search.parentElement !== host) {
+      // Restore the source panel's saved tab stops before transferring ownership.
+      syncSidebarTabStops(false);
+      host.append(search, ask);
+    }
+    return;
+  }
+  const host = $("sidebar")?.querySelector(".sidebar-inner");
+  const outline = $("outline-pane");
+  if (!host || !outline || search.parentElement === host) return;
+  syncRailTabStops(false);
+  outline.after(search);
+  search.after(ask);
+}
+
+function syncPaneVisibility() {
+  const dual = dualRailActive;
+  $("outline-pane")?.classList.toggle("active", dual || sidebarMode === "outline");
+  $("search-pane")?.classList.toggle("active", dual ? railMode === "search" : sidebarMode === "search");
+  $("ask-pane")?.classList.toggle("active", dual ? railMode === "ask" : sidebarMode === "ask");
+  $("sidebar-tab-outline")?.setAttribute("aria-selected", String(sidebarMode === "outline"));
+  $("sidebar-tab-search")?.setAttribute("aria-selected", String(sidebarMode === "search"));
+  $("sidebar-tab-ask")?.setAttribute("aria-selected", String(sidebarMode === "ask"));
+  $("sidebar-tab-outline")?.classList.toggle("active", sidebarMode === "outline");
+  $("sidebar-tab-search")?.classList.toggle("active", sidebarMode === "search");
+  $("sidebar-tab-ask")?.classList.toggle("active", sidebarMode === "ask");
+  $("rail-tab-search")?.setAttribute("aria-selected", String(railMode === "search"));
+  $("rail-tab-ask")?.setAttribute("aria-selected", String(railMode === "ask"));
+  $("rail-tab-search")?.classList.toggle("active", railMode === "search");
+  $("rail-tab-ask")?.classList.toggle("active", railMode === "ask");
+}
 
 function selectSidebar(name) {
   sidebarMode = name;
-  $("outline-pane").classList.toggle("active", name === "outline");
-  $("search-pane").classList.toggle("active", name === "search");
-  $("ask-pane")?.classList.toggle("active", name === "ask");
-  $("sidebar-tab-outline")?.setAttribute("aria-selected", String(name === "outline"));
-  $("sidebar-tab-search")?.setAttribute("aria-selected", String(name === "search"));
-  $("sidebar-tab-ask")?.setAttribute("aria-selected", String(name === "ask"));
-  $("sidebar-tab-outline")?.classList.toggle("active", name === "outline");
-  $("sidebar-tab-search")?.classList.toggle("active", name === "search");
-  $("sidebar-tab-ask")?.classList.toggle("active", name === "ask");
+  if (!dualRailActive) syncPaneVisibility();
+  else {
+    $("outline-pane")?.classList.toggle("active", true);
+    $("sidebar-tab-outline")?.setAttribute("aria-selected", "true");
+    $("sidebar-tab-search")?.setAttribute("aria-selected", "false");
+    $("sidebar-tab-ask")?.setAttribute("aria-selected", "false");
+  }
   syncSearchButton();
+  syncAskButton();
   syncOutlineTreeActions();
+}
+
+function selectRail(name) {
+  railMode = name === "ask" ? "ask" : "search";
+  if (dualRailActive) syncPaneVisibility();
+  syncSearchButton();
+  syncAskButton();
 }
 
 function isSidebarCollapsed() {
   return document.querySelector(".workspace").classList.contains("sidebar-collapsed");
 }
 
+function isRailCollapsed() {
+  return document.querySelector(".workspace").classList.contains("rail-collapsed");
+}
+
 function syncSearchButton() {
-  const open = sidebarMode === "search" && !isSidebarCollapsed();
+  const open = dualRailActive
+    ? !isRailCollapsed() && railMode === "search"
+    : sidebarMode === "search" && !isSidebarCollapsed();
   $("btn-search-toggle")?.setAttribute("aria-expanded", String(open));
   $("btn-search-toggle")?.classList.toggle("active", open);
 }
 
+function syncAskButton() {
+  const open = dualRailActive
+    ? !isRailCollapsed() && railMode === "ask"
+    : sidebarMode === "ask" && !isSidebarCollapsed();
+  $("btn-ask-toggle")?.setAttribute("aria-expanded", String(open));
+  $("btn-ask-toggle")?.classList.toggle("active", open);
+}
+
 function openSearch() {
-  selectSidebar("search");
-  setSidebarCollapsed(false);
+  if (dualRailActive) {
+    selectRail("search");
+    setRailCollapsed(false);
+  } else {
+    selectSidebar("search");
+    setSidebarCollapsed(false);
+  }
   $("search-input").focus();
 }
 
 function openAsk() {
-  selectSidebar("ask");
-  setSidebarCollapsed(false);
+  if (dualRailActive) {
+    selectRail("ask");
+    setRailCollapsed(false);
+  } else {
+    selectSidebar("ask");
+    setSidebarCollapsed(false);
+  }
   $("ask-input")?.focus();
 }
+
+function applyDualRailLayout(dual, { crossing = false } = {}) {
+  const wasDual = dualRailActive;
+  // Flip before open/close so setRailCollapsed/selectSidebar see the target layout.
+  dualRailActive = dual;
+  placeSearchAskPanes(dual);
+  document.querySelector(".workspace")?.classList.toggle("dual-rail", dual);
+  const leftTabs = $("sidebar")?.querySelector(".sidebar-tabs");
+  if (leftTabs) leftTabs.hidden = dual;
+
+  if (dual && !wasDual) {
+    // Entering desktop dual-rail.
+    if (crossing && (sidebarMode === "search" || sidebarMode === "ask")) {
+      railMode = sidebarMode;
+      selectSidebar("outline");
+      setSidebarCollapsed(true);
+      setRailCollapsed(false);
+      selectRail(railMode);
+    } else {
+      selectSidebar("outline");
+      setRailCollapsed(true);
+      syncPaneVisibility();
+    }
+  } else if (!dual && wasDual) {
+    // Leaving dual-rail: prefer the open right pane when collapsing to one column.
+    if (crossing && !isRailCollapsed()) {
+      sidebarMode = railMode;
+      setRailCollapsed(true);
+      setSidebarCollapsed(false);
+      selectSidebar(sidebarMode);
+    } else {
+      setRailCollapsed(true);
+      if (sidebarMode !== "outline" && sidebarMode !== "search" && sidebarMode !== "ask") {
+        sidebarMode = "outline";
+      }
+      syncPaneVisibility();
+    }
+  } else {
+    syncPaneVisibility();
+  }
+
+  syncSidebarTabStops(isSidebarCollapsed());
+  syncRailTabStops(isRailCollapsed() || !dualRailActive);
+  setSidebarWidth(sidebarWidth);
+  setRailWidth(railWidth);
+  syncSearchButton();
+  syncAskButton();
+  syncOutlineTreeActions();
+}
+
+setSidebarWidth(sidebarWidth);
+setRailWidth(railWidth);
+applyDualRailLayout(isDualRail());
 
 function cancelAsk() {
   askAbort?.abort();
@@ -968,6 +1383,14 @@ function setAskStatus(message, { error = false } = {}) {
   status.classList.toggle("is-error", error);
 }
 
+function setThinkingFold(wrapId, bodyId, text, enabled) {
+  const wrap = $(wrapId);
+  const body = $(bodyId);
+  const next = enabled ? String(text || "") : "";
+  if (body) body.textContent = next;
+  if (wrap) wrap.hidden = !next;
+}
+
 function clearAskUi({ keepQuestion = true } = {}) {
   askHits = [];
   askCitationIndex = -1;
@@ -981,6 +1404,7 @@ function clearAskUi({ keepQuestion = true } = {}) {
   $("ask-result").hidden = true;
   $("ask-answer").textContent = "";
   $("ask-answer").classList.remove("is-streaming");
+  setThinkingFold("ask-thinking-wrap", "ask-thinking", "", false);
   $("ask-citations").replaceChildren();
   $("ask-citations-wrap").hidden = true;
   $("ask-result-actions").hidden = true;
@@ -1068,6 +1492,7 @@ async function runAsk(question = $("ask-input")?.value || "") {
   $("ask-result").hidden = false;
   $("ask-answer").textContent = "";
   $("ask-answer").classList.add("is-streaming");
+  setThinkingFold("ask-thinking-wrap", "ask-thinking", "", false);
   $("ask-citations").replaceChildren();
   $("ask-citations-wrap").hidden = true;
   $("ask-result-actions").hidden = true;
@@ -1080,21 +1505,31 @@ async function runAsk(question = $("ask-input")?.value || "") {
   try {
     const result = await askDocument({
       pageTexts: viewer.pageTexts,
-      outlineTitles,
+      outlineTitles: outlineEntries.length ? outlineEntries : outlineTitles,
       question: trimmed,
+      currentPage: viewer.currentPage || 1,
       settings: loadSettings(),
       signal: controller.signal,
-      onDelta: (preview) => {
+      onDelta: (preview, _raw, extras) => {
         if (request !== askGeneration) return;
         $("ask-answer").textContent = preview;
+        setThinkingFold("ask-thinking-wrap", "ask-thinking", extras?.reasoning, loadSettings().showThinking === true);
       },
     });
     if (request !== askGeneration) return;
     $("ask-answer").classList.remove("is-streaming");
     $("ask-answer").textContent = result.answer;
+    setThinkingFold("ask-thinking-wrap", "ask-thinking", result.reasoning, loadSettings().showThinking === true);
     renderAskCitations(result.hits);
     const notes = [];
-    if (result.truncated) notes.push(t("partialIndex"));
+    if (result.scope?.chapter) {
+      notes.push(t("askChapterNote", {
+        chapter: result.scope.chapter,
+        start: result.scope.start,
+        end: result.scope.end,
+      }));
+    }
+    if (result.truncated) notes.push(t("askPackedNote"));
     if (viewer.indexedPages < viewer.pageCount) {
       notes.push(t("askIndexing", { current: viewer.indexedPages, total: viewer.pageCount }));
     }
@@ -1185,22 +1620,64 @@ function syncSidebarTabStops(collapsed) {
   }
 }
 
-function setSidebarCollapsed(collapsed) {
-  document.querySelector(".workspace").classList.toggle("sidebar-collapsed", collapsed);
-  const sidebar = $("sidebar");
-  sidebar.setAttribute("aria-hidden", collapsed ? "true" : "false");
-  // Collapsed sidebar leaves the tab order entirely.
+function setPanelInert(panel, collapsed) {
+  if (!panel) return;
+  panel.setAttribute("aria-hidden", collapsed ? "true" : "false");
   try {
-    if (collapsed) sidebar.setAttribute("inert", "");
-    else sidebar.removeAttribute("inert");
-    sidebar.inert = collapsed;
+    if (collapsed) panel.setAttribute("inert", "");
+    else panel.removeAttribute("inert");
+    panel.inert = collapsed;
   } catch {
     /* inert not supported: aria-hidden still hides it from AT */
   }
+}
+
+function setSidebarCollapsed(collapsed) {
+  if (collapsed) history.endGroup?.();
+  document.querySelector(".workspace").classList.toggle("sidebar-collapsed", collapsed);
+  setPanelInert($("sidebar"), collapsed);
   syncSidebarTabStops(collapsed);
   $("btn-sidebar").classList.toggle("active", !collapsed);
   $("btn-sidebar").setAttribute("aria-pressed", collapsed ? "false" : "true");
   syncSearchButton();
+  syncAskButton();
+  syncOutlineTreeActions();
+  scheduleAutoZoomReflow();
+}
+
+function syncRailTabStops(collapsed) {
+  const rail = $("rail");
+  if (!rail) return;
+  const focusables = rail.querySelectorAll(
+    "button, input, select, textarea, a[href], [tabindex]",
+  );
+  for (const el of focusables) {
+    if (collapsed) {
+      if (el.dataset.railTabindex == null) {
+        el.dataset.railTabindex = el.getAttribute("tabindex") ?? "";
+      }
+      el.tabIndex = -1;
+      el.setAttribute("aria-hidden", "true");
+    } else {
+      const prev = el.dataset.railTabindex;
+      if (prev != null) {
+        if (prev === "") el.removeAttribute("tabindex");
+        else el.setAttribute("tabindex", prev);
+        delete el.dataset.railTabindex;
+      } else {
+        el.removeAttribute("tabindex");
+      }
+      el.removeAttribute("aria-hidden");
+    }
+  }
+}
+
+function setRailCollapsed(collapsed) {
+  document.querySelector(".workspace").classList.toggle("rail-collapsed", collapsed);
+  setPanelInert($("rail"), collapsed || !dualRailActive);
+  syncRailTabStops(collapsed || !dualRailActive);
+  syncSearchButton();
+  syncAskButton();
   scheduleAutoZoomReflow();
 }
 
@@ -1252,8 +1729,8 @@ sidebarResizeHandle?.addEventListener("keydown", (event) => {
   let nextWidth;
   if (event.key === "ArrowRight") nextWidth = sidebarWidth + step;
   else if (event.key === "ArrowLeft") nextWidth = sidebarWidth - step;
-  else if (event.key === "Home") nextWidth = SIDEBAR_MIN_WIDTH;
-  else if (event.key === "End") nextWidth = getSidebarWidthMax();
+  else if (event.key === "Home") nextWidth = sidebarBounds().min;
+  else if (event.key === "End") nextWidth = getPanelWidthMax(dualRailActive && !isRailCollapsed() ? railWidth : 0);
   else return;
   event.preventDefault();
   const previousWidth = sidebarWidth;
@@ -1264,9 +1741,73 @@ sidebarResizeHandle?.addEventListener("keydown", (event) => {
   }
 });
 
+let railResizeDrag = null;
+railResizeHandle?.addEventListener("pointerdown", (event) => {
+  if (event.isPrimary === false || (event.button != null && event.button !== 0) || isRailCollapsed() || !dualRailActive) return;
+  event.preventDefault();
+  railResizeDrag = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startWidth: railWidth,
+    changed: false,
+  };
+  document.querySelector(".workspace").classList.toggle("is-rail-resizing", true);
+  try {
+    railResizeHandle.setPointerCapture?.(event.pointerId);
+  } catch {
+    // Pointer capture may be unavailable in older embedded browsers.
+  }
+});
+
+railResizeHandle?.addEventListener("pointermove", (event) => {
+  if (!railResizeDrag || event.pointerId !== railResizeDrag.pointerId) return;
+  const previousWidth = railWidth;
+  // Dragging the left edge of the right rail: moving left grows the rail.
+  setRailWidth(railResizeDrag.startWidth + (railResizeDrag.startX - event.clientX));
+  railResizeDrag.changed ||= railWidth !== previousWidth;
+});
+
+function finishRailResize(event) {
+  if (!railResizeDrag || (event?.pointerId != null && event.pointerId !== railResizeDrag.pointerId)) return;
+  const changed = railResizeDrag.changed;
+  try {
+    railResizeHandle?.releasePointerCapture?.(railResizeDrag.pointerId);
+  } catch {
+    // The pointer may already have been released by the browser.
+  }
+  railResizeDrag = null;
+  document.querySelector(".workspace").classList.toggle("is-rail-resizing", false);
+  if (changed) {
+    saveRailWidth();
+    reflowAfterSidebarResize();
+  }
+}
+
+railResizeHandle?.addEventListener("pointerup", finishRailResize);
+railResizeHandle?.addEventListener("pointercancel", finishRailResize);
+railResizeHandle?.addEventListener("keydown", (event) => {
+  const step = event.shiftKey ? 48 : 16;
+  let nextWidth;
+  if (event.key === "ArrowLeft") nextWidth = railWidth + step;
+  else if (event.key === "ArrowRight") nextWidth = railWidth - step;
+  else if (event.key === "Home") nextWidth = sidebarBounds().min;
+  else if (event.key === "End") nextWidth = getPanelWidthMax(!isSidebarCollapsed() ? sidebarWidth : 0);
+  else return;
+  event.preventDefault();
+  const previousWidth = railWidth;
+  setRailWidth(nextWidth);
+  if (railWidth !== previousWidth) {
+    saveRailWidth();
+    reflowAfterSidebarResize();
+  }
+});
+
 let viewportReflowTimer = 0;
 window.addEventListener("resize", () => {
-  if (!sidebarResizeDrag) setSidebarWidth(readSavedSidebarWidth());
+  const nextDual = isDualRail();
+  if (nextDual !== dualRailActive) applyDualRailLayout(nextDual, { crossing: true });
+  if (!sidebarResizeDrag) setSidebarWidth(readSavedPanelWidth(SIDEBAR_WIDTH_STORAGE_KEY));
+  if (!railResizeDrag) setRailWidth(readSavedPanelWidth(RAIL_WIDTH_STORAGE_KEY));
   clearTimeout(viewportReflowTimer);
   viewportReflowTimer = setTimeout(() => {
     viewportReflowTimer = 0;
@@ -1292,9 +1833,14 @@ fileInput.addEventListener("change", async () => {
 $("btn-open").addEventListener("click", pickFile);
 $("btn-open-empty")?.addEventListener("click", pickFile);
 $("viewer-status-action")?.addEventListener("click", pickFile);
-// 目录 is always outline: open on outline, outline-open toggles shut,
-// search-open flips back to outline without clearing the query.
+// 目录: dual-rail only toggles the left outline; compact mode keeps the old
+// outline/search/ask mutual-exclusion behavior.
 $("btn-sidebar").addEventListener("click", () => {
+  if (dualRailActive) {
+    setSidebarCollapsed(!isSidebarCollapsed());
+    if (!isSidebarCollapsed()) selectSidebar("outline");
+    return;
+  }
   if (isSidebarCollapsed()) {
     selectSidebar("outline");
     setSidebarCollapsed(false);
@@ -1314,6 +1860,13 @@ $("sidebar-tab-search")?.addEventListener("click", () => {
 $("sidebar-tab-ask")?.addEventListener("click", () => {
   openAsk();
 });
+$("rail-tab-search")?.addEventListener("click", () => {
+  openSearch();
+});
+$("rail-tab-ask")?.addEventListener("click", () => {
+  openAsk();
+});
+$("btn-rail-close")?.addEventListener("click", () => setRailCollapsed(true));
 $("ask-submit")?.addEventListener("click", () => {
   runAsk();
 });
@@ -1333,7 +1886,10 @@ $("ask-input")?.addEventListener("keydown", (event) => {
   } else if (event.key === "Escape") {
     event.preventDefault();
     if (askAbort) cancelAsk();
-    else {
+    else if (dualRailActive) {
+      setRailCollapsed(true);
+      $("btn-ask-toggle")?.focus();
+    } else {
       setSidebarCollapsed(true);
       $("btn-sidebar")?.focus();
     }
@@ -1355,6 +1911,7 @@ $("btn-sidebar-close").addEventListener("click", () => setSidebarCollapsed(true)
 // 默认收起：空文档、无目录文档都是全宽页面，目录按需打开。
 selectSidebar("outline");
 setSidebarCollapsed(true);
+setRailCollapsed(true);
 $("btn-back").addEventListener("click", () => viewer.back());
 $("btn-forward").addEventListener("click", () => viewer.forward());
 $("btn-zoom-in").addEventListener("click", () => {
@@ -1371,8 +1928,21 @@ $("zoom-select").addEventListener("change", (event) => {
 });
 // Search opens on demand, including through Ctrl+F.
 $("btn-search-toggle")?.addEventListener("click", () => {
+  if (dualRailActive) {
+    if (!isRailCollapsed() && railMode === "search") setRailCollapsed(true);
+    else openSearch();
+    return;
+  }
   if (sidebarMode === "search" && !isSidebarCollapsed()) setSidebarCollapsed(true);
   else openSearch();
+});
+$("btn-ask-toggle")?.addEventListener("click", () => {
+  if (dualRailActive) {
+    if (!isRailCollapsed() && railMode === "ask") setRailCollapsed(true);
+    else openAsk();
+    return;
+  }
+  openAsk();
 });
 function pageInputValue(raw) {
   const digits = String(raw || "").trim();
@@ -1411,16 +1981,36 @@ $("page-input").addEventListener("keydown", (event) => {
 });
 
 let searchTimer = 0;
+for (const [id, key] of [["search-match-case", "matchCase"], ["search-whole-word", "wholeWord"]]) {
+  const button = $(id);
+  button.setAttribute("aria-pressed", String(searchOptions[key]));
+  button.addEventListener("click", () => {
+    searchOptions[key] = !searchOptions[key];
+    button.setAttribute("aria-pressed", String(searchOptions[key]));
+    const request = ++searchGeneration;
+    clearTimeout(searchTimer);
+    clearTimeout(indexRefreshTimer);
+    indexRefreshTimer = 0;
+    viewer.clearHits();
+    const query = $("search-input").value;
+    if (query) runSearch(query, request);
+    else renderSearchList([], "");
+  });
+}
 $("search-input").addEventListener("input", (event) => {
   const query = event.target.value;
   const request = ++searchGeneration;
   $("search-clear").hidden = !query;
   clearTimeout(searchTimer);
   viewer.clearHits();
-  if (!query) renderSearchList([], "");
+  if (!query) {
+    history.endGroup?.();
+    renderSearchList([], "");
+  }
   searchTimer = setTimeout(() => runSearch(query, request), 180);
 });
 $("search-clear").addEventListener("click", () => {
+  history.endGroup?.();
   searchGeneration += 1;
   clearTimeout(searchTimer);
   viewer.clearHits();
@@ -1430,17 +2020,25 @@ $("search-clear").addEventListener("click", () => {
   $("search-input").focus();
 });
 $("search-input").addEventListener("keydown", async (event) => {
-  if (event.key === "Enter") {
+  if (searchHits.length && (event.key === "Enter" || event.key === "ArrowDown" || event.key === "ArrowUp")) {
     event.preventDefault();
-    if (event.shiftKey) await moveHit(-1);
+    if (event.shiftKey || event.key === "ArrowUp") await moveHit(-1);
     else await moveHit(1);
   }
   if (event.key === "Escape") {
     event.preventDefault();
     event.stopPropagation();
-    setSidebarCollapsed(true);
+    if (dualRailActive) setRailCollapsed(true);
+    else setSidebarCollapsed(true);
     $("btn-search-toggle")?.focus();
   }
+});
+$("search-list").addEventListener("keydown", async (event) => {
+  if (!event.target?.closest?.(".search-hit") || !searchHits.length) return;
+  if (event.key !== "Enter" && event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  event.preventDefault();
+  if (event.shiftKey || event.key === "ArrowUp") await moveHit(-1);
+  else await moveHit(1);
 });
 $("search-prev").addEventListener("click", () => moveHit(-1));
 $("search-next").addEventListener("click", () => moveHit(1));
@@ -1521,11 +2119,16 @@ for (const type of ["mousedown", "mouseup", "auxclick", "pointerup"]) {
 window.addEventListener("keydown", (event) => {
   const settingsOpen = !$("settings-modal").hidden;
   const passwordOpen = !$("pdf-password-modal").hidden;
-  if (settingsOpen || passwordOpen) {
+  const propertiesOpen = !$("doc-properties-modal").hidden;
+  if (settingsOpen || passwordOpen || propertiesOpen) {
     // Modals own Escape/Tab; background reading shortcuts stay isolated.
     if (event.key === "Escape" && settingsOpen) {
       event.preventDefault();
       closeSettings();
+    }
+    if (event.key === "Escape" && propertiesOpen) {
+      event.preventDefault();
+      closeDocumentProperties();
     }
     return;
   }
@@ -1587,6 +2190,12 @@ window.addEventListener("keydown", (event) => {
       setZoomMenuOpen(false);
       return;
     }
+    if (dualRailActive && !isRailCollapsed()) {
+      setRailCollapsed(true);
+      if (railMode === "search") $("btn-search-toggle")?.focus();
+      else $("btn-ask-toggle")?.focus();
+      return;
+    }
     if (!isSidebarCollapsed() && (sidebarMode === "search" || sidebarMode === "ask")) {
       setSidebarCollapsed(true);
       if (sidebarMode === "search") $("btn-search-toggle")?.focus();
@@ -1600,6 +2209,7 @@ const translateChip = $("translate-chip");
 const bubblePinButton = $("btn-bubble-pin");
 const bubbleHeader = $("bubble-header");
 const bubbleDragHandle = $("bubble-drag-handle");
+const bubbleResizeHandle = $("bubble-resize-handle");
 let selectedText = "";
 let translateChipText = "";
 let selectedTranslationMode = "passage";
@@ -1608,6 +2218,9 @@ let isBubblePinned = false;
 let isBubbleManuallyPositioned = false;
 let bubbleDrag = null;
 let bubblePositionRevision = 0;
+let bubbleResize = null;
+let bubbleRequestedWidth = null;
+let bubbleRequestedHeight = null;
 
 function isAutoTranslateOn() {
   return loadSettings().autoTranslateOnSelect !== false;
@@ -1619,6 +2232,20 @@ function syncBubbleModel() {
   const label = formatBubbleModelLabel(loadSettings());
   modelLabel.textContent = label;
   modelLabel.title = label;
+}
+
+function syncBubbleTargetLanguage(targetLang = loadSettings().targetLang) {
+  const picker = $("bubble-target-lang");
+  if (picker) picker.value = targetLang;
+  const settingsPicker = $("setting-lang");
+  if (settingsPicker) settingsPicker.value = targetLang;
+}
+
+function queueSettingsSave(next) {
+  const save = () => saveSettings(next);
+  const pending = settingsSaveQueue.then(save, save);
+  settingsSaveQueue = pending.catch(() => {});
+  return pending;
 }
 
 function currentSelectionRect() {
@@ -1661,9 +2288,172 @@ function finishBubbleDrag(event) {
   }
 }
 
-bubbleHeader.addEventListener("pointerdown", (event) => {
-  if (event.target?.closest?.("button")) return;
+function bubbleSizeLimits(viewport, top = viewport.top + 8) {
+  const margin = 8;
+  const availableWidth = Math.max(1, viewport.right - viewport.left - margin * 2);
+  const maxHeight = Math.max(72, Math.min(viewport.height * 0.7, viewport.bottom - margin - top));
+  return { minWidth: Math.min(320, availableWidth), maxWidth: Math.min(720, availableWidth), maxHeight };
+}
+
+function applyBubbleRequestedSize(viewport, top = viewport.top + 8) {
+  const limits = bubbleSizeLimits(viewport, top);
+  const width = Math.min(limits.maxWidth, Math.max(limits.minWidth, bubbleRequestedWidth ?? 420));
+  bubble.style.width = `${width}px`;
+  bubble.style.maxWidth = `${limits.maxWidth}px`;
+  if (bubbleRequestedHeight == null) {
+    bubble.style.height = "";
+  } else {
+    bubble.style.height = `${Math.min(limits.maxHeight, Math.max(160, bubbleRequestedHeight))}px`;
+  }
+  bubble.style.maxHeight = `${limits.maxHeight}px`;
+  return { ...limits, width };
+}
+
+function finishBubbleResize(event) {
+  if (!bubbleResize) return;
+  if (event?.pointerId != null && bubbleResize.pointerId != null && event.pointerId !== bubbleResize.pointerId) return;
+  const pointerId = bubbleResize.pointerId;
+  bubbleResize = null;
+  bubble.classList.toggle("is-resizing", false);
+  syncBubbleEdgeCursor(null);
+  if (pointerId != null && bubble.hasPointerCapture?.(pointerId)) {
+    bubble.releasePointerCapture(pointerId);
+  }
+}
+
+function bubbleResizeEdges(event, rect) {
+  const edge = 9;
+  const x = event.clientX;
+  const y = event.clientY;
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  if (x < rect.left - edge || x > rect.right + edge || y < rect.top - edge || y > rect.bottom + edge) return null;
+  if (x > rect.left + edge && x < rect.right - edge && y > rect.top + edge && y < rect.bottom - edge) return null;
+  const left = x <= rect.left + edge;
+  const right = x >= rect.right - edge;
+  const top = y <= rect.top + edge;
+  const bottom = y >= rect.bottom - edge;
+  if (!left && !right && !top && !bottom) return null;
+  return { left, right, top, bottom };
+}
+
+function bubbleResizeCursor(edges) {
+  if (!edges) return "";
+  if ((edges.left && edges.top) || (edges.right && edges.bottom)) return "nwse-resize";
+  if ((edges.right && edges.top) || (edges.left && edges.bottom)) return "nesw-resize";
+  if (edges.left || edges.right) return "ew-resize";
+  return "ns-resize";
+}
+
+function bubblePointerOnControl(event) {
+  const closest = event.target?.closest?.bind?.(event.target);
+  if (!closest) return false;
+  return Boolean(
+    closest("button")
+    || closest("select, option")
+    || closest("input, textarea, label, a")
+  );
+}
+
+function syncBubbleEdgeCursor(edges) {
+  const cursor = bubbleResizeCursor(edges);
+  const root = document.documentElement;
+  bubble.classList.toggle("is-edge-resize", Boolean(cursor));
+  bubble.style.cursor = cursor;
+  root?.classList?.toggle("bubble-edge-resize", Boolean(cursor));
+  root?.style?.setProperty?.("--bubble-edge-cursor", cursor || "");
+}
+
+function updateBubbleResize(event) {
+  if (!bubbleResize || (event.pointerId != null && bubbleResize.pointerId != null && event.pointerId !== bubbleResize.pointerId)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const viewport = wrap.getBoundingClientRect();
+  const edge = bubbleResize.edges;
+  const dx = event.clientX - bubbleResize.x;
+  const dy = event.clientY - bubbleResize.y;
+  const margin = 8;
+  const minLeft = viewport.left + margin;
+  const maxRight = viewport.right - margin;
+  const minTop = viewport.top + margin;
+  const maxBottom = viewport.bottom - margin;
+  let left = bubbleResize.rect.left;
+  let top = bubbleResize.rect.top;
+  let right = bubbleResize.rect.right;
+  let bottom = bubbleResize.rect.bottom;
+  if (edge.left) left = Math.min(right - 1, Math.max(minLeft, bubbleResize.rect.left + dx));
+  if (edge.right) right = Math.max(left + 1, Math.min(maxRight, bubbleResize.rect.right + dx));
+  if (edge.top) top = Math.min(bottom - 1, Math.max(minTop, bubbleResize.rect.top + dy));
+  if (edge.bottom) bottom = Math.max(top + 1, Math.min(maxBottom, bubbleResize.rect.bottom + dy));
+  const limits = bubbleSizeLimits(viewport, top);
+  const widthSpace = edge.left ? right - minLeft : edge.right ? maxRight - left : limits.maxWidth;
+  const maxWidth = Math.min(limits.maxWidth, Math.max(1, widthSpace));
+  const minWidth = Math.min(limits.minWidth, maxWidth);
+  const width = Math.min(maxWidth, Math.max(minWidth, right - left));
+  const heightSpace = edge.top ? bottom - minTop : edge.bottom ? maxBottom - top : limits.maxHeight;
+  const maxHeight = Math.min(limits.maxHeight, Math.max(1, heightSpace));
+  const minHeight = Math.min(160, maxHeight);
+  const height = Math.min(maxHeight, Math.max(minHeight, bottom - top));
+  if (edge.left) left = right - width;
+  else right = left + width;
+  if (edge.top) top = bottom - height;
+  else bottom = top + height;
+  bubbleRequestedWidth = width;
+  bubbleRequestedHeight = height;
+  isBubbleManuallyPositioned = true;
+  $("btn-bubble-reset-size").hidden = false;
+  applyBubbleRequestedSize(viewport, top);
+  bubble.style.left = `${left}px`;
+  bubble.style.top = `${top}px`;
+}
+
+function startBubbleResize(event) {
+  if (bubble.hidden || bubbleResize) return;
+  if (bubblePointerOnControl(event)) return;
   if (event.isPrimary === false || (event.button != null && event.button !== 0)) return;
+  const rect = bubble.getBoundingClientRect();
+  const edges = bubbleResizeEdges(event, rect);
+  if (!edges) return;
+  event.preventDefault();
+  event.stopPropagation();
+  bubbleResize = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, rect, edges };
+  bubble.classList.toggle("is-resizing", true);
+  syncBubbleEdgeCursor(edges);
+  try { bubble.setPointerCapture?.(event.pointerId); } catch { /* capture may be unavailable */ }
+}
+
+// Document capture runs before the header drag and before an outside click
+// closes the bubble. Rounded corners otherwise let the top corners hit the
+// page underneath.
+document.addEventListener("pointerdown", startBubbleResize, true);
+bubble.addEventListener("pointerdown", startBubbleResize, true);
+document.addEventListener("pointermove", (event) => {
+  if (bubble.hidden || bubbleResize || bubbleDrag) return;
+  if (bubblePointerOnControl(event)) {
+    syncBubbleEdgeCursor(null);
+    return;
+  }
+  syncBubbleEdgeCursor(bubbleResizeEdges(event, bubble.getBoundingClientRect()));
+}, true);
+bubble.addEventListener("pointermove", (event) => {
+  if (bubbleResize) {
+    updateBubbleResize(event);
+    return;
+  }
+  if (bubbleDrag) return;
+  syncBubbleEdgeCursor(bubbleResizeEdges(event, bubble.getBoundingClientRect()));
+});
+bubble.addEventListener("pointerup", finishBubbleResize);
+bubble.addEventListener("pointercancel", finishBubbleResize);
+bubble.addEventListener("lostpointercapture", finishBubbleResize);
+bubble.addEventListener("pointerleave", () => {
+  if (bubbleResize) return;
+  syncBubbleEdgeCursor(null);
+});
+
+bubbleHeader.addEventListener("pointerdown", (event) => {
+  if (bubblePointerOnControl(event)) return;
+  if (event.isPrimary === false || (event.button != null && event.button !== 0)) return;
+  if (bubbleResize || bubbleResizeEdges(event, bubble.getBoundingClientRect())) return;
   event.preventDefault();
   isBubbleManuallyPositioned = true;
   keepPinnedBubbleInView();
@@ -1694,6 +2484,18 @@ bubbleHeader.addEventListener("pointermove", (event) => {
 bubbleHeader.addEventListener("pointerup", finishBubbleDrag);
 bubbleHeader.addEventListener("pointercancel", finishBubbleDrag);
 bubbleHeader.addEventListener("lostpointercapture", finishBubbleDrag);
+bubbleResizeHandle.addEventListener("keydown", (event) => {
+  const amount = event.shiftKey ? 48 : 16;
+  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+  event.preventDefault();
+  const viewport = wrap.getBoundingClientRect();
+  const limits = bubbleSizeLimits(viewport, Number.parseFloat(bubble.style.top) || viewport.top + 8);
+  bubbleRequestedWidth = Math.min(limits.maxWidth, Math.max(limits.minWidth, (bubbleRequestedWidth ?? bubble.offsetWidth) + (event.key === "ArrowRight" ? amount : event.key === "ArrowLeft" ? -amount : 0)));
+  bubbleRequestedHeight = Math.min(limits.maxHeight, Math.max(160, (bubbleRequestedHeight ?? bubble.offsetHeight) + (event.key === "ArrowDown" ? amount : event.key === "ArrowUp" ? -amount : 0)));
+  $("btn-bubble-reset-size").hidden = false;
+  applyBubbleRequestedSize(viewport);
+  repositionBubble();
+});
 bubbleDragHandle.addEventListener("keydown", (event) => {
   const distance = event.shiftKey ? 48 : 16;
   const movement = {
@@ -1717,10 +2519,7 @@ bubbleDragHandle.addEventListener("keydown", (event) => {
 function keepPinnedBubbleInView() {
   const viewport = wrap.getBoundingClientRect();
   const margin = 8;
-  const availableWidth = Math.max(160, viewport.right - viewport.left - margin * 2);
-  const width = Math.min(420, availableWidth);
-  bubble.style.width = width + "px";
-  bubble.style.maxWidth = width + "px";
+  applyBubbleRequestedSize(viewport);
 
   const minLeft = viewport.left + margin;
   const maxLeft = Math.max(minLeft, viewport.right - margin - bubble.offsetWidth);
@@ -1732,7 +2531,9 @@ function keepPinnedBubbleInView() {
   const top = Math.min(Math.max(Number.isFinite(currentTop) ? currentTop : minTop, minTop), maxTop);
   bubble.style.left = left + "px";
   bubble.style.top = top + "px";
-  bubble.style.maxHeight = Math.max(72, Math.min(480, viewport.bottom - margin - top)) + "px";
+  const limits = bubbleSizeLimits(viewport, top);
+  bubble.style.maxHeight = `${limits.maxHeight}px`;
+  if (bubbleRequestedHeight != null) bubble.style.height = `${Math.min(limits.maxHeight, Math.max(160, bubbleRequestedHeight))}px`;
 }
 
 function repositionBubble() {
@@ -1743,7 +2544,12 @@ function repositionBubble() {
   }
   const rect = currentSelectionRect();
   if (!rect) return;
-  applyBubblePlacement(bubble, rect, wrap.getBoundingClientRect());
+  const viewport = wrap.getBoundingClientRect();
+  const size = applyBubbleRequestedSize(viewport);
+  applyBubblePlacement(bubble, rect, viewport, { absoluteMax: 720, preferredWidth: size.width });
+  const maxHeight = Math.max(72, Math.min(viewport.height * 0.7, Number.parseFloat(bubble.style.maxHeight) || viewport.height));
+  bubble.style.maxHeight = `${maxHeight}px`;
+  if (bubbleRequestedHeight != null) bubble.style.height = `${Math.min(maxHeight, Math.max(160, bubbleRequestedHeight))}px`;
 }
 
 function scheduleRepositionBubble() {
@@ -1756,6 +2562,9 @@ function scheduleRepositionBubble() {
 }
 
 function clearStreamingResult() {
+  $("btn-copy").disabled = true;
+  $("btn-copy").hidden = true;
+  $("btn-translate-stop").hidden = true;
   const result = $("translate-result");
   result.classList.remove("streaming");
   result.replaceChildren();
@@ -1803,8 +2612,9 @@ function hideBubble({ force = false } = {}) {
   bubble.hidden = true;
   const result = $("translate-result");
   result.hidden = true;
-  result.classList.remove("error", "streaming");
+  result.classList.remove("error", "setup-required", "streaming");
   result.textContent = "";
+  setThinkingFold("bubble-thinking-wrap", "bubble-thinking", "", false);
   cancelTranslate();
 }
 
@@ -1829,10 +2639,13 @@ function openTranslatePanel(selectionRect, text, { startTranslate = true } = {})
   bubbleSelectionRect = selectionRect;
   isBubbleManuallyPositioned = false;
   syncBubbleModel();
+  syncBubbleTargetLanguage();
   const source = $("translate-source");
   renderBubbleSource(source, text, selectedTranslationMode);
   updateSourceFold();
   const result = $("translate-result");
+  $("btn-copy").hidden = true;
+  $("btn-translate-stop").hidden = true;
   result.hidden = true;
   result.classList.remove("error", "streaming");
   result.replaceChildren();
@@ -1842,11 +2655,30 @@ function openTranslatePanel(selectionRect, text, { startTranslate = true } = {})
   return selectionId;
 }
 
+$("bubble-target-lang").addEventListener("change", async (event) => {
+  const targetLang = event.target.value;
+  const revision = ++bubbleTargetLangRevision;
+  syncBubbleTargetLanguage(targetLang);
+  // Invalidate callbacks immediately so an in-flight response cannot paint in
+  // the previous language while the setting is being persisted.
+  translateRequestId += 1;
+  cancelTranslate();
+  try {
+    settings = await queueSettingsSave({ targetLang });
+    if (revision !== bubbleTargetLangRevision) return;
+    syncBubbleTargetLanguage(settings.targetLang);
+    if (!bubble.hidden && selectedText) void runTranslate(bubbleSelectionId);
+  } catch {
+    if (revision !== bubbleTargetLangRevision) return;
+    syncBubbleTargetLanguage(loadSettings().targetLang);
+  }
+});
+
 function updateSourceFold() {
   const source = $("translate-source");
   const toggle = $("btn-source-toggle");
   if (!source || !toggle) return;
-  const long = (selectedText || "").length > 400;
+  const long = (selectedText || "").length > 120;
   const expanded = toggle.dataset.expanded === "true";
   renderBubbleSource(source, selectedText, selectedTranslationMode, { full: expanded });
   source.classList.toggle("collapsed", long && !expanded);
@@ -1868,13 +2700,16 @@ function isMissingKeyError(message) {
 function setTranslateError(message, selectionId) {
   if (selectionId !== bubbleSelectionId) return;
   const result = $("translate-result");
+  $("btn-copy").disabled = true;
+  $("btn-copy").hidden = true;
+  $("btn-translate-stop").hidden = true;
   result.hidden = false;
-  result.classList.remove("streaming");
-  result.classList.add("error");
+  result.classList.remove("error", "setup-required", "streaming");
   result.replaceChildren();
-  result.append(document.createTextNode(`${message} `));
   if (isMissingKeyError(message)) {
+    result.classList.add("setup-required");
     translateAwaitingKey = true;
+    result.append(document.createTextNode(`${t("translateKeyRequired")} `));
     const settingsBtn = document.createElement("button");
     settingsBtn.type = "button";
     settingsBtn.className = "link-btn";
@@ -1883,6 +2718,8 @@ function setTranslateError(message, selectionId) {
     settingsBtn.addEventListener("click", () => openSettings());
     result.append(settingsBtn);
   } else {
+    result.classList.add("error");
+    result.append(document.createTextNode(`${message} `));
     const retry = document.createElement("button");
     retry.type = "button";
     retry.className = "link-btn";
@@ -1892,6 +2729,21 @@ function setTranslateError(message, selectionId) {
     translateAwaitingKey = false;
     result.append(retry);
   }
+}
+
+function setTranslateStopped(selectionId) {
+  const result = $("translate-result");
+  result.hidden = false;
+  result.classList.remove("error", "setup-required", "streaming");
+  result.replaceChildren();
+  result.append(document.createTextNode(`${t("translationStopped")} `));
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.className = "link-btn";
+  retry.id = "btn-translate-retry";
+  retry.textContent = t("retry");
+  retry.addEventListener("click", () => runTranslate(selectionId));
+  result.append(retry);
 }
 
 async function runTranslate(selectionId = bubbleSelectionId) {
@@ -1905,33 +2757,44 @@ async function runTranslate(selectionId = bubbleSelectionId) {
     return;
   }
   const result = $("translate-result");
-  result.classList.remove("error");
+  result.classList.remove("error", "setup-required");
   showStreamingCaret(result);
+  $("btn-translate-stop").hidden = false;
+  setThinkingFold("bubble-thinking-wrap", "bubble-thinking", "", false);
   scheduleRepositionBubble();
 
   const controller = new AbortController();
   translateAbort = controller;
   const requestId = ++translateRequestId;
+  let lastReasoning = "";
 
   try {
     const translated = await translateText(text, loadSettings(), {
       signal: controller.signal,
       mode: selectedTranslationMode,
-      onDelta: (partial) => {
+      onDelta: (partial, extras) => {
         if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
+        if (extras?.reasoning) lastReasoning = extras.reasoning;
         renderBubbleTranslation(result, partial, selectedTranslationMode, { streaming: true });
+        setThinkingFold("bubble-thinking-wrap", "bubble-thinking", extras?.reasoning, loadSettings().showThinking === true);
         scheduleRepositionBubble();
       },
     });
     if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
     result.classList.remove("streaming");
     renderBubbleTranslation(result, translated, selectedTranslationMode);
+    setThinkingFold("bubble-thinking-wrap", "bubble-thinking", lastReasoning, loadSettings().showThinking === true);
+    const hasTranslation = Boolean(readBubblePlainText(result));
+    $("btn-copy").disabled = !hasTranslation;
+    $("btn-copy").hidden = !hasTranslation;
+    $("btn-translate-stop").hidden = true;
     translateAbort = null;
     scheduleRepositionBubble();
   } catch (error) {
     if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
     if (controller.signal.aborted) {
       clearStreamingResult();
+      result.hidden = true;
       return;
     }
     setTranslateError(error.message || String(error), selectionId);
@@ -1947,7 +2810,7 @@ document.addEventListener("pointerdown", (event) => {
   const target = event.target;
   if (bubble.contains(target) || translateChip.contains(target)) return;
   if (target.closest?.(".textLayer")) return;
-  if (target.closest?.("#settings-modal, #pdf-password-modal")) return;
+  if (target.closest?.("#settings-modal, #pdf-password-modal, #doc-properties-modal")) return;
   hideBubble();
 });
 
@@ -2033,6 +2896,20 @@ $("btn-bubble-pin").addEventListener("click", (event) => {
 });
 syncBubblePinButton();
 $("btn-bubble-close").addEventListener("click", () => hideBubble({ force: true }));
+$("btn-translate-stop").addEventListener("click", () => {
+  translateRequestId += 1;
+  translateAwaitingKey = false;
+  cancelTranslate();
+  setTranslateStopped(bubbleSelectionId);
+});
+$("btn-bubble-reset-size").addEventListener("click", () => {
+  bubbleRequestedWidth = null;
+  bubbleRequestedHeight = null;
+  $("btn-bubble-reset-size").hidden = true;
+  bubble.style.height = "";
+  applyBubbleRequestedSize(wrap.getBoundingClientRect());
+  repositionBubble();
+});
 $("btn-source-toggle")?.addEventListener("click", () => {
   const toggle = $("btn-source-toggle");
   toggle.dataset.expanded = toggle.dataset.expanded === "true" ? "false" : "true";
@@ -2073,7 +2950,9 @@ function syncBubbleCopyFeedback(state, announcement = "") {
 
 bubbleCopyButton.addEventListener("click", async () => {
   const requestId = ++bubbleCopyRequestId;
-  const copy = readBubblePlainText($("translate-result")) || selectedText;
+  const result = $("translate-result");
+  if (result.classList.contains("error") || result.classList.contains("streaming")) return;
+  const copy = readBubblePlainText(result);
   if (!copy) {
     syncBubbleCopyFeedback("error", t("nothingToCopy"));
     return;
@@ -2165,6 +3044,67 @@ function trapModalTab(event, container) {
   }
 }
 
+let lastDocPropertiesTrigger = null;
+let docPropertiesGeneration = 0;
+
+function renderDocumentPropertyRows(rows) {
+  const list = $("doc-properties-list");
+  if (!list) return;
+  list.replaceChildren();
+  for (const row of rows) {
+    const dt = document.createElement("dt");
+    dt.textContent = row.label;
+    const dd = document.createElement("dd");
+    dd.textContent = row.value;
+    list.append(dt, dd);
+  }
+}
+
+async function openDocumentProperties() {
+  if (!viewer.pdf) return;
+  lastDocPropertiesTrigger = document.activeElement;
+  const request = ++docPropertiesGeneration;
+  renderDocumentPropertyRows(buildDocumentPropertyRows({
+    fileName: viewer.name,
+    pageCount: viewer.pageCount,
+  }, t, getLocale()));
+  $("doc-properties-modal").hidden = false;
+  try {
+    document.getElementById("app")?.setAttribute("inert", "");
+  } catch {
+    /* ignore */
+  }
+  $("btn-doc-properties-close")?.focus?.();
+  try {
+    const snapshot = await viewer.getDocumentInfo?.();
+    if (request !== docPropertiesGeneration || $("doc-properties-modal").hidden) return;
+    renderDocumentPropertyRows(buildDocumentPropertyRows(snapshot || {
+      fileName: viewer.name,
+      pageCount: viewer.pageCount,
+    }, t, getLocale()));
+  } catch {
+    if (request !== docPropertiesGeneration) return;
+  }
+}
+
+function closeDocumentProperties(restore = true) {
+  docPropertiesGeneration += 1;
+  $("doc-properties-modal").hidden = true;
+  try {
+    document.getElementById("app")?.removeAttribute("inert");
+  } catch {
+    /* ignore */
+  }
+  if (restore && lastDocPropertiesTrigger?.focus) {
+    try {
+      lastDocPropertiesTrigger.focus({ preventScroll: true });
+    } catch {
+      lastDocPropertiesTrigger.focus();
+    }
+  }
+  lastDocPropertiesTrigger = null;
+}
+
 function openSettings() {
   $("settings-error").hidden = true;
   settings = loadSettings();
@@ -2175,9 +3115,11 @@ function openSettings() {
   settingsEndpointChanged = false;
   updateApiBaseHost();
   $("setting-model").value = settings.model;
-  $("setting-lang").value = settings.targetLang;
+  syncBubbleTargetLanguage(settings.targetLang);
   $("setting-ui-language").value = settings.uiLanguage || "zh-CN";
   $("setting-auto-translate").checked = settings.autoTranslateOnSelect !== false;
+  if ($("setting-reasoning-effort")) $("setting-reasoning-effort").value = settings.reasoningEffort || "default";
+  if ($("setting-show-thinking")) $("setting-show-thinking").checked = settings.showThinking === true;
   lastSettingsTrigger = document.activeElement;
   $("settings-modal").hidden = false;
   try {
@@ -2208,6 +3150,22 @@ function closeSettings(restore = true) {
   lastSettingsTrigger = null;
 }
 
+$("btn-doc-properties").addEventListener("click", () => {
+  void openDocumentProperties();
+});
+$("btn-doc-properties-close")?.addEventListener("click", () => closeDocumentProperties());
+$("doc-properties-modal")?.addEventListener("keydown", (event) => {
+  trapModalTab(event, $("doc-properties-modal").querySelector(".modal-card") || $("doc-properties-modal"));
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    closeDocumentProperties();
+  }
+  event.stopPropagation();
+});
+$("doc-properties-modal")?.addEventListener("pointerdown", (event) => {
+  if (event.target === $("doc-properties-modal")) closeDocumentProperties();
+});
 $("btn-settings").addEventListener("click", openSettings);
 $("settings-modal").addEventListener("keydown", (event) => {
   trapModalTab(event, $("settings-modal").querySelector(".modal-card") || $("settings-modal"));
@@ -2252,19 +3210,23 @@ $("btn-settings-save").addEventListener("click", async () => {
     uiLanguage: $("setting-ui-language").value,
     uiLanguageSelected: uiLanguageSelectionExplicit,
     autoTranslateOnSelect: $("setting-auto-translate").checked,
+    reasoningEffort: $("setting-reasoning-effort")?.value || "default",
+    showThinking: $("setting-show-thinking")?.checked === true,
   };
+  const previousTargetLang = loadSettings().targetLang;
   try {
     if (!isAllowedApiBaseUrl(next.apiBaseUrl)) throw new Error(t("modelEndpointMustUseHttps"));
     // Request from the click handler, before yielding the user gesture.
     const permission = next.apiKey ? requestHostAccess(next.apiBaseUrl) : true;
     button.disabled = true;
     if (!await permission) throw new Error(t("permissionDenied"));
-    settings = await saveSettings(next);
+    settings = await queueSettingsSave(next);
     applyInterfaceLanguage(settings.uiLanguage);
     syncBubbleModel();
+    syncBubbleTargetLanguage(settings.targetLang);
     const retryTranslate = translateAwaitingKey && settings.apiKey?.trim();
     closeSettings();
-    if (retryTranslate) {
+    if (retryTranslate || (settings.targetLang !== previousTargetLang && !bubble.hidden && selectedText)) {
       translateAwaitingKey = false;
       void runTranslate(bubbleSelectionId);
     }
@@ -2319,7 +3281,7 @@ function applyInterfaceLanguage(locale) {
   for (let index = 0; index < zoomMenuItems.length; index += 1) {
     zoomMenuItems[index].textContent = options[index]?.textContent || zoomMenuItems[index].textContent;
   }
-  const state = viewer.getState?.() || { page: viewer.currentPage || 1, zoom: "page-width" };
+  const state = viewer.getState?.() || { page: viewer.currentPage || 1, zoom: "page-fit" };
   syncZoom(state.zoom);
   syncToolbar(state);
   syncBubblePinButton();
@@ -2338,30 +3300,40 @@ function applyInterfaceLanguage(locale) {
   if (viewer.pdf || viewerStatusDescriptor?.key === "openFailed") {
     void renderOutline(openGeneration);
   }
+  if (!$("doc-properties-modal")?.hidden && viewer.pdf) {
+    void viewer.getDocumentInfo?.().then((snapshot) => {
+      if ($("doc-properties-modal")?.hidden) return;
+      renderDocumentPropertyRows(buildDocumentPropertyRows(snapshot || {
+        fileName: viewer.name,
+        pageCount: viewer.pageCount,
+      }, t, getLocale()));
+    });
+  }
 }
 
 async function boot() {
   pruneReadingPositions();
   applyInterfaceLanguage(settings.uiLanguage);
   document.body.dataset.platform = platform.id;
+  $("btn-original-pdf").addEventListener("click", async () => {
+    try { await openInBrowserPdf(); }
+    catch (error) {
+      const message = localizedErrorMessage(error) || t("openOriginalFailed");
+      showViewerStatus(message, {
+        action: true,
+        descriptor: error?.code ? { error } : { key: "openOriginalFailed" },
+      });
+    }
+  });
   if (platform.id === "extension") {
     $("btn-extension-options").hidden = false;
     $("btn-extension-options").addEventListener("click", () => chrome.runtime.openOptionsPage());
-    $("btn-original-pdf").addEventListener("click", async () => {
-      try { await fallbackToBrowser(); }
-      catch (error) {
-        const message = localizedErrorMessage(error) || t("openOriginalFailed");
-        showViewerStatus(message, {
-          action: true,
-          descriptor: error?.code ? { error } : { key: "openOriginalFailed" },
-        });
-      }
-    });
   }
   const request = openGeneration;
   try {
     await initSettings();
     settings = loadSettings();
+    syncBubbleTargetLanguage(settings.targetLang);
     applyInterfaceLanguage(settings.uiLanguage);
     const startup = await platform.startupOpen();
     if (startup && request === openGeneration) {

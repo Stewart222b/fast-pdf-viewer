@@ -19,9 +19,13 @@
         <path d="M10 14 21 3" />
         <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
       </symbol>
-      <symbol id="i-panel-left" viewBox="0 0 24 24">
-        <rect width="18" height="18" x="3" y="3" rx="2" />
-        <path d="M9 3v18" />
+      <symbol id="i-outline" viewBox="0 0 24 24">
+        <path d="M8 6h13" />
+        <path d="M8 12h13" />
+        <path d="M8 18h13" />
+        <path d="M3 6h.01" />
+        <path d="M3 12h.01" />
+        <path d="M3 18h.01" />
       </symbol>
       <symbol id="i-arrow-left" viewBox="0 0 24 24">
         <path d="m12 19-7-7 7-7" />
@@ -37,19 +41,16 @@
       <symbol id="i-chevron-down" viewBox="0 0 24 24">
         <path d="m6 9 6 6 6-6" />
       </symbol>
+      <symbol id="i-disclosure" viewBox="0 0 16 16">
+        <path d="M3.6 2.2 14 8 3.6 13.8z" />
+      </symbol>
       <symbol id="i-list-tree" viewBox="0 0 24 24">
-        <path d="M8 5h13" />
-        <path d="M13 12h8" />
-        <path d="M13 19h8" />
-        <path d="M3 10a2 2 0 0 0 2 2h3" />
-        <path d="M3 5v12a2 2 0 0 0 2 2h3" />
+        <path d="m6 6 6 6 6-6" />
+        <path d="m6 12 6 6 6-6" />
       </symbol>
       <symbol id="i-list-collapse" viewBox="0 0 24 24">
-        <path d="m3 10 2.5-2.5L8 10" />
-        <path d="m3 14 2.5 2.5L8 14" />
-        <path d="M13 6h8" />
-        <path d="M13 12h8" />
-        <path d="M13 18h8" />
+        <path d="m18 18-6-6-6 6" />
+        <path d="m18 12-6-6-6 6" />
       </symbol>
       <symbol id="i-minus" viewBox="0 0 24 24">
         <path d="M5 12h14" />
@@ -61,6 +62,11 @@
       <symbol id="i-search" viewBox="0 0 24 24">
         <circle cx="11" cy="11" r="8" />
         <path d="m21 21-4.3-4.3" />
+      </symbol>
+      <symbol id="i-ask" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4.5" />
+        <path d="M12 17h.01" />
       </symbol>
       <symbol id="i-settings" viewBox="0 0 24 24">
         <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
@@ -83,8 +89,14 @@
         <path d="M12 8v5" />
         <path d="M12 16h.01" />
       </symbol>
+      <symbol id="i-info" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 16v-4" />
+        <path d="M12 8h.01" />
+      </symbol>
       <symbol id="i-pin" viewBox="0 0 24 24">
-        <path d="M16 9V4h1V2H7v2h1v5l-2 2v2h5v7l1 2 1-2v-7h5v-2z" transform="rotate(35 12 12)" />
+        <path d="M9 4h6v4.2L17.2 11v1.6H6.8V11L9 8.2z" />
+        <path d="M12 12.6V20" />
       </symbol>
       <symbol id="i-grip" viewBox="0 0 24 24">
         <circle cx="9" cy="5" r="1" />
@@ -110,8 +122,11 @@
       <header class="toolbar">
         <div class="toolbar-left">
           <span class="tb-group" role="group" aria-label="文件与导航" data-i18n-aria="fileNavigation">
-            <button id="btn-open" class="btn toolbar-ghost has-icon" title="打开 PDF (Ctrl+O)"><svg class="icon" aria-hidden="true"><use href="#i-folder-open" /></svg><span data-i18n="open">打开</span></button>
-            <button id="btn-sidebar" class="btn toolbar-ghost has-icon" title="显示/隐藏目录侧栏" data-i18n-title="toggleSidebar" aria-label="显示/隐藏目录侧栏" data-i18n-aria="toggleSidebar" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-panel-left" /></svg><span class="toolbar-menu-label" data-i18n="outline">目录</span></button>
+            <button id="btn-sidebar" class="btn toolbar-ghost icon" title="显示/隐藏目录侧栏" data-i18n-title="toggleSidebar" aria-label="显示/隐藏目录侧栏" data-i18n-aria="toggleSidebar" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-outline" /></svg></button>
+          </span>
+          <span class="tb-group toolbar-history" role="group" aria-label="阅读历史" data-i18n-aria="readingHistory">
+            <button id="btn-back" class="btn toolbar-ghost icon" title="返回（鼠标侧键 / Alt+← / Backspace）" data-i18n-title="backHint" aria-label="返回" data-i18n-aria="back" disabled><svg class="icon" aria-hidden="true"><use href="#i-arrow-left" /></svg></button>
+            <button id="btn-forward" class="btn toolbar-ghost icon" title="前进（鼠标侧键 / Alt+→）" data-i18n-title="forwardHint" aria-label="前进" data-i18n-aria="forward" disabled><svg class="icon" aria-hidden="true"><use href="#i-arrow-right" /></svg></button>
           </span>
           <span id="page-divider" class="tb-divider" aria-hidden="true" hidden></span>
           <span id="page-controls" class="tb-group" role="group" aria-label="页码" data-i18n-aria="pageNumber" hidden>
@@ -129,12 +144,12 @@
             <button id="btn-zoom-out" class="btn toolbar-ghost icon" title="缩小 (Ctrl+-)" aria-label="缩小"><svg class="icon" aria-hidden="true"><use href="#i-minus" /></svg></button>
             <span id="zoom-picker" class="zoom-picker">
               <button id="zoom-button" class="btn toolbar-ghost has-icon" type="button" title="缩放" data-i18n-title="zoom" aria-haspopup="menu" aria-expanded="false" aria-controls="zoom-menu">
-                <span id="zoom-label">适合宽度</span><svg class="icon chevron" aria-hidden="true"><use href="#i-chevron-down" /></svg>
+                <span id="zoom-label">适合页面</span><svg class="icon chevron" aria-hidden="true"><use href="#i-chevron-down" /></svg>
               </button>
               <span id="zoom-menu" class="zoom-menu" role="menu" aria-label="缩放" data-i18n-aria="zoom" hidden></span>
               <select id="zoom-select" title="缩放" data-i18n-title="zoom" hidden>
-                <option value="page-width" data-i18n="fitWidth" selected>适合宽度</option>
-                <option value="page-fit" data-i18n="fitPage">适合页面</option>
+                <option value="page-width" data-i18n="fitWidth">适合宽度</option>
+                <option value="page-fit" data-i18n="fitPage" selected>适合页面</option>
                 <option value="100">100%</option>
                 <option value="125">125%</option>
                 <option value="150">150%</option>
@@ -147,32 +162,34 @@
           <span class="tb-divider" aria-hidden="true"></span>
           <span class="tb-group" role="group" aria-label="搜索" data-i18n-aria="search">
             <button id="btn-search-toggle" class="btn toolbar-ghost icon" type="button" title="搜索 (Ctrl+F)" aria-label="搜索" aria-controls="search-pane" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-search" /></svg></button>
+            <button id="btn-ask-toggle" class="btn toolbar-ghost icon ask-toggle" type="button" title="问答 (beta)" data-i18n-title="ask" aria-label="问答 (beta)" data-i18n-aria="ask" aria-controls="ask-pane" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-ask" /></svg></button>
           </span>
           <span class="toolbar-more">
             <button id="btn-toolbar-more" class="btn toolbar-ghost icon toolbar-more-button" type="button" title="更多" data-i18n-title="more" aria-label="更多" data-i18n-aria="more" aria-haspopup="true" aria-expanded="false" aria-controls="toolbar-more-menu"><svg class="icon" aria-hidden="true"><use href="#i-more" /></svg></button>
-            <span id="toolbar-more-menu" class="toolbar-more-menu" role="group" aria-label="更多" data-i18n-aria="more" aria-hidden="false">
+            <span id="toolbar-more-menu" class="toolbar-more-menu" role="group" aria-label="更多" data-i18n-aria="more" aria-hidden="true">
+              <button id="btn-open" class="btn toolbar-ghost has-icon" type="button" title="打开 PDF (Ctrl+O)" hidden><svg class="icon" aria-hidden="true"><use href="#i-folder-open" /></svg><span data-i18n="open">打开</span></button>
               <button id="btn-doc-title-menu" class="btn toolbar-ghost has-icon" type="button" title="查看完整文件名" aria-label="查看完整文件名" aria-controls="doc-title-popover" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-folder-open" /></svg><span id="doc-title-menu-label" class="toolbar-menu-label">查看完整文件名</span></button>
-              <button id="btn-original-pdf" class="btn toolbar-ghost has-icon" type="button" hidden title="用浏览器打开原始 PDF" data-i18n-title="openOriginalPdf"><svg class="icon" aria-hidden="true"><use href="#i-external-link" /></svg><span class="toolbar-menu-label" data-i18n="originalPdf">原始 PDF</span></button>
-              <button id="btn-back" class="btn toolbar-ghost icon" title="返回（鼠标侧键 / Alt+← / Backspace）" data-i18n-title="backHint" aria-label="返回" data-i18n-aria="back" disabled><svg class="icon" aria-hidden="true"><use href="#i-arrow-left" /></svg></button>
-              <button id="btn-forward" class="btn toolbar-ghost icon" title="前进（鼠标侧键 / Alt+→）" data-i18n-title="forwardHint" aria-label="前进" data-i18n-aria="forward" disabled><svg class="icon" aria-hidden="true"><use href="#i-arrow-right" /></svg></button>
+              <button id="btn-original-pdf" class="btn toolbar-ghost has-icon" type="button" hidden title="用浏览器自带的 PDF 阅读器打开" data-i18n-title="openOriginalPdf" aria-label="用浏览器打开" data-i18n-aria="originalPdf"><svg class="icon" aria-hidden="true"><use href="#i-external-link" /></svg><span class="toolbar-menu-label" data-i18n="originalPdf">用浏览器打开</span></button>
+              <button id="btn-doc-properties" class="btn toolbar-ghost has-icon" type="button" hidden title="文档属性" data-i18n-title="documentProperties" aria-label="文档属性" data-i18n-aria="documentProperties"><svg class="icon" aria-hidden="true"><use href="#i-info" /></svg><span class="toolbar-menu-label" data-i18n="documentProperties">文档属性</span></button>
               <span class="tb-divider" aria-hidden="true"></span>
               <button id="btn-theme" class="btn toolbar-ghost icon" type="button" title="切换到浅色主题" aria-label="切换到浅色主题"><svg class="icon" aria-hidden="true"><use id="theme-icon" href="#i-sun" /></svg></button>
               <button id="btn-settings" class="btn toolbar-ghost icon" title="设置" data-i18n-title="settings" aria-label="设置" data-i18n-aria="settings"><svg class="icon" aria-hidden="true"><use href="#i-settings" /></svg></button>
             </span>
           </span>
         </div>
-        <div id="doc-title-popover" class="doc-title-popover" role="tooltip" hidden></div>
+        <div id="doc-title-popover" class="doc-title-popover" role="dialog" aria-label="文件名与当前章节" data-i18n-aria="documentLocation" hidden></div>
       </header>
 
-      <div class="workspace sidebar-collapsed">
+      <div class="workspace sidebar-collapsed rail-collapsed">
         <aside id="sidebar" class="sidebar" aria-hidden="true" inert>
           <div class="sidebar-inner">
             <div class="sidebar-head">
               <div class="sidebar-tabs" role="tablist" aria-label="侧栏模式" data-i18n-aria="sidebarMode">
                 <button id="sidebar-tab-outline" class="sidebar-tab" type="button" role="tab" aria-selected="true" data-i18n="outline">目录</button>
                 <button id="sidebar-tab-search" class="sidebar-tab" type="button" role="tab" aria-selected="false" data-i18n="search">搜索</button>
-                <button id="sidebar-tab-ask" class="sidebar-tab" type="button" role="tab" aria-selected="false" data-i18n="ask">问答</button>
+                <button id="sidebar-tab-ask" class="sidebar-tab" type="button" role="tab" aria-selected="false" data-i18n="ask">问答 (beta)</button>
               </div>
+              <span class="outline-pane-title" data-i18n="outline">目录</span>
               <span id="outline-tree-actions" class="outline-tree-actions" hidden>
                 <button id="btn-outline-expand-all" class="btn toolbar-ghost icon tiny" type="button" title="全部展开" data-i18n-title="expandAll" aria-label="全部展开" data-i18n-aria="expandAll"><svg class="icon" aria-hidden="true"><use href="#i-list-tree" /></svg></button>
                 <button id="btn-outline-collapse-all" class="btn toolbar-ghost icon tiny" type="button" title="全部折叠" data-i18n-title="collapseAll" aria-label="全部折叠" data-i18n-aria="collapseAll"><svg class="icon" aria-hidden="true"><use href="#i-list-collapse" /></svg></button>
@@ -188,6 +205,10 @@
                   <button id="search-clear" class="search-clear" type="button" title="清除搜索" data-i18n-title="clearSearch" aria-label="清除搜索" data-i18n-aria="clearSearch" hidden><svg class="icon" aria-hidden="true"><use href="#i-x" /></svg></button>
                 </div>
               <div class="search-pane-bar">
+                <span class="search-options" role="group" aria-label="搜索选项" data-i18n-aria="searchOptions">
+                  <button id="search-match-case" class="search-option" type="button" title="区分大小写" data-i18n-title="matchCase" aria-label="区分大小写" data-i18n-aria="matchCase" aria-pressed="false">Aa</button>
+                  <button id="search-whole-word" class="search-option" type="button" title="全词匹配" data-i18n-title="wholeWord" aria-label="全词匹配" data-i18n-aria="wholeWord" aria-pressed="false"><span class="whole-word-label">ab</span></button>
+                </span>
                 <span id="search-count" class="search-count" hidden></span>
                 <span class="search-pane-nav">
                   <button id="search-prev" class="btn toolbar-ghost icon tiny" type="button" title="上一个 (Shift+Enter)" data-i18n-title="previousHint" aria-label="上一个" data-i18n-aria="previous" disabled><svg class="icon" aria-hidden="true"><use href="#i-chevron-up" /></svg></button>
@@ -200,15 +221,19 @@
             <div id="ask-pane" class="sidebar-pane">
               <div class="ask-controls">
                 <label class="ask-label" for="ask-input" data-i18n="askDocument">问这份文档</label>
-                <textarea id="ask-input" class="ask-input" rows="3" placeholder="问这份 PDF 里的内容，例如冷却水规格在哪" data-i18n-placeholder="askPrompt" aria-label="问这份文档" data-i18n-aria="askDocument"></textarea>
+                <textarea id="ask-input" class="ask-input" rows="3" placeholder="问这份 PDF，例如总结一下、冷却水规格在哪" data-i18n-placeholder="askPrompt" aria-label="问这份文档" data-i18n-aria="askDocument"></textarea>
                 <div class="ask-actions">
                   <button id="ask-submit" class="btn primary tiny" type="button" data-i18n="askSubmit">提问</button>
                   <button id="ask-stop" class="btn toolbar-ghost tiny" type="button" data-i18n="askStop" hidden>停止</button>
                 </div>
                 <p id="ask-status" class="ask-status" role="status" aria-live="polite" hidden></p>
               </div>
-              <div id="ask-empty" class="empty-side" data-i18n="askPrompt">问这份 PDF 里的内容，例如冷却水规格在哪</div>
+              <div id="ask-empty" class="empty-side" data-i18n="askPrompt">问这份 PDF，例如总结一下、冷却水规格在哪</div>
               <div id="ask-result" class="ask-result" hidden>
+                <details id="ask-thinking-wrap" class="thinking-fold" hidden>
+                  <summary data-i18n="thinkingProcess">思考过程</summary>
+                  <pre id="ask-thinking" class="thinking-body"></pre>
+                </details>
                 <div class="ask-answer-label" data-i18n="askAnswer">答案</div>
                 <div id="ask-answer" class="ask-answer"></div>
                 <div id="ask-citations-wrap" class="ask-citations-wrap" hidden>
@@ -228,6 +253,7 @@
           <div id="viewer-status" class="viewer-status" hidden>
             <p id="viewer-status-text" class="viewer-status-text" role="status"></p>
             <button id="viewer-status-action" class="btn primary" type="button" data-i18n="chooseAgain" hidden>重新选择文件</button>
+            <button id="viewer-status-restore" class="btn" type="button" data-i18n="restorePreviousDocument" hidden>返回上一文档</button>
           </div>
           <div id="drop-hint" class="drop-hint">
             <div class="empty-state">
@@ -238,7 +264,25 @@
             </div>
           </div>
           <div id="pages" class="pages pdfViewer"></div>
+          <div id="reading-notice" class="reading-notice" role="status" hidden>
+            <span id="reading-notice-text" class="reading-notice-text"></span>
+            <button id="btn-reading-start" class="link-btn reading-notice-action" type="button" data-i18n="backToStart">回到开头</button>
+            <button id="btn-reading-notice-close" class="btn toolbar-ghost icon tiny reading-notice-close" type="button" title="关闭提示" data-i18n-title="dismissNotice" aria-label="关闭提示" data-i18n-aria="dismissNotice"><svg class="icon" aria-hidden="true"><use href="#i-x" /></svg></button>
+          </div>
         </main>
+        <aside id="rail" class="rail" aria-hidden="true" inert>
+          <div id="rail-resize-handle" class="rail-resize-handle" role="separator" aria-orientation="vertical" aria-label="调整右侧栏宽度" data-i18n-aria="resizeRail" aria-valuemin="272" aria-valuemax="480" aria-valuenow="272" tabindex="0"></div>
+          <div class="rail-inner">
+            <div class="sidebar-head rail-head">
+              <div class="sidebar-tabs" role="tablist" aria-label="右侧栏模式" data-i18n-aria="railMode">
+                <button id="rail-tab-search" class="sidebar-tab" type="button" role="tab" aria-selected="true" data-i18n="search">搜索</button>
+                <button id="rail-tab-ask" class="sidebar-tab" type="button" role="tab" aria-selected="false" data-i18n="ask">问答 (beta)</button>
+              </div>
+              <button id="btn-rail-close" class="btn toolbar-ghost icon tiny" type="button" title="关闭右侧栏" data-i18n-title="closeRail" aria-label="关闭右侧栏" data-i18n-aria="closeRail"><svg class="icon" aria-hidden="true"><use href="#i-x" /></svg></button>
+            </div>
+            <div id="rail-panes" class="rail-panes"></div>
+          </div>
+        </aside>
       </div>
     </div>
 
@@ -246,25 +290,49 @@
 
     <div id="translate-bubble" class="translate-bubble" hidden>
       <div id="bubble-header" class="bubble-header">
-        <span id="bubble-drag-handle" class="bubble-drag-handle" role="group" tabindex="0" aria-label="拖动翻译窗，也可使用方向键移动" data-i18n-aria="dragTranslation" title="按住拖动翻译窗" data-i18n-title="dragTranslationHint"></span>
+        <span id="bubble-drag-handle" class="bubble-drag-handle" role="group" tabindex="0" aria-label="拖动翻译窗，也可使用方向键移动" data-i18n-aria="dragTranslation" title="按住拖动翻译窗" data-i18n-title="dragTranslationHint"><svg class="icon" aria-hidden="true"><use href="#i-grip" /></svg></span>
+        <label class="visually-hidden" for="bubble-target-lang" data-i18n="targetLanguage">目标语言</label>
+        <select id="bubble-target-lang" class="bubble-target-lang" aria-label="目标语言" data-i18n-aria="targetLanguage">
+          <option value="zh-CN">简体中文</option>
+          <option value="zh-TW">繁体中文</option>
+          <option value="en">English</option>
+          <option value="ja">日本語</option>
+        </select>
         <button id="btn-bubble-pin" class="btn icon tiny bubble-pin" type="button" title="固定翻译窗" aria-label="固定翻译窗" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-pin" /></svg></button>
         <button id="btn-bubble-close" class="btn icon tiny bubble-close" title="关闭 (Esc)" data-i18n-title="closeHint" aria-label="关闭" data-i18n-aria="close"><svg class="icon" aria-hidden="true"><use href="#i-x" /></svg></button>
       </div>
       <div class="bubble-body">
         <div id="translate-source" class="bubble-source"></div>
         <button id="btn-source-toggle" class="link-btn source-toggle" type="button" data-i18n="expandSource" hidden>展开原文</button>
+        <details id="bubble-thinking-wrap" class="thinking-fold" hidden>
+          <summary data-i18n="thinkingProcess">思考过程</summary>
+          <pre id="bubble-thinking" class="thinking-body"></pre>
+        </details>
         <div id="translate-result" class="bubble-result" hidden></div>
       </div>
       <div class="bubble-actions">
         <span id="bubble-model" class="bubble-model" aria-label="当前翻译模型" data-i18n-aria="currentModel"></span>
         <span class="bubble-actions-spacer"></span>
+        <button id="btn-bubble-reset-size" class="btn tiny bubble-reset-size" type="button" title="恢复默认大小" aria-label="恢复默认大小" data-i18n="resetBubbleSize" data-i18n-title="resetBubbleSize" data-i18n-aria="resetBubbleSize" hidden>默认大小</button>
+        <button id="btn-translate-stop" class="btn tiny" type="button" data-i18n="stopTranslation" hidden>停止</button>
         <button id="btn-copy" class="btn icon tiny copy-feedback" type="button" title="复制翻译结果" data-i18n-title="copyResult" aria-label="复制翻译结果" data-i18n-aria="copyResult" data-copy-state="idle">
           <svg class="icon copy-default-icon" aria-hidden="true"><use href="#i-copy" /></svg>
           <svg class="icon copy-success-icon" aria-hidden="true"><use href="#i-check" /></svg>
           <svg class="icon copy-error-icon" aria-hidden="true"><use href="#i-alert" /></svg>
         </button>
         <span id="copy-status" class="visually-hidden" role="status" aria-live="polite"></span>
-        
+        <button id="bubble-resize-handle" class="bubble-resize-handle visually-hidden-focusable" type="button" title="调整翻译窗大小" aria-label="调整翻译窗大小" data-i18n-title="resizeTranslation" data-i18n-aria="resizeTranslation"></button>
+      </div>
+    </div>
+
+    <div id="doc-properties-modal" class="modal" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="doc-properties-title">
+        <h2 id="doc-properties-title" data-i18n="documentProperties">文档属性</h2>
+        <dl id="doc-properties-list" class="doc-properties-list"></dl>
+        <div class="modal-actions">
+          <span class="modal-actions-spacer" aria-hidden="true"></span>
+          <button id="btn-doc-properties-close" class="btn primary" type="button" data-i18n="close">关闭</button>
+        </div>
       </div>
     </div>
 
@@ -286,51 +354,72 @@
 
     <div id="settings-modal" class="modal" hidden>
       <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-        <h2 id="settings-title" data-i18n="translationSettings">翻译设置</h2>
-        <div class="setting-field">
-          <label class="setting-label" for="setting-base" data-i18n="apiBase">API Base URL（OpenAI 兼容）</label>
-          <input id="setting-base" type="url" autocomplete="off" placeholder="https://openrouter.ai/api/v1" />
-          <p id="setting-base-host" class="hint compact" role="status" aria-live="polite"></p>
-        </div>
-        <div class="setting-field">
-          <label class="setting-label" for="setting-key">API Key</label>
-          <input id="setting-key" type="password" autocomplete="off" placeholder="sk-or-v1-..." />
-        </div>
-        <div class="setting-field">
-          <div class="setting-label-row">
-            <label id="setting-model-label" class="setting-label" for="setting-model" data-i18n="model">模型</label>
-            <button id="btn-check-models" class="setting-action model-check-button" type="button" data-i18n="checkModels">检查模型列表</button>
+        <h2 id="settings-title" data-i18n="readerSettings">阅读器设置</h2>
+        <section class="settings-section" aria-labelledby="settings-service-title">
+          <h3 id="settings-service-title" class="settings-section-title" data-i18n="translationService">翻译服务</h3>
+          <div class="setting-field">
+            <label class="setting-label" for="setting-base" data-i18n="apiBase">API Base URL（OpenAI 兼容）</label>
+            <input id="setting-base" type="url" autocomplete="off" placeholder="https://openrouter.ai/api/v1" />
+            <p id="setting-base-host" class="hint compact" role="status" aria-live="polite"></p>
           </div>
-          <div class="model-picker">
-            <input id="setting-model" type="text" autocomplete="off" placeholder="选择或输入模型 ID" data-i18n-placeholder="modelInputPlaceholder"
-              role="combobox" aria-autocomplete="list" aria-haspopup="listbox"
-              aria-controls="setting-model-menu" aria-expanded="false" />
-            <ul id="setting-model-menu" class="model-menu" role="listbox" aria-labelledby="setting-model-label" hidden></ul>
-            <div id="setting-model-status" class="model-picker-status" role="status" aria-live="polite" hidden></div>
+          <div class="setting-field">
+            <label class="setting-label" for="setting-key">API Key</label>
+            <input id="setting-key" type="password" autocomplete="off" placeholder="sk-or-v1-..." />
           </div>
-        </div>
-        <div class="setting-field">
-          <label class="setting-label" for="setting-lang" data-i18n="targetLanguage">目标语言</label>
-          <select id="setting-lang">
-            <option value="zh-CN">简体中文</option>
-            <option value="zh-TW">繁体中文</option>
-            <option value="en">English</option>
-            <option value="ja">日本語</option>
-          </select>
-        </div>
-        <div class="setting-field">
-          <label class="setting-label" for="setting-ui-language" data-i18n="interfaceLanguage">界面语言</label>
-          <select id="setting-ui-language">
-            <option value="zh-CN" data-i18n="chineseSimplified">简体中文</option>
-            <option value="en" data-i18n="english">English</option>
-          </select>
-        </div>
-        <label class="setting-checkbox" for="setting-auto-translate">
-          <input id="setting-auto-translate" type="checkbox" />
-          <span class="setting-checkbox-label" data-i18n="autoTranslate">选中文本后自动翻译（关闭时点击“译”）</span>
-        </label>
+          <div class="setting-field">
+            <div class="setting-label-row">
+              <label id="setting-model-label" class="setting-label" for="setting-model" data-i18n="model">模型</label>
+              <button id="btn-check-models" class="setting-action model-check-button" type="button" data-i18n="checkModels">检查模型列表</button>
+            </div>
+            <div class="model-picker">
+              <input id="setting-model" type="text" autocomplete="off" placeholder="选择或输入模型 ID" data-i18n-placeholder="modelInputPlaceholder"
+                role="combobox" aria-autocomplete="list" aria-haspopup="listbox"
+                aria-controls="setting-model-menu" aria-expanded="false" />
+              <ul id="setting-model-menu" class="model-menu" role="listbox" aria-labelledby="setting-model-label" hidden></ul>
+              <div id="setting-model-status" class="model-picker-status" role="status" aria-live="polite" hidden></div>
+            </div>
+          </div>
+        </section>
+        <section class="settings-section" aria-labelledby="settings-preferences-title">
+          <h3 id="settings-preferences-title" class="settings-section-title" data-i18n="readingPreferences">阅读偏好</h3>
+          <div class="setting-field">
+            <label class="setting-label" for="setting-lang" data-i18n="targetLanguage">目标语言</label>
+            <select id="setting-lang">
+              <option value="zh-CN">简体中文</option>
+              <option value="zh-TW">繁体中文</option>
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+            </select>
+          </div>
+          <div class="setting-field">
+            <label class="setting-label" for="setting-ui-language" data-i18n="interfaceLanguage">界面语言</label>
+            <select id="setting-ui-language">
+              <option value="zh-CN" data-i18n="chineseSimplified">简体中文</option>
+              <option value="en" data-i18n="english">English</option>
+            </select>
+          </div>
+          <label class="setting-checkbox" for="setting-auto-translate">
+            <input id="setting-auto-translate" type="checkbox" />
+            <span class="setting-checkbox-label" data-i18n="autoTranslate">选中文本后自动翻译（关闭时点击“译”）</span>
+          </label>
+          <div class="setting-field">
+            <label class="setting-label" for="setting-reasoning-effort" data-i18n="reasoningEffort">思考强度</label>
+            <select id="setting-reasoning-effort">
+              <option value="default" data-i18n="reasoningEffortDefault">跟随模型默认</option>
+              <option value="none" data-i18n="reasoningEffortNone">关闭</option>
+              <option value="low" data-i18n="reasoningEffortLow">低</option>
+              <option value="medium" data-i18n="reasoningEffortMedium">中</option>
+              <option value="high" data-i18n="reasoningEffortHigh">高</option>
+            </select>
+          </div>
+          <label class="setting-checkbox" for="setting-show-thinking">
+            <input id="setting-show-thinking" type="checkbox" />
+            <span class="setting-checkbox-label" data-i18n="showThinking">显示思维链</span>
+          </label>
+          <p class="hint compact" data-i18n="reasoningHint">仅部分模型支持 thinking。关闭显示时不把思维链画在翻译窗和问答里。</p>
+        </section>
         <details class="settings-advanced">
-          <summary data-i18n="servicePrivacy">服务地址与隐私</summary>
+          <summary data-i18n="dataManagement">数据管理</summary>
           <p class="hint compact" data-i18n="localPrivacy">API Base URL 和 Key 保存在本机。划词翻译会发送选中文本；提问时会发送相关页的文本片段。PDF 文件本身不上传。</p>
           <p class="hint compact" data-i18n="askSharedApi">问答与划词翻译使用同一套 API。</p>
           <div class="setting-field">
@@ -339,7 +428,7 @@
           </div>
         </details>
         <div class="modal-actions">
-          <button id="btn-extension-options" class="modal-link" type="button" data-i18n="extensionSettings" hidden>扩展设置</button>
+          <button id="btn-extension-options" class="modal-link" type="button" data-i18n="pdfHandlingSettings" hidden>PDF 接管设置</button>
           <span class="modal-actions-spacer" aria-hidden="true"></span>
           <button id="btn-settings-cancel" class="btn modal-ghost" data-i18n="cancel">取消</button>
           <button id="btn-settings-save" class="btn primary" data-i18n="save">保存</button>

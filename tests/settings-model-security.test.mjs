@@ -90,6 +90,10 @@ async function createSettingsDialog() {
     document,
     $: get,
     loadSettings: () => ({ ...savedSettings }),
+    syncBubbleTargetLanguage(targetLang = savedSettings.targetLang) {
+      get('setting-lang').value = targetLang;
+      get('bubble-target-lang').value = targetLang;
+    },
     wireModelPicker,
     clearReadingPositions() {},
     positionSaveTimer: 0,
