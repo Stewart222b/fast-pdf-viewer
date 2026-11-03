@@ -23,7 +23,15 @@ function createElement() {
   };
 }
 
-async function setup({ stored = false, native = false, permissionResult = true, browserLanguage = "zh-CN", readerSettings = {} } = {}) {
+async function setup({
+  stored = false,
+  native = false,
+  permissionResult = true,
+  browserLanguage = "zh-CN",
+  readerSettings = {},
+  readerTabs = [],
+  settingsRead = null,
+} = {}) {
   const elements = new Map([
     ["auto-open-pdf", createElement()],
     ["open-reader", createElement()],
@@ -34,6 +42,9 @@ async function setup({ stored = false, native = false, permissionResult = true, 
   const mimeCalls = [];
   const permissionCalls = [];
   const tabCalls = [];
+  const tabQueries = [];
+  const tabUpdates = [];
+  const windowUpdates = [];
   const chrome = {
     runtime: {
       id: "test-extension-id",
@@ -44,6 +55,7 @@ async function setup({ stored = false, native = false, permissionResult = true, 
     storage: {
       local: {
         async get(defaults) {
+          if (settingsRead) return settingsRead;
           return { ...defaults, autoOpenPdf: stored, "fast-pdf-viewer-settings": readerSettings };
         },
         async set(value) {
@@ -59,8 +71,20 @@ async function setup({ stored = false, native = false, permissionResult = true, 
       },
     },
     tabs: {
-      create(value) {
+      async query(value) {
+        tabQueries.push(value);
+        return readerTabs;
+      },
+      async create(value) {
         tabCalls.push(value);
+      },
+      async update(...args) {
+        tabUpdates.push(args);
+      },
+    },
+    windows: {
+      async update(...args) {
+        windowUpdates.push(args);
       },
     },
   };
@@ -81,9 +105,10 @@ async function setup({ stored = false, native = false, permissionResult = true, 
   };
   vm.runInNewContext(source, {
     chrome,
-    console,
+    console: { error() {} },
     document,
     navigator: { language: browserLanguage },
+    URL,
   });
 
   await new Promise(resolve => setImmediate(resolve));
@@ -94,8 +119,33 @@ async function setup({ stored = false, native = false, permissionResult = true, 
     permissionCalls,
     storageSets,
     tabCalls,
+    tabQueries,
+    tabUpdates,
+    windowUpdates,
   };
 }
+
+test("automatic PDF handling stays disabled until saved settings load", async () => {
+  let finishRead;
+  const settingsRead = new Promise(resolve => { finishRead = resolve; });
+  const harness = await setup({ settingsRead });
+  const input = harness.elements.get("auto-open-pdf");
+
+  assert.equal(input.disabled, true);
+
+  finishRead({ autoOpenPdf: true, "fast-pdf-viewer-settings": {} });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(input.checked, true);
+  assert.equal(input.disabled, false);
+});
+
+test("automatic PDF handling remains disabled when saved settings cannot load", async () => {
+  const harness = await setup({ settingsRead: Promise.reject(new Error("storage unavailable")) });
+  const input = harness.elements.get("auto-open-pdf");
+
+  assert.equal(input.disabled, true);
+  assert.match(harness.elements.get("settings-status").textContent, /无法读取设置/);
+});
 
 test("extension options use the current browser language when reader language is not selected", async () => {
   const firstRun = await setup({ browserLanguage: "en-US" });
@@ -169,15 +219,44 @@ test("legacy fallback requests exact optional access and rolls back on denial", 
   assert.match(harness.elements.get("settings-status").textContent, /未获得 webRequest 权限/);
 });
 
-test("reader and extension details actions use extension URLs", async () => {
+test("reader action creates an extension reader when no reader tab exists", async () => {
   const harness = await setup();
   const openReader = harness.elements.get("open-reader");
   const details = harness.elements.get("extension-details");
 
-  openReader.listeners.click();
+  await openReader.listeners.click();
+
+  assert.deepEqual(plain(harness.tabQueries), [{}]);
+  assert.deepEqual(plain(harness.tabCalls), [{
+    url: "chrome-extension://test-extension-id/web/index.html",
+  }]);
+  assert.deepEqual(plain(harness.tabUpdates), []);
+  assert.equal(details.href, "chrome://extensions/?id=test-extension-id");
+});
+
+test("reader action focuses an existing reader tab, including query URLs", async () => {
+  const harness = await setup({ readerTabs: [
+    { id: 27, windowId: 9, url: "chrome-extension://test-extension-id/web/index.html?file=https%3A%2F%2Fexample.com%2Fmanual.pdf" },
+  ] });
+
+  await harness.elements.get("open-reader").listeners.click();
+
+  assert.deepEqual(plain(harness.windowUpdates), [[9, { focused: true }]]);
+  assert.deepEqual(plain(harness.tabUpdates), [[27, { active: true }]]);
+  assert.deepEqual(plain(harness.tabCalls), []);
+});
+
+test("reader action does not reuse a similarly named tab from another origin", async () => {
+  const harness = await setup({ readerTabs: [
+    { id: 27, windowId: 9, url: "chrome-extension://other-extension/web/index.html" },
+    { id: 28, windowId: 9, url: "https://example.com/web/index.html" },
+  ] });
+
+  await harness.elements.get("open-reader").listeners.click();
 
   assert.deepEqual(plain(harness.tabCalls), [{
     url: "chrome-extension://test-extension-id/web/index.html",
   }]);
-  assert.equal(details.href, "chrome://extensions/?id=test-extension-id");
+  assert.deepEqual(plain(harness.tabUpdates), []);
+  assert.deepEqual(plain(harness.windowUpdates), []);
 });

@@ -134,8 +134,31 @@ async function handleAutoOpenChange() {
   }
 }
 
-function openReader() {
-  chrome.tabs.create({ url: chrome.runtime.getURL("web/index.html") });
+function isReaderUrl(value, expectedUrl) {
+  try {
+    const actual = new URL(value);
+    const expected = new URL(expectedUrl);
+    return actual.protocol === expected.protocol &&
+      actual.host === expected.host &&
+      actual.pathname === expected.pathname;
+  } catch {
+    return false;
+  }
+}
+
+async function openReader() {
+  const readerUrl = chrome.runtime.getURL("web/index.html");
+  const tabs = await chrome.tabs.query({});
+  const readerTab = tabs.find((tab) => isReaderUrl(tab.url, readerUrl));
+  if (!readerTab) {
+    await chrome.tabs.create({ url: readerUrl });
+    return;
+  }
+
+  if (readerTab.windowId != null) {
+    await chrome.windows.update(readerTab.windowId, { focused: true });
+  }
+  await chrome.tabs.update(readerTab.id, { active: true });
 }
 
 function configureExtensionDetailsLink() {
@@ -145,10 +168,12 @@ function configureExtensionDetailsLink() {
 async function initialize() {
   configureExtensionDetailsLink();
   openReaderButton.addEventListener("click", openReader);
+  autoOpenInput.disabled = true;
   autoOpenInput.addEventListener("change", handleAutoOpenChange);
 
   try {
     await loadSettings();
+    autoOpenInput.disabled = false;
   } catch (error) {
     autoOpenInput.disabled = true;
     setStatus(tr("loadFailed"), "error");
