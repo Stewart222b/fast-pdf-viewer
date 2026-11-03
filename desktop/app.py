@@ -235,6 +235,16 @@ class Bridge:
         with opened_lock:
             return {"name": opened["name"], "id": opened["id"], "path": opened["path"]}
 
+    def open_native(self):
+        with opened_lock:
+            path = opened.get("path")
+        if not path:
+            return False
+        file_path = Path(path)
+        if not file_path.is_file():
+            return False
+        return webbrowser.open(file_path.resolve().as_uri())
+
 
 def open_window(url: str, title: str) -> bool:
     try:
