@@ -6,6 +6,10 @@ export const MAX_ASK_QUESTION_CHARS = 500;
 export const MAX_EXCERPT_CHARS = 12_000;
 export const MAX_ASK_PAGES = 8;
 export const ASK_TIMEOUT_MS = 90_000;
+/** Characters kept on each side of a keyword hit when a page is too long. */
+export const MATCH_WINDOW_CHARS = 360;
+/** Head of a sampled/anchor page when the whole page would blow the budget. */
+export const SAMPLE_PAGE_HEAD_CHARS = 1_800;
 
 const LANG_NAME = {
   "zh-CN": "简体中文",
@@ -26,6 +30,10 @@ const STOPWORDS = new Set([
   "如何", "为什么", "哪里", "哪个", "请问", "一下", "有没有", "多少", "是否",
 ]);
 
+const GREETINGS = new Set([
+  "你好", "您好", "哈喽", "嗨", "hello", "hi", "hey", "thanks", "thank", "谢谢",
+]);
+
 /**
  * @param {string} question
  * @returns {string[]}
@@ -37,7 +45,7 @@ export function askQuestionTokens(question) {
   const seen = new Set();
   const push = (token) => {
     const value = String(token || "").trim();
-    if (!value || value.length < 2 || STOPWORDS.has(value) || seen.has(value)) return;
+    if (!value || value.length < 2 || STOPWORDS.has(value) || GREETINGS.has(value) || seen.has(value)) return;
     seen.add(value);
     tokens.push(value);
   };
@@ -55,12 +63,245 @@ export function askQuestionTokens(question) {
   return tokens;
 }
 
+const CJK_DIGITS = {
+  零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9,
+};
+
+function parseCjkInt(raw) {
+  const text = String(raw || "").trim();
+  if (/^\d+$/.test(text)) return Number(text);
+  if (!text) return NaN;
+  if (text === "十") return 10;
+  if (text.startsWith("十")) return 10 + (CJK_DIGITS[text.slice(1)] ?? 0);
+  const ten = text.indexOf("十");
+  if (ten >= 0) {
+    const tens = ten === 0 ? 1 : CJK_DIGITS[text.slice(0, ten)];
+    const ones = text.slice(ten + 1) ? (CJK_DIGITS[text.slice(ten + 1)] ?? 0) : 0;
+    if (!Number.isInteger(tens)) return NaN;
+    return tens * 10 + ones;
+  }
+  return CJK_DIGITS[text] ?? NaN;
+}
+
+/**
+ * @param {string} question
+ * @returns {{ chapter: number } | null}
+ */
+export function parseChapterRef(question) {
+  const text = String(question || "").replace(/\u00AD/gu, "").normalize("NFKC").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  const cjk = text.match(/第\s*([0-9]+|[一二三四五六七八九十两〇零]+)\s*章/);
+  if (cjk) {
+    const chapter = parseCjkInt(cjk[1]);
+    if (Number.isInteger(chapter) && chapter > 0) return { chapter };
+  }
+  const en = text.match(/\b(?:chapters?|ch\.?)\s*([0-9]+)\b/i);
+  if (en) {
+    const chapter = Number(en[1]);
+    if (Number.isInteger(chapter) && chapter > 0) return { chapter };
+  }
+  return null;
+}
+
+function stripChapterRef(question) {
+  return String(question || "")
+    .replace(/第\s*(?:[0-9]+|[一二三四五六七八九十两〇零]+)\s*章/g, " ")
+    .replace(/\b(?:chapters?|ch\.?)\s*[0-9]+\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Rule-based intent: survey the whole document, locate a fact, or use the
+ * current page as an anchor (greetings / no content words).
+ * @param {string} question
+ * @returns {"survey" | "locate" | "anchor"}
+ */
+export function classifyAskIntent(question) {
+  const text = String(question || "").replace(/\u00AD/gu, "").normalize("NFKC").replace(/\s+/g, " ").trim();
+  if (!text) return "anchor";
+  if (isSurveyQuestion(text)) return "survey";
+  const rest = stripChapterRef(text);
+  if (!askQuestionTokens(rest || text).length) return "anchor";
+  return "locate";
+}
+
+function isSurveyQuestion(text) {
+  const lower = text.toLowerCase();
+  if (/^什么是/.test(text) || /^what is (?!this\b)/i.test(lower)) return false;
+  if (/(?:总结|概括|概述|摘要)(?:一下|下)?/.test(text)) return true;
+  if (/(?:主要内容|全文概括|大意|讲什么|讲的什么|讲的是什么|关于什么|是什么内容)/.test(text)) return true;
+  if (/(?:这份|这篇|这个|本)\s*(?:pdf|文档|文件|说明书)\s*(?:是什么|讲什么|讲的什么|讲的是什么|关于什么)/i.test(text)) return true;
+  if (/\b(?:summarize|summary|overview|tldr|tl;dr|abstract)\b/i.test(lower)) return true;
+  if (/\bwhat(?:'s| is) this(?: pdf| document| file)?(?: about)?\??$/i.test(lower)) return true;
+  if (/\bwhat is this (?:pdf|document|file) about\b/i.test(lower)) return true;
+  if (/\bwhat does (?:this |the )?chapter\b/i.test(lower)) return true;
+  if (/\bchapter\s+\d+\s+(?:about|cover|covers|contain|contains)\b/i.test(lower)) return true;
+  return false;
+}
+
 function pageBody(page) {
   return String(page?.text || "");
 }
 
+function packedBody(page) {
+  return pageBody(page).replace(/\s+/g, " ").trim();
+}
+
+function nonemptyPages(pageTexts) {
+  return (Array.isArray(pageTexts) ? pageTexts : []).filter((page) => page && packedBody(page));
+}
+
+function pageByNumber(pages, pageNumber) {
+  const n = Number(pageNumber);
+  if (!Number.isInteger(n) || n < 1) return null;
+  return pages.find((page) => page.pageNumber === n) || null;
+}
+
+function normalizeOutlineEntries(outline) {
+  const rows = [];
+  for (const item of Array.isArray(outline) ? outline : []) {
+    if (typeof item === "string") {
+      const title = item.replace(/\s+/g, " ").trim();
+      if (title) rows.push({ title, pageNumber: 0, depth: 0 });
+      continue;
+    }
+    const title = String(item?.title || "").replace(/\s+/g, " ").trim();
+    if (!title) continue;
+    const pageNumber = Number(item.pageNumber);
+    const depth = Number(item.depth);
+    rows.push({
+      title,
+      pageNumber: Number.isInteger(pageNumber) && pageNumber > 0 ? pageNumber : 0,
+      depth: Number.isInteger(depth) && depth >= 0 ? depth : 0,
+    });
+  }
+  return rows;
+}
+
+function normalizeOutline(outline) {
+  return [...new Set(normalizeOutlineEntries(outline).map((row) => row.title))].slice(0, 80);
+}
+
+function titleChapterNumber(title) {
+  const text = String(title || "");
+  const en = text.match(/^\s*(?:chapter|ch\.?)\s*([0-9]+)\b/i);
+  if (en) return Number(en[1]);
+  const cjk = text.match(/^\s*第\s*([0-9]+|[一二三四五六七八九十两〇零]+)\s*章/);
+  if (cjk) {
+    const chapter = parseCjkInt(cjk[1]);
+    if (Number.isInteger(chapter) && chapter > 0) return chapter;
+  }
+  return 0;
+}
+
+function findOutlineChapter(entries, chapter) {
+  let best = null;
+  for (const row of entries) {
+    if (titleChapterNumber(row.title) !== chapter) continue;
+    if (!best || row.depth < best.depth) best = row;
+  }
+  return best;
+}
+
+function outlineRange(entries, startRow, lastPage) {
+  const start = startRow?.pageNumber || 0;
+  if (!start) return null;
+  let end = lastPage || start;
+  for (const row of entries) {
+    if (row.pageNumber > start && row.depth <= startRow.depth) {
+      end = row.pageNumber - 1;
+      break;
+    }
+  }
+  if (end < start) end = start;
+  return { start, end };
+}
+
+function headerChapterRange(pages, chapter) {
+  const lead = /\b(?:chapter|ch\.?)\s*(\d+)\s*[.:—–-]\s*\S/i;
+  const hits = [];
+  const chapterStarts = [];
+  for (const page of pages) {
+    const bodyLead = packedBody(page).slice(0, 200);
+    const heading = bodyLead.match(lead);
+    if (!heading) continue;
+    const prefix = bodyLead.slice(0, heading.index);
+    if (/[.!?;:]\s+[A-Z][a-z]/u.test(prefix) || /\b(?:see|refer to|cf\.?)\s*$/iu.test(prefix)) continue;
+    const row = { pageNumber: page.pageNumber, chapter: Number(heading[1]) };
+    chapterStarts.push(row);
+    if (row.chapter === chapter) hits.push(row.pageNumber);
+  }
+  if (!hits.length) return null;
+  hits.sort((a, b) => a - b);
+  let bestStart = hits[0];
+  let bestEnd = hits[0];
+  let curStart = hits[0];
+  let prev = hits[0];
+  const closeRun = () => {
+    if (prev - curStart >= bestEnd - bestStart) {
+      bestStart = curStart;
+      bestEnd = prev;
+    }
+  };
+  for (let i = 1; i < hits.length; i += 1) {
+    if (hits[i] <= prev + 2) {
+      prev = hits[i];
+      continue;
+    }
+    closeRun();
+    curStart = hits[i];
+    prev = hits[i];
+  }
+  closeRun();
+  // Prefer the next chapter title when available so intermittent running
+  // headers do not truncate the current chapter.
+  const start = chapterStarts.find((row) => row.chapter === chapter && row.pageNumber === bestStart);
+  if (!start) return null;
+  const nextChapter = chapterStarts.find((row) => row.pageNumber > start.pageNumber && row.chapter > chapter);
+  if (nextChapter) return { start: start.pageNumber, end: Math.max(start.pageNumber, nextChapter.pageNumber - 1) };
+  // Repeated headers provide a range if no later title is present. A lone
+  // mention without a closing boundary is too uncertain; use full-document search.
+  if (bestEnd > bestStart) return { start: bestStart, end: bestEnd };
+  return null;
+}
+
+function pagesInRange(pages, start, end) {
+  return pages.filter((page) => page.pageNumber >= start && page.pageNumber <= end);
+}
+
+function sectionOutlineTitles(entries, scope) {
+  if (!scope) return entries.map((row) => row.title).slice(0, 80);
+  const startRow = findOutlineChapter(entries, scope.chapter);
+  if (!startRow) {
+    return entries
+      .filter((row) => !row.pageNumber || (row.pageNumber >= scope.start && row.pageNumber <= scope.end))
+      .map((row) => row.title)
+      .slice(0, 80);
+  }
+  const titles = [];
+  let started = false;
+  for (const row of entries) {
+    if (row === startRow) started = true;
+    if (!started) continue;
+    if (titles.length && row.depth <= startRow.depth) break;
+    titles.push(row.title);
+  }
+  return titles.slice(0, 80);
+}
+
+function resolveChapterScope(pages, entries, question) {
+  const ref = parseChapterRef(question);
+  if (!ref) return null;
+  const hit = findOutlineChapter(entries, ref.chapter);
+  const lastPage = pages[pages.length - 1]?.pageNumber || 0;
+  const range = (hit && outlineRange(entries, hit, lastPage)) || headerChapterRange(pages, ref.chapter);
+  if (!range) return null;
+  return { chapter: ref.chapter, start: range.start, end: range.end };
+}
+
 function scorePage(page, tokens, phraseHitsByPage) {
-  const text = pageBody(page).toLowerCase();
+  const text = packedBody(page).toLowerCase();
   if (!text) return 0;
   let score = Number(phraseHitsByPage.get(page.pageNumber) || 0) * 40;
   for (const token of tokens) {
@@ -77,73 +318,244 @@ function scorePage(page, tokens, phraseHitsByPage) {
   return score;
 }
 
-/**
- * @param {Array<{pageNumber: number, text?: string}>} pageTexts
- * @param {string} question
- * @param {string[]} [outlineTitles]
- */
-export function retrieveExcerpts(pageTexts, question, outlineTitles = []) {
-  const pages = Array.isArray(pageTexts) ? pageTexts.filter(Boolean) : [];
-  const tokens = askQuestionTokens(question);
-  const phrase = String(question || "").replace(/\u00AD/gu, "").normalize("NFKC").replace(/\s+/gu, " ").trim();
-  const phraseHitsByPage = new Map();
-  if (phrase.length >= 2) {
-    for (const hit of searchDocument(pages, phrase)) {
-      phraseHitsByPage.set(hit.pageNumber, (phraseHitsByPage.get(hit.pageNumber) || 0) + 1);
+function matchWindows(body, tokens) {
+  const lower = body.toLowerCase();
+  const ranges = [];
+  for (const token of tokens) {
+    let from = 0;
+    let count = 0;
+    while (count < 6) {
+      const index = lower.indexOf(token, from);
+      if (index < 0) break;
+      ranges.push([
+        Math.max(0, index - MATCH_WINDOW_CHARS),
+        Math.min(body.length, index + token.length + MATCH_WINDOW_CHARS),
+      ]);
+      from = index + token.length;
+      count += 1;
+    }
+  }
+  if (!ranges.length) return [];
+  ranges.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const merged = [];
+  for (const range of ranges) {
+    const last = merged[merged.length - 1];
+    if (!last || range[0] > last[1] + 48) merged.push([...range]);
+    else last[1] = Math.max(last[1], range[1]);
+  }
+  return merged;
+}
+
+function clipPageText(body, { tokens = [], reason = "sample", budget }) {
+  const limit = Math.max(80, Number(budget) || MAX_EXCERPT_CHARS);
+
+  if (reason === "match" && tokens.length) {
+    const windows = matchWindows(body, tokens);
+    if (windows.length) {
+      const span = windows[windows.length - 1][1] - windows[0][0];
+      const coversMost = windows.length === 1 && span >= body.length * 0.8;
+      if (!coversMost) {
+        const parts = windows.map(([start, end]) => {
+          const prefix = start > 0 ? "…" : "";
+          const suffix = end < body.length ? "…" : "";
+          return `${prefix}${body.slice(start, end)}${suffix}`;
+        });
+        let text = parts.join(" ");
+        if (text.length > limit) text = `${text.slice(0, Math.max(0, limit - 1))}…`;
+        return { text, clipped: true };
+      }
     }
   }
 
-  const ranked = pages
-    .map((page) => ({ page, score: scorePage(page, tokens, phraseHitsByPage) }))
+  if (body.length <= limit) return { text: body, clipped: false };
+  const head = Math.min(body.length, Math.min(limit - 1, SAMPLE_PAGE_HEAD_CHARS));
+  return { text: `${body.slice(0, head)}…`, clipped: true };
+}
+
+function uniquePicks(rows, limit = MAX_ASK_PAGES) {
+  const map = new Map();
+  for (const row of rows) {
+    const page = row?.page;
+    if (!page || map.has(page.pageNumber)) continue;
+    map.set(page.pageNumber, row);
+    if (map.size >= limit) break;
+  }
+  return [...map.values()];
+}
+
+function sampleCoveragePages(pages, slots) {
+  const usable = nonemptyPages(pages);
+  if (!usable.length || slots <= 0) return [];
+  if (usable.length <= slots) {
+    return usable.map((page, index) => ({
+      page,
+      score: index === 0 ? 4 : 1,
+      reason: "sample",
+    }));
+  }
+  const picks = [];
+  const seen = new Set();
+  const add = (page, score) => {
+    if (!page || seen.has(page.pageNumber) || picks.length >= slots) return;
+    seen.add(page.pageNumber);
+    picks.push({ page, score, reason: "sample" });
+  };
+  add(usable[0], 5);
+  add(usable[usable.length - 1], 3);
+  const remaining = slots - picks.length;
+  if (remaining > 0 && usable.length > 2) {
+    for (let i = 1; i <= remaining; i += 1) {
+      const index = Math.round((i * (usable.length - 1)) / (remaining + 1));
+      add(usable[Math.min(usable.length - 1, Math.max(1, index))], 2);
+    }
+    for (let i = 1; i < usable.length - 1 && picks.length < slots; i += 1) {
+      add(usable[i], 1);
+    }
+  }
+  return picks;
+}
+
+function anchorPages(pages, currentPage) {
+  const usable = nonemptyPages(pages);
+  const nums = [currentPage, currentPage - 1, currentPage + 1, 1];
+  const picks = [];
+  const seen = new Set();
+  for (const n of nums) {
+    const page = pageByNumber(usable, n);
+    if (!page || seen.has(page.pageNumber)) continue;
+    seen.add(page.pageNumber);
+    const score = n === currentPage ? 8 : n === 1 ? 4 : 2;
+    picks.push({ page, score, reason: "anchor" });
+  }
+  if (!picks.length && usable[0]) picks.push({ page: usable[0], score: 1, reason: "anchor" });
+  return picks;
+}
+
+function locatePages(pages, tokens, phraseHitsByPage) {
+  return nonemptyPages(pages)
+    .map((page) => ({
+      page,
+      score: scorePage(page, tokens, phraseHitsByPage),
+      reason: "match",
+    }))
     .filter((row) => row.score > 0)
     .sort((a, b) => b.score - a.score || a.page.pageNumber - b.page.pageNumber)
     .slice(0, MAX_ASK_PAGES);
+}
 
-  const outline = [...new Set(
-    (Array.isArray(outlineTitles) ? outlineTitles : [])
-      .map((title) => String(title || "").replace(/\s+/g, " ").trim())
-      .filter(Boolean),
-  )].slice(0, 80);
+function neighborPages(pages, picks) {
+  const extras = [];
+  for (const row of picks.slice(0, 3)) {
+    const n = row.page.pageNumber;
+    for (const adj of [n - 1, n + 1]) {
+      const page = pageByNumber(pages, adj);
+      if (page) extras.push({ page, score: Math.max(1, row.score * 0.2), reason: "neighbor" });
+    }
+  }
+  return extras;
+}
+
+function phraseHits(pages, question) {
+  const phrase = String(question || "").replace(/\u00AD/gu, "").normalize("NFKC").replace(/\s+/gu, " ").trim();
+  const phraseHitsByPage = new Map();
+  if (phrase.length < 2) return phraseHitsByPage;
+  for (const hit of searchDocument(pages, phrase)) {
+    phraseHitsByPage.set(hit.pageNumber, (phraseHitsByPage.get(hit.pageNumber) || 0) + 1);
+  }
+  return phraseHitsByPage;
+}
+
+function packExcerpts(picks, { tokens, intent }) {
+  const ordered = intent === "locate"
+    ? [...picks].sort((a, b) => b.score - a.score || a.page.pageNumber - b.page.pageNumber)
+    : [...picks].sort((a, b) => a.page.pageNumber - b.page.pageNumber);
 
   const excerpts = [];
   let used = 0;
   let truncated = false;
-  for (const { page, score } of ranked) {
-    const body = pageBody(page).replace(/\s+/g, " ").trim();
+  for (const [index, { page, score, reason }] of ordered.entries()) {
+    const body = packedBody(page);
     if (!body) continue;
     const header = `--- Page ${page.pageNumber} ---\n`;
-    const budget = MAX_EXCERPT_CHARS - used - header.length;
+    const remaining = MAX_EXCERPT_CHARS - used - header.length;
+    const budget = intent === "survey"
+      ? Math.floor(remaining / (ordered.length - index))
+      : remaining;
     if (budget <= 80) {
       truncated = true;
       break;
     }
-    const text = body.length > budget ? `${body.slice(0, Math.max(0, budget - 1))}…` : body;
-    if (body.length > budget) truncated = true;
+    const packed = clipPageText(body, { tokens, reason, budget });
+    if (packed.clipped) truncated = true;
     excerpts.push({
       pageNumber: page.pageNumber,
-      text,
+      text: packed.text,
       score,
+      reason,
     });
-    used += header.length + text.length;
+    used += header.length + packed.text.length;
+  }
+  return { excerpts, truncated };
+}
+
+/**
+ * Search the whole indexed document, then pack a small page set.
+ * Intent picks the pages; the model still only sees those excerpts.
+ *
+ * @param {Array<{pageNumber: number, text?: string}>} pageTexts
+ * @param {string} question
+ * @param {string[]} [outlineTitles]
+ * @param {{ currentPage?: number }} [options]
+ */
+export function retrieveExcerpts(pageTexts, question, outlineTitles = [], options = {}) {
+  const pages = nonemptyPages(pageTexts);
+  const entries = normalizeOutlineEntries(outlineTitles);
+  const intent = classifyAskIntent(question);
+  const currentPage = Number(options.currentPage) || 0;
+  const scope = resolveChapterScope(pages, entries, question);
+  const corpus = scope ? pagesInRange(pages, scope.start, scope.end) : pages;
+  const usable = corpus.length ? corpus : pages;
+  const locateQuestion = stripChapterRef(question) || question;
+  const tokens = askQuestionTokens(intent === "locate" ? locateQuestion : question);
+  const hitsByPage = phraseHits(usable, locateQuestion);
+
+  let picks = [];
+  if (intent === "survey") {
+    picks = sampleCoveragePages(usable, MAX_ASK_PAGES);
+  } else if (intent === "anchor") {
+    picks = uniquePicks([...anchorPages(usable, currentPage), ...sampleCoveragePages(usable, 2)]);
+  } else {
+    const matches = locatePages(usable, tokens, hitsByPage);
+    picks = matches.length
+      ? uniquePicks([...matches, ...neighborPages(usable, matches)])
+      : uniquePicks([
+        ...anchorPages(usable, currentPage),
+        ...sampleCoveragePages(usable, MAX_ASK_PAGES),
+      ]);
   }
 
+  const outline = scope ? sectionOutlineTitles(entries, scope) : normalizeOutline(entries);
+  const { excerpts, truncated } = packExcerpts(picks, { tokens, intent });
   return {
+    intent,
+    scope,
     excerpts,
     outlineTitles: outline,
     tokens,
     truncated,
-    hasPageMatches: excerpts.length > 0,
+    hasPageMatches: excerpts.some((excerpt) => excerpt.reason === "match"),
     canAsk: excerpts.length > 0 || outline.length > 0,
   };
 }
 
 /**
  * @param {string} question
- * @param {{ excerpts: Array<{pageNumber: number, text: string}>, outlineTitles: string[] }} pack
+ * @param {{ excerpts: Array<{pageNumber: number, text: string}>, outlineTitles: string[], intent?: string }} pack
  * @param {string} targetLang
  */
 export function buildAskMessages(question, pack, targetLang) {
   const language = LANG_NAME[targetLang] || targetLang || "简体中文";
+  const intent = pack.intent || "locate";
   const sections = [];
   if (pack.outlineTitles?.length) {
     sections.push(`Document outline titles:\n${pack.outlineTitles.map((title) => `- ${title}`).join("\n")}`);
@@ -152,13 +564,22 @@ export function buildAskMessages(question, pack, targetLang) {
     sections.push(`--- Page ${excerpt.pageNumber} ---\n${excerpt.text}`);
   }
   const context = sections.join("\n\n") || "(no page text available)";
+  const retrievalNote = pack.scope?.chapter
+    ? `The excerpts are a sample of Chapter ${pack.scope.chapter} (pages ${pack.scope.start}-${pack.scope.end}), not the whole PDF. Treat outline titles as that chapter's section list. Prefer body text over repeated running headers.`
+    : intent === "survey"
+      ? "The excerpts are a sample across the whole document for an overview question."
+      : intent === "anchor"
+        ? "The excerpts are nearby pages used as an anchor because the question had no search terms."
+        : "The excerpts are the highest-scoring pages from a full-document keyword search.";
   return [
     {
       role: "system",
       content: [
         `You answer questions about one PDF using only the provided excerpts.`,
+        retrievalNote,
         `Reply in ${language}.`,
         "If the excerpts do not contain the answer, say so clearly and do not invent details.",
+        "For greetings, reply briefly and offer to answer from the document.",
         "Write a concise explanation first.",
         "Then end with a citation block exactly in this form:",
         "---",
@@ -282,6 +703,7 @@ function streamingAnswerPreview(text) {
  *   outlineTitles?: string[],
  *   question: string,
  *   settings: object,
+ *   currentPage?: number,
  *   signal?: AbortSignal,
  *   onDelta?: (preview: string, raw: string) => void,
  * }} options
@@ -291,6 +713,7 @@ export async function askDocument({
   outlineTitles = [],
   question,
   settings,
+  currentPage,
   signal,
   onDelta,
 } = {}) {
@@ -301,7 +724,7 @@ export async function askDocument({
     throw new Error(t("askQuestionTooLong", { count: trimmed.length, max: MAX_ASK_QUESTION_CHARS }));
   }
 
-  const pack = retrieveExcerpts(pageTexts, trimmed, outlineTitles);
+  const pack = retrieveExcerpts(pageTexts, trimmed, outlineTitles, { currentPage });
   if (!pack.canAsk) {
     const error = new Error(t("askNoExcerpts"));
     error.code = "ask-no-excerpts";
@@ -309,6 +732,7 @@ export async function askDocument({
   }
 
   const messages = buildAskMessages(trimmed, pack, settings.targetLang);
+  let reasoning = "";
   const raw = await completeChat(settings, {
     messages,
     signal,
@@ -317,7 +741,10 @@ export async function askDocument({
     emptyMessage: t("askNoAnswer"),
     cancelledMessage: t("askCancelled"),
     timeoutMessage: t("askTimeout"),
-    onDelta: (complete) => onDelta?.(streamingAnswerPreview(complete), complete),
+    onDelta: (complete, extras) => {
+      if (extras?.reasoning) reasoning = extras.reasoning;
+      onDelta?.(streamingAnswerPreview(complete), complete, extras);
+    },
   });
 
   const parsed = parseAskResponse(raw);
@@ -328,6 +755,10 @@ export async function askDocument({
     hits: resolved.hits,
     truncated: pack.truncated,
     excerptCount: pack.excerpts.length,
+    intent: pack.intent,
+    scope: pack.scope,
+    hasPageMatches: pack.hasPageMatches,
+    reasoning,
     raw,
   };
 }
