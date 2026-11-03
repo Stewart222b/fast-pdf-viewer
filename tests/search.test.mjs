@@ -5,9 +5,9 @@ const source = await readFile(new URL('../web/js/search.js', import.meta.url), '
 const { buildTextIndex, searchDocument, matchRects, highlightSnippet } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 const item = (str, x = 0, hasEOL = false) => ({ str, transform: [10, 0, 0, 10, x, 100], height: 10, width: str.length * 10, hasEOL });
 const viewport = { convertToViewportPoint: (x, y) => [x, y] };
-function search(items, query) {
+function search(items, query, options) {
   const content = { items };
-  return { content, hits: searchDocument([{ pageNumber: 1, ...buildTextIndex(content) }], query) };
+  return { content, hits: searchDocument([{ pageNumber: 1, ...buildTextIndex(content) }], query, options) };
 }
 test('English line breaks and geometric word gaps preserve raw highlight offsets', () => {
   for (const items of [[item('hello', 0, true), item('world')], [item('hello'), item('world', 60)]]) {
@@ -81,6 +81,32 @@ test('ligature partial queries keep non-zero raw highlight ranges', () => {
 test('snippet highlighting does not corrupt HTML entities or inject markup', () => {
   assert.equal(highlightSnippet('x < y & z', '<'), 'x <mark>&lt;</mark> y &amp; z');
   assert.equal(highlightSnippet('<img>', 'img'), '&lt;<mark>img</mark>&gt;');
+});
+
+test('search options independently match case and complete Unicode words', () => {
+  const raw = 'Arc arc architecture 123arc x_arc arc-arc 漢arc字';
+  const items = [item(raw)];
+  assert.equal(search(items, 'arc').hits.length, 8);
+
+  const caseHits = search(items, 'arc', { matchCase: true }).hits;
+  assert.deepEqual(caseHits.map((hit) => hit.offset), [4, 8, 24, 30, 34, 38, 43]);
+  const wordHits = search(items, 'arc', { wholeWord: true }).hits;
+  assert.deepEqual(wordHits.map((hit) => hit.offset), [0, 4, 34, 38]);
+  const exactHits = search(items, 'arc', { matchCase: true, wholeWord: true }).hits;
+  assert.deepEqual(exactHits.map((hit) => hit.offset), [4, 34, 38]);
+  assert.equal(search([item('search architecture')], 'arc', { wholeWord: true }).hits.length, 0);
+});
+
+test('word matching uses Unicode boundaries and leaves punctuation queries literal', () => {
+  assert.deepEqual(search([item('(arc), café arc! 漢arc字')], 'arc', { wholeWord: true }).hits.map((hit) => hit.offset), [1, 12]);
+  assert.equal(search([item('(arc)')], '(arc)', { wholeWord: true }).hits.length, 1);
+  assert.equal(search([item('cafe\u0301 CAFÉ')], 'café', { matchCase: true }).hits.length, 1);
+});
+
+test('snippet highlighting follows the same case and whole-word options', () => {
+  const snippet = 'Arc arc architecture search';
+  assert.equal(highlightSnippet(snippet, 'arc', { wholeWord: true }), '<mark>Arc</mark> <mark>arc</mark> architecture search');
+  assert.equal(highlightSnippet(snippet, 'arc', { wholeWord: true, matchCase: true }), 'Arc <mark>arc</mark> architecture search');
 });
 
 test('matchRects skips text divs that have no measurable text node', () => {

@@ -77,9 +77,17 @@ export function buildTextIndex(textContent) {
   return { text, normToRaw, normToRawEnd, rawLength: raw, alternateIndex };
 }
 
-function queryPattern(query) {
+function queryPattern(query, { matchCase = false, wholeWord = false } = {}) {
   const needle = query.replace(/\u00AD/gu, "").normalize("NFKC").replace(/\s+/gu, " ").trim();
-  return needle ? new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu") : null;
+  if (!needle) return null;
+  const wordChars = "\\p{L}\\p{M}\\p{N}_";
+  const points = [...needle];
+  const startsWithWordChar = /[\p{L}\p{M}\p{N}_]/u.test(points[0]);
+  const endsWithWordChar = /[\p{L}\p{M}\p{N}_]/u.test(points.at(-1));
+  const leftBoundary = wholeWord && startsWithWordChar ? `(?<![${wordChars}])` : "";
+  const rightBoundary = wholeWord && endsWithWordChar ? `(?![${wordChars}])` : "";
+  const flags = matchCase ? "gu" : "giu";
+  return new RegExp(`${leftBoundary}${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}${rightBoundary}`, flags);
 }
 
 function rawRange(page, start, end) {
@@ -92,8 +100,8 @@ function rawRange(page, start, end) {
   return { offset, length: Math.max(0, rawEnd - offset) };
 }
 
-export function searchDocument(pageTexts, query) {
-  const pattern = queryPattern(query);
+export function searchDocument(pageTexts, query, options = {}) {
+  const pattern = queryPattern(query, options);
   if (!pattern) return [];
   const hits = [];
   for (const page of pageTexts) {
@@ -122,8 +130,8 @@ export function searchDocument(pageTexts, query) {
   return hits;
 }
 
-export function highlightSnippet(snippet, query) {
-  const pattern = queryPattern(query);
+export function highlightSnippet(snippet, query, options = {}) {
+  const pattern = queryPattern(query, options);
   if (!pattern) return escapeHtml(snippet);
   let result = "", from = 0;
   for (const match of snippet.matchAll(pattern)) {
