@@ -73,12 +73,27 @@ function apiHostname(settings) {
  * OpenRouter uses `reasoning.{effort,exclude}`; OpenAI uses `reasoning_effort`.
  * Other OpenAI-compatible hosts get the OpenRouter object and typically ignore unknown fields.
  */
-export function chatReasoningFields(settings = {}) {
-  const effort = normalizeReasoningEffort(settings.reasoningEffort);
-  const show = settings.showThinking === true;
-  if (apiHostname(settings) === "api.openai.com") {
+export function chatReasoningFields(settings = {}, { disableReasoning = false } = {}) {
+  const effort = disableReasoning ? "none" : normalizeReasoningEffort(settings.reasoningEffort);
+  const show = !disableReasoning && settings.showThinking === true;
+  const host = apiHostname(settings);
+  const model = String(settings.model || DEFAULT_MODEL).toLowerCase().replace(/^openai\//, "");
+  if (host !== "openrouter.ai" && (host === "api.deepseek.com" || /^(?:deepseek\/)?deepseek[-/]/.test(model))) {
+    if (effort === "none") return { thinking: { type: "disabled" } };
+    if (effort === "default") return {};
+    return { thinking: { type: "enabled" }, reasoning_effort: effort };
+  }
+  if (host === "api.openai.com") {
+    if (disableReasoning) {
+      // Non-reasoning models need no parameter. Always-on reasoning models
+      // cannot be switched off; request low effort rather than sending invalid `none`.
+      if (/^gpt-5\.[1-9]\d*(?:-|$)/.test(model) && !/(?:pro|codex)/.test(model)) return { reasoning_effort: "none" };
+      if (/^(?:o[134](?:-|$)|gpt-[56](?:[.-]|$))/.test(model)) return { reasoning_effort: "low" };
+      return {};
+    }
     return effort === "default" ? {} : { reasoning_effort: effort };
   }
+  if (disableReasoning) return { reasoning: { enabled: false, exclude: true } };
   const reasoning = {};
   if (effort !== "default") reasoning.effort = effort;
   if (!show) reasoning.exclude = true;
@@ -287,6 +302,7 @@ export async function completeChat(
     tools,
     toolChoice,
     returnMessage = false,
+    disableReasoning = false,
     emptyMessage = t("modelNoTranslation"),
     cancelledMessage = t("translationCancelled"),
     timeoutMessage = t("translationTimeout"),
@@ -314,7 +330,7 @@ export async function completeChat(
         temperature,
         stream: true,
         messages,
-        ...chatReasoningFields(settings),
+        ...chatReasoningFields(settings, { disableReasoning }),
         ...(tools?.length ? { tools, tool_choice: toolChoice || "auto" } : {}),
       }),
       signal: controller.signal,

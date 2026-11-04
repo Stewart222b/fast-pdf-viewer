@@ -308,10 +308,6 @@
       <div class="bubble-body">
         <div id="translate-source" class="bubble-source"></div>
         <button id="btn-source-toggle" class="link-btn source-toggle" type="button" data-i18n="expandSource" hidden>展开原文</button>
-        <details id="bubble-thinking-wrap" class="thinking-fold" hidden>
-          <summary><span data-i18n="thinkingProcess">思考过程</span><span id="bubble-thinking-status" class="thinking-state"></span><span id="bubble-thinking-preview" class="thinking-preview"></span></summary>
-          <pre id="bubble-thinking" class="thinking-body"></pre>
-        </details>
         <div id="translate-result" class="bubble-result" hidden></div>
       </div>
       <div class="bubble-actions">
@@ -407,7 +403,7 @@
             <span class="setting-checkbox-label" data-i18n="autoTranslate">选中文本后自动翻译（关闭时点击“译”）</span>
           </label>
           <div class="setting-field">
-            <label class="setting-label" for="setting-reasoning-effort" data-i18n="reasoningEffort">思考强度</label>
+            <label class="setting-label" for="setting-reasoning-effort" data-i18n="reasoningEffort">问答思考强度</label>
             <select id="setting-reasoning-effort">
               <option value="default" data-i18n="reasoningEffortDefault">跟随模型默认</option>
               <option value="none" data-i18n="reasoningEffortNone">关闭</option>
@@ -418,9 +414,9 @@
           </div>
           <label class="setting-checkbox" for="setting-show-thinking">
             <input id="setting-show-thinking" type="checkbox" />
-            <span class="setting-checkbox-label" data-i18n="showThinking">显示思维链</span>
+            <span class="setting-checkbox-label" data-i18n="showThinking">显示问答思考过程</span>
           </label>
-          <p class="hint compact" data-i18n="reasoningHint">仅显示 API 返回的思考内容；部分模型不会返回。</p>
+          <p class="hint compact" data-i18n="reasoningHint">仅影响问答；划词翻译单独请求关闭思考。无法关闭思考的模型仍可能推理。</p>
           <label class="setting-checkbox" for="setting-ask-vision">
             <input id="setting-ask-vision" type="checkbox" />
             <span data-i18n="askVision">允许问答读取页面图像（需模型支持视觉）</span>

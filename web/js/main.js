@@ -2678,7 +2678,6 @@ function hideBubble({ force = false } = {}) {
   result.hidden = true;
   result.classList.remove("error", "setup-required", "streaming");
   result.textContent = "";
-  setThinkingFold("bubble-thinking-wrap", "bubble-thinking", "", false);
   cancelTranslate();
 }
 
@@ -2796,7 +2795,6 @@ function setTranslateError(message, selectionId) {
 }
 
 function setTranslateStopped(selectionId) {
-  setThinkingFold("bubble-thinking-wrap", "bubble-thinking", $("bubble-thinking").textContent, loadSettings().showThinking === true);
   const result = $("translate-result");
   result.hidden = false;
   result.classList.remove("error", "setup-required", "streaming");
@@ -2825,30 +2823,25 @@ async function runTranslate(selectionId = bubbleSelectionId) {
   result.classList.remove("error", "setup-required");
   showStreamingCaret(result);
   $("btn-translate-stop").hidden = false;
-  setThinkingFold("bubble-thinking-wrap", "bubble-thinking", "", false);
   scheduleRepositionBubble();
 
   const controller = new AbortController();
   translateAbort = controller;
   const requestId = ++translateRequestId;
-  let lastReasoning = "";
 
   try {
     const translated = await translateText(text, loadSettings(), {
       signal: controller.signal,
       mode: selectedTranslationMode,
-      onDelta: (partial, extras) => {
+      onDelta: (partial) => {
         if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
-        if (extras?.reasoning) lastReasoning = extras.reasoning;
         renderBubbleTranslation(result, partial, selectedTranslationMode, { streaming: true });
-        setThinkingFold("bubble-thinking-wrap", "bubble-thinking", extras?.reasoning, loadSettings().showThinking === true, true);
         scheduleRepositionBubble();
       },
     });
     if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
     result.classList.remove("streaming");
     renderBubbleTranslation(result, translated, selectedTranslationMode);
-    setThinkingFold("bubble-thinking-wrap", "bubble-thinking", lastReasoning, loadSettings().showThinking === true);
     const hasTranslation = Boolean(readBubblePlainText(result));
     $("btn-copy").disabled = !hasTranslation;
     $("btn-copy").hidden = !hasTranslation;

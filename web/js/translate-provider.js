@@ -181,10 +181,12 @@ export async function translateWithProvider(
   }
 
   return completeChat(settings, {
+    disableReasoning: true,
     messages: buildTranslationMessages(trimmed, settings.targetLang, mode),
     signal,
     timeoutMs,
-    onDelta,
+    // Drop reasoning metadata even if a proxy ignores the disable parameter.
+    onDelta: (partial) => onDelta?.(partial),
     temperature: 0.1,
   });
 }

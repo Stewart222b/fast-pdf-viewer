@@ -511,7 +511,7 @@ test('settings save writes reasoning effort and show-thinking', async () => {
   assert.equal(saved.showThinking, true);
 });
 
-test('translation bubble hides thinking unless showThinking is on', async () => {
+test('translation bubble ignores reasoning even when Ask reasoning display is enabled', async () => {
   const textLayer = { closest(selector) { return selector === '.textLayer' ? this : null; } };
   const node = { parentElement: textLayer };
   const rect = { left: 10, top: 10, right: 30, bottom: 20, width: 20, height: 10 };
@@ -534,7 +534,6 @@ test('translation bubble hides thinking unless showThinking is on', async () => 
   hiddenApp.setSelection({ rangeCount: 1, toString: () => 'Selected text.', getRangeAt: () => range });
   hiddenApp.dispatchDocument('mouseup', { target: textLayer });
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(hiddenApp.get('bubble-thinking-wrap').hidden, true);
   assert.equal(hiddenApp.get('bubble-thinking').textContent, '');
 
   const shownApp = await setup({
@@ -550,8 +549,9 @@ test('translation bubble hides thinking unless showThinking is on', async () => 
   shownApp.setSelection({ rangeCount: 1, toString: () => 'Selected text.', getRangeAt: () => range });
   shownApp.dispatchDocument('mouseup', { target: textLayer });
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(shownApp.get('bubble-thinking-wrap').hidden, false);
-  assert.equal(shownApp.get('bubble-thinking').textContent, 'secret think');
+  assert.equal(shownApp.get('bubble-thinking').textContent, '');
+  const markup = await readFile(new URL('../web/index.html', import.meta.url), 'utf8');
+  assert.equal(markup.includes('id="bubble-thinking-wrap"'), false);
 });
 
 test('translation bubble language picker persists and stays in sync with settings', async () => {
@@ -1934,7 +1934,7 @@ test('extension chrome sits in the toolbar and settings footer', async () => {
   assert.match(settings, /id="setting-reasoning-effort"/);
   assert.match(settings, /id="setting-show-thinking"/);
   assert.match(html, /id="ask-thinking-wrap"/);
-  assert.match(html, /id="bubble-thinking-wrap"/);
+  assert.doesNotMatch(html, /id="bubble-thinking-wrap"/);
 });
 
 test('extension boot failure without file keeps original-pdf button hidden', async () => {
