@@ -30,6 +30,7 @@ const defaults = {
   autoTranslateOnSelect: false,
   reasoningEffort: "default",
   showThinking: false,
+  askVisionEnabled: false,
 };
 
 function normalizeSettings(stored = {}) {
@@ -50,6 +51,7 @@ function normalizeSettings(stored = {}) {
     ? effort
     : "default";
   merged.showThinking = values.showThinking === true;
+  merged.askVisionEnabled = values.askVisionEnabled === true;
   return merged;
 }
 

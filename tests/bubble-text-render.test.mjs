@@ -5,6 +5,7 @@ import {
   renderBubbleSource,
   renderBubbleTranslation,
   readBubblePlainText,
+  renderMarkdown,
 } from "../web/js/bubble-text-render.js";
 
 function element(tagName = "div") {
@@ -118,5 +119,24 @@ test("renderBubbleTranslation leaves streaming markdown raw until completion", (
     renderBubbleTranslation(el, "**partial**", "term", { streaming: true });
     assert.equal(el.children[0].textContent, "**partial**");
     assert.equal(el.children[1].className, "translate-caret");
+  });
+});
+
+test("Markdown PDF references use a local renderer and leave code and external URLs inert", () => {
+  withDocument(() => {
+    const el = sourceEl(), references = [];
+    renderMarkdown(el, '**[p181](pdf:181)** and [[p215]] and `[p9](pdf:9)` [bad](javascript:alert(1))', {
+      renderReference(reference) {
+        references.push(reference);
+        const button = element('button');
+        button.textContent = reference.label;
+        return button;
+      },
+    });
+    assert.deepEqual(references.map(ref => ref.pageNumber), [181, 215]);
+    assert.equal(el.children[0].children[0].children[0].tagName, 'BUTTON');
+    assert.match(el.textContent, /\[p9\]\(pdf:9\)/);
+    assert.match(el.textContent, /javascript:alert\(1\)/);
+    assert.equal(el.textContent.includes('[p181](pdf:181)'), false);
   });
 });

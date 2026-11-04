@@ -1052,6 +1052,13 @@ button.doc-title-crumb:hover {
   padding-top: 8px;
 }
 
+.ask-result > *, .ask-citations-wrap > * { flex-shrink: 0; }
+
+.ask-reading { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.ask-reading summary { cursor: pointer; }
+.ask-reading ol { margin: 6px 0; padding-left: 1.8em; max-height: 12em; overflow: auto; }
+.ask-reading li + li { margin-top: 4px; }
+
 .thinking-fold {
   margin: 0 0 8px;
   color: var(--muted);
@@ -1061,12 +1068,20 @@ button.doc-title-crumb:hover {
 .thinking-fold summary {
   cursor: pointer;
   user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
+.thinking-state { margin-left: 6px; font-size: 11px; }
+.thinking-preview { margin-left: 10px; color: var(--muted); }
+.thinking-fold[open] .thinking-preview { display: none; }
+.thinking-fold.is-streaming .thinking-state { color: var(--accent); }
 
 .thinking-body {
   margin: 6px 0 0;
   padding: 8px;
-  max-height: 9em;
+  max-height: 20em;
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 4px;
@@ -1085,12 +1100,22 @@ button.doc-title-crumb:hover {
 }
 
 .ask-answer {
-  white-space: pre-wrap;
+  white-space: normal;
   overflow-wrap: anywhere;
   font-size: 13px;
   line-height: 1.55;
   color: var(--text);
 }
+
+.ask-answer > :first-child { margin-top: 0; }
+.ask-answer > :last-child { margin-bottom: 0; }
+.ask-answer p, .ask-answer ul, .ask-answer ol { margin: 0 0 0.8em; }
+.ask-answer ul, .ask-answer ol { padding-left: 1.7em; }
+.ask-answer li + li { margin-top: 0.4em; }
+.ask-answer pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ask-answer code { font-size: 0.95em; }
+.ask-answer blockquote { margin: 0 0 0.8em; padding-left: 0.8em; border-left: 3px solid var(--line); }
+.ask-answer :is(h1, h2, h3, h4, h5, h6) { font-size: 1.1em; margin: 0.9em 0 0.5em; }
 
 .ask-answer.is-streaming::after {
   content: "▍";
@@ -1104,11 +1129,26 @@ button.doc-title-crumb:hover {
 }
 
 .ask-citations-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
   min-height: 0;
 }
+
+.ask-citations-wrap > summary { cursor: pointer; user-select: none; }
+.ask-citations-wrap[open] > .ask-citations { margin-top: 6px; }
+.ask-page-reference {
+  display: inline;
+  padding: 1px 4px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--bg-hover);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.95em;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ask-page-reference:hover { background: var(--line); }
+.ask-page-reference:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .ask-citations {
   overflow: visible;
@@ -1529,6 +1569,12 @@ html.bubble-edge-resize * {
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
+}
+
+/* Native popup options need an opaque background in Windows WebViews. */
+.bubble-target-lang option {
+  background-color: var(--bg-raised);
+  color: var(--text);
 }
 
 .bubble-target-lang:focus,

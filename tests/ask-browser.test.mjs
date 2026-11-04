@@ -1,0 +1,177 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {createServer} from 'node:http';
+import {readFileSync,existsSync,mkdtempSync,rmSync,writeFileSync,mkdirSync} from 'node:fs';
+import path from 'node:path';
+import {tmpdir} from 'node:os';
+const root=process.cwd();
+const edgePath=[process.env.EDGE_PATH,process.env.CHROME_PATH].find(p=>p&&existsSync(p));
+test('Ask streams multi-round reading, collapsed preview and expanded reasoning in the browser', {skip:!edgePath,timeout:40000}, async()=>{
+  const server=createServer((req,res)=>{
+    const route=new URL(req.url,'http://local').pathname;
+    if(route==='/api/startup'){res.writeHead(200,{'content-type':'application/json'});res.end('{"hasFile":false}');return;}
+    const file=path.resolve(root,'web','.'+(route==='/'?'/index.html':route));
+    if(!file.startsWith(path.join(root,'web')+path.sep)){res.writeHead(403);res.end();return;}
+    try {const data=readFileSync(file);res.writeHead(200,{'content-type':file.endsWith('.js')||file.endsWith('.mjs')?'text/javascript':file.endsWith('.css')?'text/css':'text/html'});res.end(data);}catch{res.writeHead(404);res.end();}
+  });
+  const profile = mkdtempSync(path.join(tmpdir(), "fpv-toolbar-edge-"));
+  let edge;
+  let socket;
+
+  const waitFor = async (predicate, description, timeout = 15000) => {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      const value = await predicate();
+      if (value) return value;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    throw new Error("Timed out waiting for " + description);
+  };
+
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const serverPort = server.address().port;
+    edge = spawn(edgePath, [
+      "--headless=new",
+      // Headless Chrome in a restricted/CI sandbox cannot initialize its own
+      // renderer sandbox; without these two the browser accepts the WebSocket
+      // but never answers a single page-domain command, so every step just
+      // times out instead of failing loudly.
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-background-networking",
+      "--disable-extensions",
+      "--disable-gpu",
+      "--remote-debugging-address=127.0.0.1",
+      "--remote-debugging-port=0",
+      "--remote-allow-origins=*",
+      "--user-data-dir=" + profile,
+      "about:blank",
+    ], { stdio: "ignore", windowsHide: true });
+
+    const activePortFile = path.join(profile, "DevToolsActivePort");
+    const debuggingPort = await waitFor(() => {
+      try {
+        const portValue = Number(readFileSync(activePortFile, "utf8").split(/\r?\n/)[0]);
+        return Number.isFinite(portValue) && portValue > 0 ? portValue : null;
+      } catch {
+        return null;
+      }
+    }, "Edge remote debugging");
+    const targets = await (await fetch("http://127.0.0.1:" + debuggingPort + "/json/list")).json();
+    const page = targets.find(target => target.type === "page");
+    assert.ok(page, "Edge opened a page target");
+
+    socket = new WebSocket(page.webSocketDebuggerUrl);
+    await new Promise((resolve, reject) => {
+      socket.addEventListener("open", resolve, { once: true });
+      socket.addEventListener("error", reject, { once: true });
+    });
+
+    let nextId = 0;
+    const pending = new Map();
+    socket.addEventListener("message", async event => {
+      const raw = event.data instanceof Blob ? await event.data.text() : String(event.data);
+      const message = JSON.parse(raw);
+      if (!message.id) return;
+      const entry = pending.get(message.id);
+      if (!entry) return;
+      pending.delete(message.id);
+      if (message.error) entry.reject(new Error(message.error.message));
+      else entry.resolve(message.result);
+    });
+    const send = (method, params = {}) => new Promise((resolve, reject) => {
+      const id = ++nextId;
+      const timeout = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(method + " timed out"));
+      }, 5000);
+      pending.set(id, {
+        resolve: value => { clearTimeout(timeout); resolve(value); },
+        reject: error => { clearTimeout(timeout); reject(error); },
+      });
+      socket.send(JSON.stringify({ id, method, params }));
+    });
+    const evaluate = async expression => {
+      const result = await send("Runtime.evaluate", {
+        expression,
+        awaitPromise: true,
+        returnByValue: true,
+      });
+      if (result.exceptionDetails) {
+        throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text || "Browser evaluation failed");
+      }
+      return result.result.value;
+    };
+
+    await send('Page.enable');
+    await send('Runtime.enable');
+    await send('Page.addScriptToEvaluateOnNewDocument',{source:
+      "globalThis.__PDF_BENCH__=true;localStorage.setItem('fast-pdf-viewer-settings',JSON.stringify({apiKey:'browser-test',apiBaseUrl:'https://mock.invalid/v1',model:'mock',showThinking:true,uiLanguage:'zh-CN',uiLanguageSelected:true}));"});
+    await send('Page.navigate',{url:'http://127.0.0.1:'+serverPort+'/'});
+    await waitFor(()=>evaluate('!!globalThis.__pdfViewer'),'main app');
+    await evaluate(String.raw`(()=>{
+      const viewer=globalThis.__pdfViewer;
+      viewer.pdf={};viewer.pageCount=200;viewer.indexedPages=200;viewer.indexPromise=Promise.resolve();
+      viewer.pageTexts=[{pageNumber:1,text:'x'.repeat(25000)},{pageNumber:200,text:'ARC means Anti-Reflective Coating.'}];
+      viewer.showHits=async(hits,query,index)=>{window.__citationTarget=hits[index];};
+      const original=window.fetch;let calls=0;
+      window.fetch=async(url,init)=>{
+        if(!String(url).startsWith('https://mock.invalid'))return original(url,init);
+        calls++;const body=JSON.parse(init.body);
+        if(calls===1)return new Response(JSON.stringify({choices:[{finish_reason:'tool_calls',message:{role:'assistant',content:null,reasoning_content:'First inspect the document.',tool_calls:[{id:'search1',type:'function',function:{name:'search_document',arguments:JSON.stringify({query:'ARC'})}}]}}]}),{headers:{'content-type':'application/json'}});
+        const encoder=new TextEncoder();let index=0;const parts=['Now read the ARC evidence.','\nThe coating is on page 200.','\nVerify the exact quotation.'];
+        return new Response(new ReadableStream({async start(controller){
+          for(const part of parts){await new Promise(r=>setTimeout(r,350));controller.enqueue(encoder.encode('data: '+JSON.stringify({choices:[{delta:{reasoning_content:part}}]})+'\n\n'));}
+          await new Promise(r=>setTimeout(r,350));
+          controller.enqueue(encoder.encode('data: '+JSON.stringify({choices:[{delta:{content:'**ARC** is on [p200](pdf:200). Ignore [p999](pdf:999).\n---\np200: "ARC means Anti-Reflective Coating."'},finish_reason:'stop'}]})+'\n\n'));controller.close();
+        }}),{headers:{'content-type':'text/event-stream'}});
+      };
+      document.getElementById('btn-ask-toggle').click();document.getElementById('ask-input').value='Where is ARC described?';document.getElementById('ask-submit').click();
+    })()`);
+    await waitFor(()=>evaluate("document.getElementById('ask-thinking-preview').textContent.includes('Now read')"),'collapsed streaming preview');
+    assert.equal(await evaluate("document.getElementById('ask-thinking-wrap').open"),false);
+    await evaluate("document.querySelector('#ask-thinking-wrap summary').click()");
+    await waitFor(()=>evaluate("document.getElementById('ask-thinking').textContent.includes('Verify the exact')"),'expanded live text');
+    assert.equal(await evaluate("document.getElementById('ask-thinking-wrap').open"),true);
+    assert.equal(await evaluate("getComputedStyle(document.getElementById('ask-thinking-preview')).display"),'none');
+    await waitFor(()=>evaluate("document.getElementById('ask-stop').hidden"),'answer completion');
+    const result=await evaluate(`({answer:document.getElementById('ask-answer').textContent,bold:!!document.querySelector('#ask-answer strong'),log:document.getElementById('ask-reading-log').textContent,thinking:document.getElementById('ask-thinking').textContent,status:document.getElementById('ask-thinking-status').textContent})`);
+    assert.match(result.answer,/ARC/);assert.equal(result.bold,true);assert.match(result.log,/ARC/);assert.match(result.log,/1/);assert.match(result.thinking,/First inspect/);assert.match(result.thinking,/Verify/);assert.match(result.status,/已完成/);
+    assert.equal(await evaluate("document.querySelector('[data-i18n=askAnswer]').textContent"),'回答');
+    assert.equal(await evaluate("document.getElementById('ask-citations-wrap').open"),false);
+    assert.equal(await evaluate("document.querySelectorAll('#ask-answer .ask-page-reference').length"),1);
+    await evaluate("document.querySelector('#ask-answer .ask-page-reference').click()");
+    await waitFor(()=>evaluate("window.__citationTarget?.pageNumber===200"),'inline reference viewer jump');
+    assert.equal(await evaluate("window.__citationTarget.kind"),'quote');
+    assert.equal(await evaluate("document.getElementById('ask-citations-wrap').open"),false);
+    await evaluate("document.querySelector('#ask-citations-wrap summary').click()");
+    assert.equal(await evaluate("document.getElementById('ask-citations-wrap').open"),true);
+    assert.match(await evaluate("document.getElementById('ask-citations').textContent"),/Anti-Reflective/);
+    await evaluate("document.querySelector('#ask-answer .ask-page-reference').click()");
+    assert.equal(await evaluate("document.getElementById('ask-citations-wrap').open"),true);
+    await evaluate("document.querySelector('#ask-citations-wrap summary').click()");
+    await evaluate("document.querySelector('#ask-thinking-wrap summary').click()");
+    assert.match(await evaluate("document.getElementById('ask-thinking-preview').textContent"),/Verify/);
+    const layout=await evaluate("({cite:document.getElementById('ask-citations-wrap').getBoundingClientRect().bottom,actions:document.getElementById('ask-result-actions').getBoundingClientRect().top})");
+    assert.ok(layout.cite<=layout.actions, 'citations and retry actions do not overlap');
+    if(process.env.ASK_PREVIEW_PATH){
+      mkdirSync(path.dirname(process.env.ASK_PREVIEW_PATH),{recursive:true});
+      const screenshot=await send('Page.captureScreenshot',{format:'png'});
+      writeFileSync(process.env.ASK_PREVIEW_PATH,Buffer.from(screenshot.data,'base64'));
+      await evaluate("document.querySelector('#ask-thinking-wrap summary').click()");
+      const expanded=await send('Page.captureScreenshot',{format:'png'});
+      writeFileSync(process.env.ASK_PREVIEW_PATH.replace('.png','-expanded.png'),Buffer.from(expanded.data,'base64'));
+    }
+  } finally {
+    socket?.close();edge?.kill();
+    await new Promise(resolve=>server.close(resolve));
+    try{rmSync(profile,{recursive:true,force:true,maxRetries:10,retryDelay:100});}catch{}
+  }
+});

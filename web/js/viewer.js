@@ -853,6 +853,34 @@ export class PdfViewer {
     };
   }
 
+  async getPageImage(pageNumber, signal) {
+    signal?.throwIfAborted();
+    const pdf = this.pdf;
+    const generation = this.generation;
+    if (!pdf || !Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > this.pageCount) throw new Error("Invalid PDF page");
+    const page = await pdf.getPage(pageNumber);
+    signal?.throwIfAborted();
+    if (pdf !== this.pdf || generation !== this.generation) throw new Error("Document changed");
+    const base = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: Math.min(1.5, 1400 / Math.max(base.width, base.height)) });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const task = page.render({ canvasContext: canvas.getContext("2d"), viewport, background: "white" });
+    const cancel = () => task.cancel();
+    signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      if (signal?.aborted) task.cancel();
+      await task.promise;
+      signal?.throwIfAborted();
+      if (pdf !== this.pdf || generation !== this.generation) throw new Error("Document changed");
+      return canvas.toDataURL("image/jpeg", 0.85);
+    } finally {
+      signal?.removeEventListener("abort", cancel);
+      canvas.width = canvas.height = 0;
+    }
+  }
+
   goToPage(pageNumber, { push = false, instant = false, left = null, top = null } = {}) {
     if (!this.pageCount || !Number.isFinite(pageNumber)) return;
     this.navigationGeneration += 1;

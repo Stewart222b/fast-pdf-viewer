@@ -51,7 +51,7 @@ async function setup(load = () => { throw new Error('unexpected load'); }) {
   viewer.buildPlaceholders = () => { viewer.pageEls = Array.from({ length: viewer.pageCount }, pageElement); };
   viewer.setZoom = () => {};
   viewer.observe = () => {};
-  return { viewer, history, wrapEl };
+  return { viewer, history, wrapEl, document: context.document };
 }
 const content = text => ({ items: [{ str: text, width: text.length * 10, height: 10, transform: [10, 0, 0, 10, 0, 700] }] });
 const viewport = { width: 600, height: 800, scale: 1, convertToViewportPoint: (x, y) => [x, y] };
@@ -789,4 +789,39 @@ test('page-width zoom follows viewer-wrap client width', async () => {
 test('a new viewer starts in page-fit so the first layout is not 150%', async () => {
   const { viewer } = await setup();
   assert.equal(viewer.zoomMode, 'page-fit');
+});
+
+test('page images use an isolated bounded canvas and release it after encoding', async () => {
+  const { viewer, document } = await setup();
+  const canvas = { width: 0, height: 0, getContext() { return {}; }, toDataURL(type) { assert.equal(type, 'image/jpeg'); return 'data:image/jpeg;base64,test'; } };
+  document.createElement = () => canvas;
+  let scale;
+  viewer.pageCount = 1;
+  viewer.pdf = { getPage: async () => ({
+    getViewport({ scale: s }) { scale = s; return { width: 2000 * s, height: 3000 * s }; },
+    render() { assert.ok(canvas.height <= 1400); return { promise: Promise.resolve(), cancel() {} }; },
+  }) };
+  const result = await viewer.getPageImage(1);
+  assert.equal(result, 'data:image/jpeg;base64,test');
+  assert.ok(scale < 1);
+  assert.equal(canvas.width, 0);
+  assert.equal(canvas.height, 0);
+});
+
+test('cancelling image rendering cancels the PDF task and clears the canvas', async () => {
+  const { viewer, document } = await setup();
+  const controller = new AbortController();
+  const pending = deferred();
+  const canvas = { width: 0, height: 0, getContext() { return {}; } };
+  document.createElement = () => canvas;
+  let cancelled = false;
+  viewer.pageCount = 1;
+  viewer.pdf = { getPage: async () => ({ getViewport: () => ({ width: 600, height: 800 }),
+    render() { return { promise: pending.promise, cancel() { cancelled = true; pending.reject(new Error('render cancelled')); } }; } }) };
+  const image = viewer.getPageImage(1, controller.signal);
+  await new Promise(resolve => setImmediate(resolve));
+  controller.abort();
+  await assert.rejects(image, /cancelled/);
+  assert.equal(cancelled, true);
+  assert.equal(canvas.width, 0);
 });

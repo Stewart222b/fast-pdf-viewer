@@ -169,7 +169,7 @@ export function wireModelPicker({ input, menu, status, getCredentials }) {
     }
     if (!isAllowedApiBaseUrl(credentials.apiBaseUrl)) {
       invalidatePending();
-      setStatus(t("modelEndpointMustUseHttps"), "warning");
+      setStatus(t("modelEndpointInvalid"), "warning");
       return;
     }
     const token = ++loadToken;

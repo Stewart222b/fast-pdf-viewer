@@ -230,16 +230,20 @@
               </div>
               <div id="ask-empty" class="empty-side" data-i18n="askPrompt">问这份 PDF，例如总结一下、冷却水规格在哪</div>
               <div id="ask-result" class="ask-result" hidden>
+                <details id="ask-reading-wrap" class="ask-reading" hidden>
+                  <summary data-i18n="askReadingLog">读取记录</summary>
+                  <ol id="ask-reading-log"></ol>
+                </details>
                 <details id="ask-thinking-wrap" class="thinking-fold" hidden>
-                  <summary data-i18n="thinkingProcess">思考过程</summary>
+                  <summary><span data-i18n="thinkingProcess">思考过程</span><span id="ask-thinking-status" class="thinking-state"></span><span id="ask-thinking-preview" class="thinking-preview"></span></summary>
                   <pre id="ask-thinking" class="thinking-body"></pre>
                 </details>
-                <div class="ask-answer-label" data-i18n="askAnswer">答案</div>
+                <div class="ask-answer-label" data-i18n="askAnswer">回答</div>
                 <div id="ask-answer" class="ask-answer"></div>
-                <div id="ask-citations-wrap" class="ask-citations-wrap" hidden>
-                  <div class="ask-answer-label" data-i18n="askCitations">引用</div>
+                <details id="ask-citations-wrap" class="ask-citations-wrap" hidden>
+                  <summary class="ask-answer-label" data-i18n="askCitations">引用</summary>
                   <div id="ask-citations" class="search-list ask-citations"></div>
-                </div>
+                </details>
                 <div id="ask-result-actions" class="ask-result-actions" hidden>
                   <button id="ask-retry" class="btn toolbar-ghost tiny" type="button" data-i18n="retry">重试</button>
                   <button id="ask-setup" class="btn toolbar-ghost tiny" type="button" data-i18n="setupTranslation" hidden>设置翻译</button>
@@ -305,7 +309,7 @@
         <div id="translate-source" class="bubble-source"></div>
         <button id="btn-source-toggle" class="link-btn source-toggle" type="button" data-i18n="expandSource" hidden>展开原文</button>
         <details id="bubble-thinking-wrap" class="thinking-fold" hidden>
-          <summary data-i18n="thinkingProcess">思考过程</summary>
+          <summary><span data-i18n="thinkingProcess">思考过程</span><span id="bubble-thinking-status" class="thinking-state"></span><span id="bubble-thinking-preview" class="thinking-preview"></span></summary>
           <pre id="bubble-thinking" class="thinking-body"></pre>
         </details>
         <div id="translate-result" class="bubble-result" hidden></div>
@@ -416,7 +420,11 @@
             <input id="setting-show-thinking" type="checkbox" />
             <span class="setting-checkbox-label" data-i18n="showThinking">显示思维链</span>
           </label>
-          <p class="hint compact" data-i18n="reasoningHint">仅部分模型支持 thinking。关闭显示时不把思维链画在翻译窗和问答里。</p>
+          <p class="hint compact" data-i18n="reasoningHint">仅显示 API 返回的思考内容；部分模型不会返回。</p>
+          <label class="setting-checkbox" for="setting-ask-vision">
+            <input id="setting-ask-vision" type="checkbox" />
+            <span data-i18n="askVision">允许问答读取页面图像（需模型支持视觉）</span>
+          </label>
         </section>
         <details class="settings-advanced">
           <summary data-i18n="dataManagement">数据管理</summary>

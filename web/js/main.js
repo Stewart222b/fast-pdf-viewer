@@ -8,6 +8,7 @@ import {
   saveReadingPosition,
 } from "./reading-position.js";
 import { askDocument } from "./ask-document.js";
+import { renderThinking } from "./thinking-view.js";
 import { highlightSnippet, searchDocument } from "./search.js";
 import { loadSettings, saveSettings, initSettings } from "./settings.js";
 import { applyDocumentTranslations, getLocale, setLocale, t } from "./i18n.js";
@@ -18,6 +19,7 @@ import {
   readBubblePlainText,
   renderBubbleSource,
   renderBubbleTranslation,
+  renderMarkdown,
 } from "./bubble-text-render.js";
 import { getSelectionAnchorFromSelection, getSelectionAnchorRect } from "./selection-anchor.js";
 import { prepareSelectionForTranslation } from "./selection-text.js";
@@ -1388,12 +1390,10 @@ function setAskStatus(message, { error = false } = {}) {
   status.classList.toggle("is-error", error);
 }
 
-function setThinkingFold(wrapId, bodyId, text, enabled) {
-  const wrap = $(wrapId);
-  const body = $(bodyId);
-  const next = enabled ? String(text || "") : "";
-  if (body) body.textContent = next;
-  if (wrap) wrap.hidden = !next;
+function setThinkingFold(wrapId, bodyId, text, enabled, streaming = false) {
+  renderThinking({ wrap: $(wrapId), body: $(bodyId), preview: $(`${bodyId}-preview`), status: $(`${bodyId}-status`) }, text, {
+    enabled, streaming, label: (active, seconds) => active ? t("thinkingActive") : t("thinkingDone", { seconds }),
+  });
 }
 
 function clearAskUi({ keepQuestion = true } = {}) {
@@ -1412,11 +1412,47 @@ function clearAskUi({ keepQuestion = true } = {}) {
   setThinkingFold("ask-thinking-wrap", "ask-thinking", "", false);
   $("ask-citations").replaceChildren();
   $("ask-citations-wrap").hidden = true;
+  $("ask-citations-wrap").open = false;
   $("ask-result-actions").hidden = true;
   $("ask-retry").hidden = true;
   $("ask-setup").hidden = true;
   $("ask-stop").hidden = true;
   $("ask-submit").disabled = false;
+  $("ask-reading-log").replaceChildren();
+  $("ask-reading-wrap").hidden = true;
+}
+
+function recordAskProgress(event) {
+  const labels = {
+    search: () => t("askSearchStep", { query: event.query, count: event.total }),
+    read: () => t("askReadStep", { start: event.start, end: event.end }),
+    image: () => t("askImageStep", { page: event.page }),
+    full: () => t("askFullStep", { count: event.pages.length }),
+    retrieval: () => t("askInitialStep", { pages: event.pages.join(", ") }),
+    compatibility: () => t("askCompatibility"),
+  };
+  const text = labels[event.type]?.();
+  if (!text) return;
+  const row = document.createElement("li");
+  row.textContent = text;
+  $("ask-reading-log").appendChild(row);
+  $("ask-reading-wrap").hidden = false;
+  setAskStatus(text);
+}
+
+async function waitForAskIndex(signal) {
+  const pending = viewer.indexPromise;
+  if (!pending) return;
+  let abort;
+  try {
+    await Promise.race([pending, new Promise((_, reject) => {
+      abort = () => reject(new DOMException("Aborted", "AbortError"));
+      if (signal.aborted) abort();
+      else signal.addEventListener("abort", abort, { once: true });
+    })]);
+  } finally {
+    signal.removeEventListener("abort", abort);
+  }
 }
 
 function renderAskCitations(hits) {
@@ -1448,6 +1484,28 @@ function renderAskCitations(hits) {
   });
 }
 
+function renderAskAnswer(text, hits = []) {
+  renderMarkdown($("ask-answer"), text, { renderReference({ pageNumber, label }) {
+    const index = hits.findIndex(hit => (hit.sourcePageNumber || hit.pageNumber) === pageNumber);
+    if (index < 0) return document.createTextNode(label);
+    const hit = hits[index];
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ask-page-reference";
+    button.textContent = hit.pageNumber === pageNumber ? label : t("pageDescription", { page: hit.pageNumber });
+    button.title = t(hit.kind === "quote" ? "askJumpQuote" : "askJumpPage", { page: hit.pageNumber });
+    button.addEventListener("click", async () => {
+      try {
+        await jumpToAskCitation(index);
+        renderAskCitations(askHits);
+      } catch (error) {
+        setAskStatus(t("locateFailed", { message: error.message || error }), { error: true });
+      }
+    });
+    return button;
+  } });
+}
+
 async function jumpToAskCitation(index) {
   const hit = askHits[index];
   if (!hit) return;
@@ -1473,18 +1531,6 @@ async function runAsk(question = $("ask-input")?.value || "") {
     setAskStatus(t("noFile"), { error: true });
     return;
   }
-  const pages = (viewer.pageTexts || []).filter((page) => page && String(page.text || "").trim());
-  if (!pages.length && !outlineTitles.length) {
-    const indexing = viewer.indexedPages < viewer.pageCount;
-    setAskStatus(
-      indexing
-        ? t("askIndexing", { current: viewer.indexedPages, total: viewer.pageCount })
-        : t("askNoTextLayer"),
-      { error: !indexing },
-    );
-    return;
-  }
-
   askLastQuestion = trimmed;
   if ($("ask-input")) $("ask-input").value = trimmed;
   cancelAsk();
@@ -1500,14 +1546,21 @@ async function runAsk(question = $("ask-input")?.value || "") {
   setThinkingFold("ask-thinking-wrap", "ask-thinking", "", false);
   $("ask-citations").replaceChildren();
   $("ask-citations-wrap").hidden = true;
+  $("ask-citations-wrap").open = false;
   $("ask-result-actions").hidden = true;
   $("ask-retry").hidden = true;
   $("ask-setup").hidden = true;
   $("ask-stop").hidden = false;
   $("ask-submit").disabled = true;
   setAskStatus(t("askAnswering"));
+  $("ask-reading-log").replaceChildren();
+  $("ask-reading-wrap").hidden = true;
 
   try {
+    if (viewer.indexedPages < viewer.pageCount) setAskStatus(t("askIndexing", { current: viewer.indexedPages, total: viewer.pageCount }));
+    await waitForAskIndex(controller.signal);
+    if (request !== askGeneration || controller.signal.aborted) return;
+    setAskStatus(t("askAnswering"));
     const result = await askDocument({
       pageTexts: viewer.pageTexts,
       outlineTitles: outlineEntries.length ? outlineEntries : outlineTitles,
@@ -1515,15 +1568,18 @@ async function runAsk(question = $("ask-input")?.value || "") {
       currentPage: viewer.currentPage || 1,
       settings: loadSettings(),
       signal: controller.signal,
+      pageCount: viewer.pageCount,
+      readPageImage: (page, signal) => viewer.getPageImage(page, signal),
+      onProgress: event => { if (request === askGeneration) recordAskProgress(event); },
       onDelta: (preview, _raw, extras) => {
         if (request !== askGeneration) return;
-        $("ask-answer").textContent = preview;
-        setThinkingFold("ask-thinking-wrap", "ask-thinking", extras?.reasoning, loadSettings().showThinking === true);
+        renderAskAnswer(preview);
+        setThinkingFold("ask-thinking-wrap", "ask-thinking", extras?.reasoning, loadSettings().showThinking === true, true);
       },
     });
     if (request !== askGeneration) return;
     $("ask-answer").classList.remove("is-streaming");
-    $("ask-answer").textContent = result.answer;
+    renderAskAnswer(result.answer, result.hits);
     setThinkingFold("ask-thinking-wrap", "ask-thinking", result.reasoning, loadSettings().showThinking === true);
     renderAskCitations(result.hits);
     const notes = [];
@@ -1534,7 +1590,9 @@ async function runAsk(question = $("ask-input")?.value || "") {
         end: result.scope.end,
       }));
     }
-    if (result.truncated) notes.push(t("askPackedNote"));
+    notes.push(result.mode === "full" ? t("askFullStep", { count: result.readPages.length })
+      : t("askCoverage", { searches: result.searches.length, pages: result.readPages.join(", ") }));
+    if (result.budgetReached) notes.push(t("askBudgetReached"));
     if (viewer.indexedPages < viewer.pageCount) {
       notes.push(t("askIndexing", { current: viewer.indexedPages, total: viewer.pageCount }));
     }
@@ -1551,12 +1609,13 @@ async function runAsk(question = $("ask-input")?.value || "") {
       $("ask-result").hidden = false;
       $("ask-answer").textContent = "";
     }
-    setAskStatus(missingKey ? t("apiKeyRequired") : t("askFailed", { message }), { error: true });
+    setAskStatus(controller.signal.aborted ? t("askCancelled") : missingKey ? t("apiKeyRequired") : t("askFailed", { message }), { error: !controller.signal.aborted });
     $("ask-result-actions").hidden = false;
     $("ask-retry").hidden = missingKey;
     $("ask-setup").hidden = !missingKey;
   } finally {
     if (request === askGeneration) {
+      setThinkingFold("ask-thinking-wrap", "ask-thinking", $("ask-thinking").textContent, loadSettings().showThinking === true);
       askAbort = null;
       $("ask-stop").hidden = true;
       $("ask-submit").disabled = false;
@@ -2737,6 +2796,7 @@ function setTranslateError(message, selectionId) {
 }
 
 function setTranslateStopped(selectionId) {
+  setThinkingFold("bubble-thinking-wrap", "bubble-thinking", $("bubble-thinking").textContent, loadSettings().showThinking === true);
   const result = $("translate-result");
   result.hidden = false;
   result.classList.remove("error", "setup-required", "streaming");
@@ -2781,7 +2841,7 @@ async function runTranslate(selectionId = bubbleSelectionId) {
         if (requestId !== translateRequestId || selectionId !== bubbleSelectionId) return;
         if (extras?.reasoning) lastReasoning = extras.reasoning;
         renderBubbleTranslation(result, partial, selectedTranslationMode, { streaming: true });
-        setThinkingFold("bubble-thinking-wrap", "bubble-thinking", extras?.reasoning, loadSettings().showThinking === true);
+        setThinkingFold("bubble-thinking-wrap", "bubble-thinking", extras?.reasoning, loadSettings().showThinking === true, true);
         scheduleRepositionBubble();
       },
     });
@@ -3125,6 +3185,7 @@ function openSettings() {
   $("setting-auto-translate").checked = settings.autoTranslateOnSelect !== false;
   if ($("setting-reasoning-effort")) $("setting-reasoning-effort").value = settings.reasoningEffort || "default";
   if ($("setting-show-thinking")) $("setting-show-thinking").checked = settings.showThinking === true;
+  if ($("setting-ask-vision")) $("setting-ask-vision").checked = settings.askVisionEnabled === true;
   lastSettingsTrigger = document.activeElement;
   $("settings-modal").hidden = false;
   try {
@@ -3217,10 +3278,11 @@ $("btn-settings-save").addEventListener("click", async () => {
     autoTranslateOnSelect: $("setting-auto-translate").checked,
     reasoningEffort: $("setting-reasoning-effort")?.value || "default",
     showThinking: $("setting-show-thinking")?.checked === true,
+    askVisionEnabled: $("setting-ask-vision")?.checked === true,
   };
   const previousTargetLang = loadSettings().targetLang;
   try {
-    if (!isAllowedApiBaseUrl(next.apiBaseUrl)) throw new Error(t("modelEndpointMustUseHttps"));
+    if (!isAllowedApiBaseUrl(next.apiBaseUrl)) throw new Error(t("modelEndpointInvalid"));
     // Request from the click handler, before yielding the user gesture.
     const permission = next.apiKey ? requestHostAccess(next.apiBaseUrl) : true;
     button.disabled = true;

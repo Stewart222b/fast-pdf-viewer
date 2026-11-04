@@ -19,15 +19,21 @@ test('normalizeApiBase trims trailing slashes', () => {
   assert.equal(normalizeApiBase('https://api.example.com/v1/'), 'https://api.example.com/v1');
 });
 
-test('API bases require remote HTTPS while allowing HTTP on localhost', () => {
+test('API bases allow HTTP and HTTPS while rejecting credentials and other protocols', () => {
   assert.equal(isAllowedApiBaseUrl('https://api.example.com/v1'), true);
   assert.equal(isAllowedApiBaseUrl('http://localhost:11434/v1'), true);
   assert.equal(isAllowedApiBaseUrl('http://127.0.0.1:11434/v1'), true);
-  assert.equal(isAllowedApiBaseUrl('http://api.example.com/v1'), false);
+  assert.equal(isAllowedApiBaseUrl('http://api.example.com/v1'), true);
+  assert.equal(isAllowedApiBaseUrl('http://10.0.0.2:8080/v1'), true);
+  assert.equal(isAllowedApiBaseUrl('http://[::1]:8080/v1'), true);
   assert.equal(isAllowedApiBaseUrl('https://user:pass@api.example.com/v1'), false);
   assert.equal(normalizeApiBase('http://localhost:11434/v1'), 'http://localhost:11434/v1');
-  assert.throws(() => normalizeApiBase('http://api.example.com/v1'), /HTTPS/);
-  assert.throws(() => chatCompletionsUrl('http://api.example.com/v1'), /HTTPS/);
+  assert.equal(normalizeApiBase('http://api.example.com/v1/'), 'http://api.example.com/v1');
+  assert.equal(chatCompletionsUrl('http://api.example.com/v1'), 'http://api.example.com/v1/chat/completions');
+  for (const url of ['file:///tmp/api', 'javascript:alert(1)', 'ftp://api.example.com', 'invalid', 'http://user:pass@api.example.com/v1']) {
+    assert.equal(isAllowedApiBaseUrl(url), false);
+    assert.throws(() => normalizeApiBase(url), /HTTP/);
+  }
 });
 
 test('formatBubbleModelLabel reflects API endpoint not model vendor prefix', () => {
@@ -160,22 +166,25 @@ test('translateWithProvider rejects empty key and long text', async () => {
   );
 });
 
-test('translation blocks legacy remote HTTP settings before sending the saved key', async () => {
+test('translation sends requests to a configured remote HTTP API', async () => {
   const originalFetch = globalThis.fetch;
-  let requestStarted = false;
-  globalThis.fetch = async () => {
-    requestStarted = true;
-    return { ok: true };
+  let request;
+  globalThis.fetch = async (url, init) => {
+    request = { url, init };
+    return {
+      ok: true,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ choices: [{ message: { content: 'translated text' }, finish_reason: 'stop' }] }),
+    };
   };
   try {
-    await assert.rejects(
-      () => translateWithProvider('selected text', {
+    const result = await translateWithProvider('selected text', {
         apiKey: 'previously-saved-key',
         apiBaseUrl: 'http://legacy-remote.example/v1',
-      }),
-      /HTTPS/,
-    );
-    assert.equal(requestStarted, false);
+      });
+    assert.equal(result, 'translated text');
+    assert.equal(request.url, 'http://legacy-remote.example/v1/chat/completions');
+    assert.equal(request.init.headers.Authorization, 'Bearer previously-saved-key');
   } finally {
     globalThis.fetch = originalFetch;
   }

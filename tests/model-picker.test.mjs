@@ -371,20 +371,19 @@ test('missing API Key or Base URL gets a neutral status with the missing field n
   }
 });
 
-test('remote model-list endpoints require HTTPS while localhost can use HTTP', async () => {
+test('remote model-list endpoints support HTTP and HTTPS', async () => {
   assert.equal(isAllowedModelEndpoint('https://api.example.com/v1'), true);
   assert.equal(isAllowedModelEndpoint('http://localhost:8080/v1'), true);
   assert.equal(isAllowedModelEndpoint('http://127.0.0.1:8080/v1'), true);
-  assert.equal(isAllowedModelEndpoint('http://api.example.com/v1'), false);
+  assert.equal(isAllowedModelEndpoint('http://api.example.com/v1'), true);
   assert.equal(isAllowedModelEndpoint('https://user:pass@api.example.com/v1'), false);
   assert.equal(modelEndpointHost('https://api.example.com:8443/v1'), 'api.example.com');
 
   const env = setupPicker({ apiBaseUrl: 'http://api.example.com/v1' });
   try {
     await env.picker.refresh();
-    assert.equal(env.fetchCalls, 0);
-    assert.equal(env.status.classList.contains('warning'), true);
-    assert.match(env.status.textContent, /HTTPS/);
+    assert.equal(env.fetchCalls, 1);
+    assert.equal(env.status.classList.contains('warning'), false);
   } finally {
     env.restore();
   }

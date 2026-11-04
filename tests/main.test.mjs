@@ -282,6 +282,8 @@ async function setup({ platform = 'Linux x86_64', startup = null,
       spec === './translate-provider.js' ||
       spec === './openai-chat.js' ||
       spec === './ask-document.js' ||
+      spec === './document-tools.js' ||
+      spec === './thinking-view.js' ||
       spec === './document-properties.js' ||
       spec === './i18n.js'
     ) {

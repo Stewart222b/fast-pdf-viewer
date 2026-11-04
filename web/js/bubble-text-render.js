@@ -40,17 +40,25 @@ function startsBlock(line) {
     Boolean(listItem(line));
 }
 
-function appendInlineMarkdown(parent, text) {
-  const pattern = /\*\*[^*\n]+?\*\*|\*[^*\n]+?\*|`[^`\n]+`/g;
+function appendInlineMarkdown(parent, text, { renderReference } = {}) {
+  const pattern = /\[[^\]\n]+\]\(pdf:\d+\)|\[\[p\d+\]\]|\*\*[^*\n]+?\*\*|\*[^*\n]+?\*|`[^`\n]+`/g;
   let offset = 0;
   for (const match of String(text).matchAll(pattern)) {
     const token = match[0];
     const start = match.index;
     if (start > offset) parent.append(document.createTextNode(text.slice(offset, start)));
+    const reference = token.match(/^\[([^\]]+)\]\(pdf:(\d+)\)$/) || token.match(/^\[\[(p)(\d+)\]\]$/);
+    if (reference) {
+      parent.append(renderReference?.({ pageNumber: Number(reference[2]), label: reference[1] === "p" ? `p${reference[2]}` : reference[1] }) || document.createTextNode(token));
+      offset = start + token.length;
+      continue;
+    }
     const isBold = token.startsWith("**");
     const isCode = token.startsWith("`");
     const element = document.createElement(isBold ? "strong" : isCode ? "code" : "em");
-    element.textContent = token.slice(isBold ? 2 : 1, isBold ? -2 : -1);
+    const inner = token.slice(isBold ? 2 : 1, isBold ? -2 : -1);
+    if (isCode) element.textContent = inner;
+    else appendInlineMarkdown(element, inner, { renderReference });
     parent.append(element);
     offset = start + token.length;
   }
@@ -58,7 +66,7 @@ function appendInlineMarkdown(parent, text) {
 }
 
 /** Render a safe Markdown subset using text nodes; model output is never parsed as HTML. */
-export function renderMarkdown(el, text) {
+export function renderMarkdown(el, text, options = {}) {
   el.replaceChildren();
   const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
   let index = 0;
@@ -89,7 +97,7 @@ export function renderMarkdown(el, text) {
     const heading = line.match(/^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
     if (heading) {
       const node = document.createElement(`h${heading[1].length}`);
-      appendInlineMarkdown(node, heading[2]);
+      appendInlineMarkdown(node, heading[2], options);
       el.append(node);
       index += 1;
       continue;
@@ -109,7 +117,7 @@ export function renderMarkdown(el, text) {
       }
       const quote = document.createElement("blockquote");
       const paragraph = document.createElement("p");
-      appendInlineMarkdown(paragraph, quoteLines.join(" "));
+      appendInlineMarkdown(paragraph, quoteLines.join(" "), options);
       quote.append(paragraph);
       el.append(quote);
       continue;
@@ -122,7 +130,7 @@ export function renderMarkdown(el, text) {
         const item = listItem(lines[index]);
         if (!item || item.ordered !== firstItem.ordered) break;
         const listNode = document.createElement("li");
-        appendInlineMarkdown(listNode, item.text);
+        appendInlineMarkdown(listNode, item.text, options);
         list.append(listNode);
         index += 1;
       }
@@ -137,7 +145,7 @@ export function renderMarkdown(el, text) {
       index += 1;
     }
     const paragraph = document.createElement("p");
-    appendInlineMarkdown(paragraph, paragraphLines.join(" "));
+    appendInlineMarkdown(paragraph, paragraphLines.join(" "), options);
     el.append(paragraph);
   }
 }

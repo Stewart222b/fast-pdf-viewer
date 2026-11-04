@@ -20,6 +20,15 @@ function page(pageNumber, text) {
   return { pageNumber, ...buildTextIndex({ items }) };
 }
 
+test("ARC retrieval ranks actual terms above search substrings", () => {
+  const pages = Array.from({ length: 12 }, (_, i) => page(i + 1, 'search searching searchable '.repeat(20)));
+  pages.push(page(80, 'ARC (Anti-Reflective Coating) inspection detects coating defects.'));
+  const pack = retrieveExcerpts(pages, '哪里有讲arc的');
+  assert.equal(pack.excerpts[0].pageNumber, 80);
+  assert.match(pack.excerpts[0].text, /Anti-Reflective Coating/);
+  assert.equal(pack.excerpts.some(item => item.reason === 'match' && item.pageNumber !== 80), false);
+});
+
 test("askQuestionTokens keeps english terms and chinese bigrams", () => {
   const tokens = askQuestionTokens("冷却水规格 cooling water specification where?");
   assert.ok(tokens.includes("cooling"));
@@ -284,6 +293,13 @@ test("buildAskMessages grounds the model on excerpts and target language", () =>
   assert.match(messages[1].content, /Page 12/);
   assert.match(messages[1].content, /Cooling water inlet/);
   assert.match(messages[1].content, /Where is cooling water\?/);
+});
+
+test("inline PDF references work without a quote block and do not duplicate quoted pages", () => {
+  const parsed = parseAskResponse('See [page 181](pdf:181) and [[p215]].\n---\np181: "exact source"');
+  assert.deepEqual(parsed.citations.map(cite => cite.pageNumber), [181, 215]);
+  assert.equal(parsed.citations[0].quote, 'exact source');
+  assert.equal(parsed.citations[1].quote, '');
 });
 
 test("parseAskResponse splits answer body from citation lines", () => {
