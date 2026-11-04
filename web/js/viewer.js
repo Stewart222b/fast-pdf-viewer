@@ -87,7 +87,7 @@ export class PdfViewer {
     this.pdf = null;
     this.pageCount = 0;
     this.currentPage = 1;
-    this.zoomMode = "page-width";
+    this.zoomMode = "page-fit";
     this.zoom = 1;
     this.baseWidth = 612;
     this.baseHeight = 792;
@@ -103,6 +103,8 @@ export class PdfViewer {
     this.observer = null;
     this.indexPromise = null;
     this.name = "";
+    this.sourceBytes = 0;
+    this.sourceLocation = "";
     this.generation = 0;
     this.loadingTask = null;
     this.renderJobs = new Map();
@@ -229,6 +231,9 @@ export class PdfViewer {
     this.close();
     const generation = this.generation;
     this.name = source.name || t("document");
+    this.sourceBytes = Number(source.size) || source.data?.byteLength || 0;
+    const sourceUrl = String(source.url || "");
+    this.sourceLocation = source.path || (/^https?:/i.test(sourceUrl) ? sourceUrl : "");
     this.notify();
     try {
       const loading = getDocument({
@@ -311,6 +316,8 @@ export class PdfViewer {
     this.currentPage = 1;
     this.pageCount = 0;
     this.name = "";
+    this.sourceBytes = 0;
+    this.sourceLocation = "";
     this.pageSizes = [];
     this.wrapEl.scrollTo({ top: 0, left: 0, behavior: "auto" });
     this.history.reset(this.getState());
@@ -825,6 +832,27 @@ export class PdfViewer {
     return this.pdf ? this.pdf.getOutline() : null;
   }
 
+  async getDocumentInfo() {
+    if (!this.pdf) return null;
+    let meta = {};
+    try {
+      meta = await this.pdf.getMetadata() || {};
+    } catch {
+      meta = {};
+    }
+    const size = this.pageLayout(1);
+    const contentLength = Number(meta.contentLength);
+    return {
+      fileName: this.name,
+      fileSize: contentLength > 0 ? contentLength : this.sourceBytes,
+      location: this.sourceLocation,
+      pageCount: this.pageCount,
+      pageWidth: size.width,
+      pageHeight: size.height,
+      info: meta.info && typeof meta.info === "object" ? meta.info : {},
+    };
+  }
+
   goToPage(pageNumber, { push = false, instant = false, left = null, top = null } = {}) {
     if (!this.pageCount || !Number.isFinite(pageNumber)) return;
     this.navigationGeneration += 1;
@@ -1000,7 +1028,7 @@ export class PdfViewer {
     else this.highlightedPages.delete(pageNumber);
   }
 
-  async showHits(hits, query, index = 0, { jump = true } = {}) {
+  async showHits(hits, query, index = 0, { jump = true, historyGroup = null } = {}) {
     // Progressive index refreshes must not cancel in-flight search/outline jumps.
     const generation = jump ? ++this.hitGeneration : this.hitGeneration;
     if (jump) this.navigationGeneration += 1;
@@ -1014,11 +1042,11 @@ export class PdfViewer {
     }
     this.refreshLiveHighlights(prevPage, hits[this.hitIndex]?.pageNumber);
     if (jump && generation === this.hitGeneration && hits[index]) {
-      await this.jumpToHit(index, { push: true });
+      await this.jumpToHit(index, { push: true, historyGroup });
     }
   }
 
-  async jumpToHit(index, { push = false } = {}) {
+  async jumpToHit(index, { push = false, historyGroup = null } = {}) {
     const hit = this.hits[index];
     if (!hit) return;
     const generation = this.generation;
@@ -1041,7 +1069,7 @@ export class PdfViewer {
         left: rect ? Math.max(0, el.offsetLeft + rect.left - 32) : this.wrapEl.scrollLeft,
         behavior: "auto",
       });
-      if (push) this.history.push(this.getState());
+      if (push) this.history.push(this.getState(), { group: historyGroup });
       this.notify();
       this.refreshLiveHighlights(prevPage, hit.pageNumber);
     } catch (error) {

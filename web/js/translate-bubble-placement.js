@@ -83,7 +83,7 @@ export function maxBubbleWidthForViewport(viewportRect, options = {}) {
   const margin = options.margin ?? BUBBLE_MARGIN;
   const cap = options.absoluteMax ?? 420;
   const viewportWidth = viewportRect.right - viewportRect.left;
-  return Math.min(cap, Math.max(160, viewportWidth - margin * 2));
+  return Math.min(cap, Math.max(1, viewportWidth - margin * 2));
 }
 
 /**
@@ -94,7 +94,8 @@ export function maxBubbleWidthForViewport(viewportRect, options = {}) {
 export function applyBubblePlacement(bubbleEl, selectionRect, viewportRect, options) {
   const maxWidth = maxBubbleWidthForViewport(viewportRect, options);
   bubbleEl.style.maxWidth = `${maxWidth}px`;
-  bubbleEl.style.width = `${maxWidth}px`;
+  const preferredWidth = options?.preferredWidth;
+  bubbleEl.style.width = `${Math.min(maxWidth, Math.max(1, preferredWidth || maxWidth))}px`;
   const width = bubbleEl.offsetWidth;
   const height = bubbleEl.offsetHeight;
   const { left, top, maxHeight } = computeBubblePlacement(

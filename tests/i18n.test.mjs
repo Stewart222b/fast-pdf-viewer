@@ -38,6 +38,18 @@ test("document translations update text, titles, labels, placeholders, and html 
   setLocale("zh-CN");
 });
 
+test("reasoning setting strings exist in both locales", () => {
+  setLocale("zh-CN");
+  assert.equal(t("reasoningEffortDefault"), "跟随模型默认");
+  assert.equal(t("showThinking"), "显示思维链");
+  assert.equal(t("thinkingProcess"), "思考过程");
+  setLocale("en");
+  assert.equal(t("reasoningEffortDefault"), "Follow the model default");
+  assert.equal(t("showThinking"), "Show chain of thought");
+  assert.equal(t("thinkingProcess"), "Thinking");
+  setLocale("zh-CN");
+});
+
 test("extension startup error strings exist in both locales", () => {
   setLocale("en");
   assert.match(t("extensionOriginNotGranted", { origin: "https://example.com" }), /example\.com/);

@@ -786,7 +786,7 @@ test('page-width zoom follows viewer-wrap client width', async () => {
   assert.ok(Math.abs(viewer.zoom - (700 - 48) / 600) < 0.001);
 });
 
-test('a new viewer starts in page-width so the first layout is not 150%', async () => {
+test('a new viewer starts in page-fit so the first layout is not 150%', async () => {
   const { viewer } = await setup();
-  assert.equal(viewer.zoomMode, 'page-width');
+  assert.equal(viewer.zoomMode, 'page-fit');
 });

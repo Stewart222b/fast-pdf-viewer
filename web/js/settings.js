@@ -28,6 +28,8 @@ const defaults = {
   uiLanguage: "zh-CN",
   uiLanguageSelected: false,
   autoTranslateOnSelect: false,
+  reasoningEffort: "default",
+  showThinking: false,
 };
 
 function normalizeSettings(stored = {}) {
@@ -43,6 +45,11 @@ function normalizeSettings(stored = {}) {
     merged.uiLanguage = browserUiLanguage();
   }
   if (values.autoTranslateOnSelect === undefined) merged.autoTranslateOnSelect = false;
+  const effort = String(merged.reasoningEffort || "default").trim().toLowerCase();
+  merged.reasoningEffort = ["default", "none", "low", "medium", "high"].includes(effort)
+    ? effort
+    : "default";
+  merged.showThinking = values.showThinking === true;
   return merged;
 }
 

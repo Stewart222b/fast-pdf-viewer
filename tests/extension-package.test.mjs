@@ -186,7 +186,10 @@ test("rejects GNU tar output that is not a ZIP archive", {
   await withFixture(async root => {
     const originalPath = process.env.PATH;
     const tarOnlyPath = await mkdtemp(join(tmpdir(), "fast-pdf-viewer-tar-only-path-"));
-    await symlink("/usr/bin/tar", join(tarOnlyPath, "tar"));
+    // Ignore the requested automatic format to simulate GNU tar on every
+    // POSIX host. macOS bsdtar otherwise produces a real ZIP and cannot
+    // exercise this rejection path.
+    await writeFile(join(tarOnlyPath, "tar"), '#!/bin/sh\nshift\nexec /usr/bin/tar "$@"\n', { mode: 0o755 });
     process.env.PATH = tarOnlyPath;
     try {
       await assert.rejects(

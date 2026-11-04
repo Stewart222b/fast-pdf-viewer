@@ -3,6 +3,7 @@ export class ViewHistory {
     this.stack = [];
     this.index = -1;
     this.listeners = new Set();
+    this.group = null;
   }
 
   snapshot(state) {
@@ -28,6 +29,7 @@ export class ViewHistory {
   }
 
   reset(state) {
+    this.endGroup();
     this.stack = [this.snapshot(state)];
     this.index = 0;
     this.emit();
@@ -39,10 +41,24 @@ export class ViewHistory {
     }
   }
 
-  push(state) {
+  endGroup() {
+    this.group = null;
+  }
+
+  push(state, { group = null } = {}) {
     const next = this.snapshot(state);
     const cur = this.current();
-    if (cur && same(cur, next)) return;
+    if (cur && same(cur, next)) {
+      if (!group || group !== this.group) this.endGroup();
+      return;
+    }
+    // A search preview replaces its last stop while preserving its origin.
+    if (group && this.group === group && this.index > 0 && this.index === this.stack.length - 1) {
+      this.stack[this.index] = next;
+      this.emit();
+      return;
+    }
+    this.group = group;
     this.stack = this.stack.slice(0, this.index + 1);
     this.stack.push(next);
     if (this.stack.length > 80) {
@@ -54,6 +70,7 @@ export class ViewHistory {
   }
 
   back() {
+    this.endGroup();
     if (!this.canBack()) return null;
     this.index -= 1;
     this.emit();
@@ -61,6 +78,7 @@ export class ViewHistory {
   }
 
   forward() {
+    this.endGroup();
     if (!this.canForward()) return null;
     this.index += 1;
     this.emit();
