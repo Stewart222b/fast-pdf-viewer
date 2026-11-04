@@ -162,6 +162,49 @@ class BrowserSetOpenedTests(unittest.TestCase):
                 app.set_opened(None)
 
 
+class DocumentRecoveryTests(unittest.TestCase):
+    def test_restore_reactivates_only_known_documents_and_native_target(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            good = Path(directory) / 'good.pdf'
+            good.write_bytes(b'%PDF-1.4\n')
+            server = app.start_server(0, quiet=True)
+            try:
+                app.set_opened(good)
+                good_id = app.opened['id']
+                # More than one failed selection must not lose the last good PDF.
+                app.set_opened(Path(directory) / 'broken.pdf')
+                app.set_opened(Path(directory) / 'other.pdf')
+                connection = HTTPConnection(*server.server_address, timeout=3)
+                connection.request('GET', '/opened/' + good_id + '.pdf')
+                response = connection.getresponse()
+                self.assertEqual(response.status, 409)
+                response.read()
+                connection.close()
+                self.assertFalse(app.Bridge().restore('unknown-id'))
+                self.assertFalse(app.Bridge().restore(str(good)))
+                self.assertTrue(app.Bridge().restore(good_id))
+                connection = HTTPConnection(*server.server_address, timeout=3)
+                connection.request('GET', '/opened/' + good_id + '.pdf')
+                response = connection.getresponse()
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.read(), good.read_bytes())
+                connection.close()
+                with patch.object(app.webbrowser, 'open', return_value=True) as native:
+                    self.assertTrue(app.Bridge().open_native())
+                    native.assert_called_once_with(good.resolve().as_uri())
+                app.set_opened(None)
+                self.assertFalse(app.Bridge().restore(good_id))
+                app.set_opened(good)
+                good_id = app.opened['id']
+                good.unlink()
+                self.assertFalse(app.Bridge().restore(good_id))
+            finally:
+                server.shutdown()
+                server.server_close()
+                app.set_opened(None)
+
+
 class ServerBindTests(unittest.TestCase):
     def test_busy_port_falls_back_instead_of_sharing(self):
         first = app.start_server(0, quiet=True)

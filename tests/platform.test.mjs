@@ -21,6 +21,19 @@ test("createPlatform switches to desktop after pywebviewready", () => {
   assert.equal(globalThis.document.body.dataset.platform, "desktop");
 });
 
+test("desktop recovery forwards the document ID to the native bridge", async () => {
+  delete globalThis.chrome;
+  const restored = [];
+  globalThis.pywebview = { api: { restore: async id => { restored.push(id); return true; } } };
+  try {
+    const platform = createPlatform();
+    assert.equal(await platform.restoreFile('selected-document-id'), true);
+    assert.deepEqual(restored, ['selected-document-id']);
+  } finally {
+    delete globalThis.pywebview;
+  }
+});
+
 test("platform wrapper tolerates platforms without extension-only methods", () => {
   const listeners = {};
   globalThis.window = {

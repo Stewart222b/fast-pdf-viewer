@@ -33,6 +33,9 @@ export function createPlatform() {
     pickFile(...args) {
       return activePlatform().pickFile(...args);
     },
+    restoreFile(...args) {
+      return activePlatform().restoreFile?.(...args);
+    },
     setTabTitle(...args) {
       return activePlatform().setTabTitle?.(...args);
     },

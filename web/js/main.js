@@ -716,6 +716,10 @@ async function openSource(getSource, { restore = null } = {}) {
   try {
     const source = await getSource();
     if (request !== openGeneration) return false;
+    if (restore && platform.id === "desktop" && source.id) {
+      if (!await platform.restoreFile(source.id)) throw new Error(t("openDocumentFailed"));
+      if (request !== openGeneration) return false;
+    }
     const fingerprint = restore?.fingerprint || readingFingerprint(source);
     // PDF.js can transfer MIME bytes to its worker. Retain a Blob source for
     // recovery, without keeping a second PDF rendering context alive.
@@ -735,8 +739,8 @@ async function openSource(getSource, { restore = null } = {}) {
     // outline work can still take a beat and must not keep covering the page.
     hideViewerStatus();
     currentFingerprint = fingerprint;
-    activeDocument = { getSource: reopen, fingerprint, name: source.name };
-    nativePdf = nativePdfFromSource(source, recoveryBlob);
+    nativePdf = restore?.nativePdf || nativePdfFromSource(source, recoveryBlob);
+    activeDocument = { getSource: reopen, fingerprint, name: source.name, nativePdf };
     syncOriginalPdfButton();
     const saved = restore?.state || loadReadingPosition(currentFingerprint, source);
     if (saved) {
@@ -783,6 +787,7 @@ async function openFile(file) {
   if (opened) {
     if (platform.id === "extension") platform.clearBrowserFallback?.();
     nativePdf = { blob: file };
+    activeDocument.nativePdf = nativePdf;
     syncOriginalPdfButton();
   }
   return opened;

@@ -48,6 +48,18 @@ test("formatPdfDate reads PDF date strings", () => {
   assert.equal(formatPdfDate("", t), "");
 });
 
+test("formatPdfDate respects positive, negative, UTC and absent offsets", () => {
+  for (const [pdfDate, date] of [
+    ["D:20261104002632+08'00'", new Date('2026-11-04T00:26:32+08:00')],
+    ["D:20261104002632-05'30'", new Date('2026-11-04T00:26:32-05:30')],
+    ["D:20261104002632Z", new Date('2026-11-04T00:26:32Z')],
+    ["D:20261104002632", new Date(2026, 10, 4, 0, 26, 32)],
+    ["D:2026", new Date(2026, 0, 1)],
+  ]) {
+    assert.equal(formatPdfDate(pdfDate, 'zh-CN'), date.toLocaleString('zh-CN'), pdfDate);
+  }
+});
+
 test("formatPageSize converts points to mm and orientation", () => {
   assert.equal(formatPageSize(612, 792, t), "215.9 × 279.4 mm（纵向）");
   assert.equal(formatPageSize(792, 612, t), "279.4 × 215.9 mm（横向）");

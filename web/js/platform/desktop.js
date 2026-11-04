@@ -5,6 +5,9 @@ export function createDesktopPlatform() {
     id: "desktop",
     label: "桌面版",
     startupOpen: fetchStartupOpen,
+    restoreFile(id) {
+      return globalThis.pywebview.api.restore(id);
+    },
     async pickFile() {
       try {
         const result = await globalThis.pywebview.api.pick();

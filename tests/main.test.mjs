@@ -13,7 +13,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
   loadSettings = () => ({}), initSettings = async () => {},
   translateText = async () => '',
   platformId = 'test', canFallbackToBrowser = undefined,
-  clearBrowserFallback = undefined,
+  clearBrowserFallback = undefined, restoreFile = undefined,
   chrome = undefined, localStorageStore = new Map(), clipboardWrite = async () => {},
   toolbarCompact = false, readingFingerprint = () => '',
   saveReadingPosition = () => {}, clearReadingPositions = () => {},
@@ -263,6 +263,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
         async pickFile() { return null; },
         ...(canFallbackToBrowser !== undefined ? { canFallbackToBrowser } : {}),
         ...(clearBrowserFallback !== undefined ? { clearBrowserFallback } : {}),
+        ...(restoreFile !== undefined ? { restoreFile } : {}),
       }),
     },
     './model-picker.js': {
@@ -1823,6 +1824,56 @@ test('failed new file can restore the prior document and reading page', async ()
   assert.equal(app.viewer.source.name, 'good.pdf');
   assert.equal(app.viewer.appliedPositions.at(-1).page, 4);
   assert.equal(app.viewer.currentPage, 4);
+});
+
+test('restored local file retains its native PDF action after repeated failures', async () => {
+  const app = await setup();
+  const open = app.viewer.open.bind(app.viewer);
+  app.viewer.open = async source => {
+    if (source.name === 'broken.pdf') throw new Error('bad pdf');
+    return open(source);
+  };
+  const file = { name: 'good.pdf', size: 10, lastModified: 1 };
+  app.fileInput.files = [file];
+  await app.fileInput.listeners.change();
+  for (let i = 0; i < 2; i++) {
+    app.fileInput.files = [{ name: 'broken.pdf', size: 12, lastModified: 2 }];
+    await app.fileInput.listeners.change();
+    app.click('viewer-status-restore');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(app.viewer.source.name, 'good.pdf');
+    assert.equal(app.get('btn-original-pdf').hidden, false);
+    app.click('btn-original-pdf');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(app.createdBlobs.at(-1), file);
+  }
+});
+
+test('desktop recovery reactivates the document before fetching its URL', async () => {
+  let currentId = 'good-id';
+  const restored = [];
+  const app = await setup({
+    platformId: 'desktop',
+    startup: { name: 'good.pdf', id: currentId, path: 'C:/good.pdf', url: '/opened/good-id.pdf' },
+    restoreFile: async id => { restored.push(id); currentId = id; return true; },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  const open = app.viewer.open.bind(app.viewer);
+  app.viewer.open = async source => {
+    if (source.id && source.id !== currentId) throw new Error('409 Document changed');
+    if (source.name === 'broken.pdf') throw new Error('bad pdf');
+    return open(source);
+  };
+  app.viewer.currentPage = 4;
+  currentId = 'broken-id';
+  app.fileInput.files = [{ name: 'broken.pdf', size: 12 }];
+  await app.fileInput.listeners.change();
+  app.click('viewer-status-restore');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(restored, ['good-id']);
+  assert.equal(app.viewer.source.id, 'good-id');
+  assert.equal(app.viewer.currentPage, 4);
+  assert.equal(app.get('viewer-status').hidden, true);
 });
 
 test('document properties open from 更多 with filename and page count', async () => {

@@ -27,6 +27,7 @@ ROOT = WEB.parent
 
 opened_lock = threading.Lock()
 opened: dict[str, object] = {"path": None, "name": None, "id": None}
+opened_documents: dict[str, dict[str, object]] = {}
 OPENED_PATH = re.compile(r"^/opened(?:/([0-9a-f]{32})\.pdf|\.pdf)$")
 
 
@@ -151,6 +152,7 @@ class Handler(SimpleHTTPRequestHandler):
 def set_opened(path: str | os.PathLike[str] | None) -> None:
     with opened_lock:
         if not path:
+            opened_documents.clear()
             opened["path"] = None
             opened["name"] = None
             opened["id"] = None
@@ -159,6 +161,7 @@ def set_opened(path: str | os.PathLike[str] | None) -> None:
         opened["path"] = str(p)
         opened["name"] = p.name
         opened["id"] = uuid.uuid4().hex
+        opened_documents[str(opened["id"])] = opened.copy()
 
 
 def ensure_pdfjs() -> None:
@@ -220,6 +223,18 @@ def parse_args() -> argparse.Namespace:
 
 
 class Bridge:
+    def restore(self, document_id):
+        # Only reactivate files explicitly selected in this session. Old HTTP
+        # URLs remain invalid until the reader requests recovery via the bridge.
+        if not isinstance(document_id, str):
+            return False
+        with opened_lock:
+            document = opened_documents.get(document_id)
+            if not document or not Path(str(document["path"])).is_file():
+                return False
+            opened.update(document)
+            return True
+
     def pick(self):
         import webview
 

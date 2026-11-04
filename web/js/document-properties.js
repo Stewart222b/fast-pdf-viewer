@@ -16,17 +16,25 @@ export function formatFileSize(bytes, t) {
 export function formatPdfDate(value, locale = "zh-CN") {
   const raw = String(value ?? "").trim();
   if (!raw) return "";
-  const match = raw.match(/^D:(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?/);
+  const match = raw.match(/^D:(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?(?:([Z+-])(\d{2})?'?(\d{2})?'?)?$/);
   let date;
   if (match) {
-    date = new Date(Date.UTC(
+    const parts = [
       Number(match[1]),
       Number(match[2] || 1) - 1,
       Number(match[3] || 1),
       Number(match[4] || 0),
       Number(match[5] || 0),
       Number(match[6] || 0),
-    ));
+    ];
+    if (match[7]) {
+      const offset = (Number(match[8] || 0) * 60 + Number(match[9] || 0))
+        * (match[7] === "-" ? -1 : 1);
+      date = new Date(Date.UTC(...parts) - offset * 60_000);
+    } else {
+      // PDF dates without an offset describe local time.
+      date = new Date(...parts);
+    }
   } else {
     date = new Date(raw);
   }
