@@ -1,6 +1,9 @@
-const SUPPORTED_LOCALES = new Set(["zh-CN", "en"]);
+import { normalizeLocale } from "./languages.js";
+import { extraMessages } from "./locale-messages.js";
+export { normalizeLocale } from "./languages.js";
 
-const messages = {
+export const messages = {
+  ...extraMessages,
   "zh-CN": {
     modelIncompleteTranslation: "翻译未完成（{reason}），请重试。",
     fileNavigation: "文件与导航", open: "打开", openPdf: "打开 PDF", originalPdf: "用浏览器打开",
@@ -53,7 +56,7 @@ const messages = {
     copyResult: "复制翻译结果", copied: "已复制", copyFailed: "复制失败", passwordRequired: "需要 PDF 密码",
     encryptedHint: "此文档已加密，请输入打开密码。", password: "密码", cancel: "取消", save: "保存",
     readerSettings: "阅读器设置", translationSettings: "翻译设置", translationService: "翻译服务", readingPreferences: "阅读偏好", dataManagement: "数据管理",
-    model: "模型", modelInputPlaceholder: "选择或输入模型 ID", targetLanguage: "目标语言", interfaceLanguage: "界面语言",
+    model: "模型", modelInputPlaceholder: "选择或输入模型 ID", targetLanguage: "翻译目标语言", interfaceLanguage: "界面语言",
     chineseSimplified: "简体中文", english: "English", autoTranslate: "选中文本后自动翻译（关闭时点击“译”）",
     reasoningEffort: "问答思考强度", reasoningEffortDefault: "跟随模型默认", reasoningEffortNone: "关闭",
     reasoningEffortLow: "低", reasoningEffortMedium: "中", reasoningEffortHigh: "高",
@@ -201,10 +204,6 @@ const messages = {
 
 let currentLocale = "zh-CN";
 
-export function normalizeLocale(locale) {
-  return SUPPORTED_LOCALES.has(locale) ? locale : "zh-CN";
-}
-
 export function setLocale(locale) {
   currentLocale = normalizeLocale(locale);
   return currentLocale;
@@ -233,6 +232,8 @@ export function applyDocumentTranslations(root = globalThis.document) {
   apply("data-i18n-aria", (element, value) => { element.setAttribute("aria-label", value); });
   apply("data-i18n-placeholder", (element, value) => { element.placeholder = value; });
   if (typeof globalThis.CustomEvent === "function") {
-    globalThis.dispatchEvent?.(new CustomEvent("fast-pdf-viewer-language-change", { detail: { locale: currentLocale } }));
+    globalThis.dispatchEvent?.(new CustomEvent("fast-pdf-viewer-language-change", {
+      detail: { locale: currentLocale, switchLight: t("switchLight"), switchDark: t("switchDark") },
+    }));
   }
 }

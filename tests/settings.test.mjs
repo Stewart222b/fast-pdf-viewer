@@ -36,7 +36,7 @@ async function withSettingsEnvironment(language, initialValue = null) {
 }
 
 test('fresh settings follow the browser language and leave automatic translation off', async () => {
-  for (const [language, expected] of [['en-GB', 'en'], ['zh-TW', 'zh-CN'], ['fr-FR', 'zh-CN']]) {
+  for (const [language, expected] of [['en-GB', 'en'], ['zh-TW', 'zh-TW'], ['fr-FR', 'fr'], ['de-DE', 'de'], ['es-MX', 'es'], ['ja-JP', 'ja'], ['ko-KR', 'ko']]) {
     const env = await withSettingsEnvironment(language);
     try {
       const settings = env.settings.loadSettings();
@@ -67,7 +67,7 @@ test('explicit interface-language choice remains fixed while an automatic choice
     await automatic.settings.saveSettings({ apiKey: 'test-key', uiLanguageSelected: false });
     globalThis.navigator.language = 'zh-TW';
     const settings = automatic.settings.loadSettings();
-    assert.equal(settings.uiLanguage, 'zh-CN');
+    assert.equal(settings.uiLanguage, 'zh-TW');
     assert.equal(settings.uiLanguageSelected, false);
     assert.equal(settings.autoTranslateOnSelect, false);
   } finally {
@@ -90,6 +90,18 @@ test('reasoning settings persist and reject unknown effort values', async () => 
   } finally {
     env.restore();
   }
+});
+
+test('new interface and translation choices persist independently', async () => {
+  const env = await withSettingsEnvironment('zh-CN');
+  try {
+    for (const [uiLanguage, targetLang] of [['fr', 'pt-BR'], ['ko', 'ar'], ['zh-TW', 'he'], ['de', 'pt-PT']]) {
+      await env.settings.saveSettings({ uiLanguage, uiLanguageSelected: true, targetLang });
+      const settings = env.settings.loadSettings();
+      assert.equal(settings.uiLanguage, uiLanguage);
+      assert.equal(settings.targetLang, targetLang);
+    }
+  } finally { env.restore(); }
 });
 
 test('legacy saved interface-language choice is preserved', async () => {

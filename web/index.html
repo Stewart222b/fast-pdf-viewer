@@ -239,7 +239,7 @@
                   <pre id="ask-thinking" class="thinking-body"></pre>
                 </details>
                 <div class="ask-answer-label" data-i18n="askAnswer">回答</div>
-                <div id="ask-answer" class="ask-answer"></div>
+                <div id="ask-answer" class="ask-answer" dir="auto"></div>
                 <details id="ask-citations-wrap" class="ask-citations-wrap" hidden>
                   <summary class="ask-answer-label" data-i18n="askCitations">引用</summary>
                   <div id="ask-citations" class="search-list ask-citations"></div>
@@ -297,18 +297,38 @@
         <span id="bubble-drag-handle" class="bubble-drag-handle" role="group" tabindex="0" aria-label="拖动翻译窗，也可使用方向键移动" data-i18n-aria="dragTranslation" title="按住拖动翻译窗" data-i18n-title="dragTranslationHint"><svg class="icon" aria-hidden="true"><use href="#i-grip" /></svg></span>
         <label class="visually-hidden" for="bubble-target-lang" data-i18n="targetLanguage">目标语言</label>
         <select id="bubble-target-lang" class="bubble-target-lang" aria-label="目标语言" data-i18n-aria="targetLanguage">
-          <option value="zh-CN">简体中文</option>
-          <option value="zh-TW">繁体中文</option>
-          <option value="en">English</option>
-          <option value="ja">日本語</option>
-        </select>
+              <option value="zh-CN">简体中文</option>
+              <option value="zh-TW">繁體中文</option>
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+              <option value="de">Deutsch</option>
+              <option value="fr">Français</option>
+              <option value="es">Español</option>
+              <option value="pt-BR">Português (Brasil)</option>
+              <option value="pt-PT">Português (Portugal)</option>
+              <option value="it">Italiano</option>
+              <option value="ru">Русский</option>
+              <option value="uk">Українська</option>
+              <option value="pl">Polski</option>
+              <option value="nl">Nederlands</option>
+              <option value="sv">Svenska</option>
+              <option value="tr">Türkçe</option>
+              <option value="ar">العربية</option>
+              <option value="hi">हिन्दी</option>
+              <option value="id">Bahasa Indonesia</option>
+              <option value="vi">Tiếng Việt</option>
+              <option value="th">ไทย</option>
+              <option value="ms">Bahasa Melayu</option>
+              <option value="he">עברית</option>
+            </select>
         <button id="btn-bubble-pin" class="btn icon tiny bubble-pin" type="button" title="固定翻译窗" aria-label="固定翻译窗" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-pin" /></svg></button>
         <button id="btn-bubble-close" class="btn icon tiny bubble-close" title="关闭 (Esc)" data-i18n-title="closeHint" aria-label="关闭" data-i18n-aria="close"><svg class="icon" aria-hidden="true"><use href="#i-x" /></svg></button>
       </div>
       <div class="bubble-body">
         <div id="translate-source" class="bubble-source"></div>
         <button id="btn-source-toggle" class="link-btn source-toggle" type="button" data-i18n="expandSource" hidden>展开原文</button>
-        <div id="translate-result" class="bubble-result" hidden></div>
+        <div id="translate-result" class="bubble-result" dir="auto" hidden></div>
       </div>
       <div class="bubble-actions">
         <span id="bubble-model" class="bubble-model" aria-label="当前翻译模型" data-i18n-aria="currentModel"></span>
@@ -386,16 +406,42 @@
             <label class="setting-label" for="setting-lang" data-i18n="targetLanguage">目标语言</label>
             <select id="setting-lang">
               <option value="zh-CN">简体中文</option>
-              <option value="zh-TW">繁体中文</option>
+              <option value="zh-TW">繁體中文</option>
               <option value="en">English</option>
               <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+              <option value="de">Deutsch</option>
+              <option value="fr">Français</option>
+              <option value="es">Español</option>
+              <option value="pt-BR">Português (Brasil)</option>
+              <option value="pt-PT">Português (Portugal)</option>
+              <option value="it">Italiano</option>
+              <option value="ru">Русский</option>
+              <option value="uk">Українська</option>
+              <option value="pl">Polski</option>
+              <option value="nl">Nederlands</option>
+              <option value="sv">Svenska</option>
+              <option value="tr">Türkçe</option>
+              <option value="ar">العربية</option>
+              <option value="hi">हिन्दी</option>
+              <option value="id">Bahasa Indonesia</option>
+              <option value="vi">Tiếng Việt</option>
+              <option value="th">ไทย</option>
+              <option value="ms">Bahasa Melayu</option>
+              <option value="he">עברית</option>
             </select>
           </div>
           <div class="setting-field">
             <label class="setting-label" for="setting-ui-language" data-i18n="interfaceLanguage">界面语言</label>
             <select id="setting-ui-language">
-              <option value="zh-CN" data-i18n="chineseSimplified">简体中文</option>
-              <option value="en" data-i18n="english">English</option>
+              <option value="zh-CN">简体中文</option>
+              <option value="zh-TW">繁體中文</option>
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+              <option value="de">Deutsch</option>
+              <option value="fr">Français</option>
+              <option value="es">Español</option>
             </select>
           </div>
           <label class="setting-checkbox" for="setting-auto-translate">

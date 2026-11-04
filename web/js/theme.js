@@ -2,6 +2,7 @@
 (() => {
   const key = "fast-pdf-viewer-theme";
   let theme = "dark";
+  let labels = null;
 
   function readStoredTheme() {
     try {
@@ -15,9 +16,9 @@
     document.documentElement.dataset.theme = theme;
     const button = document.getElementById("btn-theme");
     const isEnglish = document.documentElement.lang === "en";
-    const label = isEnglish
+    const label = labels?.[theme === "dark" ? "switchLight" : "switchDark"] || (isEnglish
       ? (theme === "dark" ? "Switch to light theme" : "Switch to dark theme")
-      : (theme === "dark" ? "切换到浅色主题" : "切换到暗色主题");
+      : (theme === "dark" ? "切换到浅色主题" : "切换到暗色主题"));
     button?.setAttribute("aria-label", label);
     button?.setAttribute("title", label);
     document.getElementById("theme-icon")?.setAttribute("href", theme === "dark" ? "#i-sun" : "#i-moon");
@@ -38,7 +39,10 @@
     apply();
   });
 
-  globalThis.addEventListener?.("fast-pdf-viewer-language-change", apply);
+  globalThis.addEventListener?.("fast-pdf-viewer-language-change", (event) => {
+    labels = event.detail || null;
+    apply();
+  });
 
   document.addEventListener("DOMContentLoaded", () => {
     theme = readStoredTheme();

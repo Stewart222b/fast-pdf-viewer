@@ -285,7 +285,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
       spec === './document-tools.js' ||
       spec === './thinking-view.js' ||
       spec === './document-properties.js' ||
-      spec === './i18n.js'
+      spec === './i18n.js' || spec === './languages.js' || spec === './locale-messages.js'
     ) {
       return new vm.SourceTextModule(await readFile(new URL(`../web/js/${spec.slice(2)}`, import.meta.url), 'utf8'), { context });
     }

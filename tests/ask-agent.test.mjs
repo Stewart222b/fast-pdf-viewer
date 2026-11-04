@@ -10,6 +10,27 @@ const jsonResponse = message => ({ ok: true, headers: { get: () => "application/
 const call = (name, args, id = "call-1") => ({ role: "assistant", content: null,
   reasoning_content: "Checking the source", tool_calls: [{ id, type: "function", function: { name, arguments: JSON.stringify(args) } }] });
 
+test("Ask language is independent of translation language and uses UI language only as a fallback", async () => {
+  const original = globalThis.fetch;
+  const prompts = [];
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    prompts.push(body.messages[0].content);
+    assert.match(body.messages[1].content, /Please answer in Japanese/);
+    return jsonResponse({ content: '回答' });
+  };
+  try {
+    for (const targetLang of ['zh-CN', 'en', 'ja']) {
+      await askDocument({ settings: { ...settings, targetLang, uiLanguage: 'en' },
+        question: 'Please answer in Japanese: what does ARC mean?', pageTexts: [{ pageNumber: 1, text: 'ARC means Anti-Reflective Coating.' }] });
+    }
+    assert.equal(new Set(prompts).size, 1, 'translation preferences cannot override Ask language');
+    assert.match(prompts[0], /explicitly requests a response language/);
+    assert.match(prompts[0], /Only when.*ambiguous.*interface language English/);
+    assert.doesNotMatch(prompts[0], /Reply in 简体中文/);
+  } finally { globalThis.fetch = original; }
+});
+
 test("short PDF sends every page, even beyond the old eight-page cap", async () => {
   const original = globalThis.fetch;
   globalThis.fetch = async (_url, init) => {

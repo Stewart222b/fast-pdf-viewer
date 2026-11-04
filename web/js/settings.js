@@ -1,13 +1,11 @@
+import { browserUiLanguage, normalizeLocale } from "./languages.js";
+
 const KEY = "fast-pdf-viewer-settings";
 let extensionSettings = null;
 
 function extensionStorage() {
   return globalThis.location?.protocol === "chrome-extension:" && globalThis.chrome?.runtime?.id
     ? globalThis.chrome.storage.local : null;
-}
-
-function browserUiLanguage() {
-  return /^en(?:-|$)/i.test(globalThis.navigator?.language || "") ? "en" : "zh-CN";
 }
 
 export async function initSettings() {
@@ -45,6 +43,7 @@ function normalizeSettings(stored = {}) {
     merged.uiLanguageSelected = false;
     merged.uiLanguage = browserUiLanguage();
   }
+  merged.uiLanguage = normalizeLocale(merged.uiLanguage);
   if (values.autoTranslateOnSelect === undefined) merged.autoTranslateOnSelect = false;
   const effort = String(merged.reasoningEffort || "default").trim().toLowerCase();
   merged.reasoningEffort = ["default", "none", "low", "medium", "high"].includes(effort)

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { TRANSLATION_LANGUAGES } from '../web/js/languages.js';
 import {
   MAX_TRANSLATE_CHARS,
   buildTranslationMessages,
@@ -14,6 +15,13 @@ import {
   translateWithProvider,
   parseSseTranslationChunk,
 } from '../web/js/translate-provider.js';
+
+test('all translation targets send explicit language names including regional variants', () => {
+  for (const [code, , name] of TRANSLATION_LANGUAGES) {
+    assert.ok(buildTranslationMessages('Example text', code)[0].content.includes(name), code);
+  }
+  assert.notDeepEqual(buildTranslationMessages('Example', 'pt-BR'), buildTranslationMessages('Example', 'pt-PT'));
+});
 
 test('normalizeApiBase trims trailing slashes', () => {
   assert.equal(normalizeApiBase('https://api.example.com/v1/'), 'https://api.example.com/v1');

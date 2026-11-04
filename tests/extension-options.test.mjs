@@ -169,6 +169,31 @@ test("extension options keep an explicitly selected reader language", async () =
   assert.equal(selected.document.documentElement.lang, "zh-CN");
 });
 
+test("extension options localize all eight languages and retain explicit choices", async () => {
+  const expected = { 'zh-CN': '已开启自动打开 PDF。', 'zh-TW': '已啟用自動開啟 PDF。', en: 'Automatic PDF opening is enabled.', ja: 'PDF の自動表示を有効にしました。', ko: 'PDF 자동 열기가 켜졌습니다.', de: 'Automatisches Öffnen von PDFs aktiviert.', fr: 'Ouverture automatique des PDF activée.', es: 'Apertura automática de PDF activada.' };
+  for (const [locale, status] of Object.entries(expected)) {
+    const harness = await setup({ native: true, browserLanguage: 'en-US', readerSettings: { uiLanguage: locale, uiLanguageSelected: true } });
+    assert.equal(harness.document.documentElement.lang, locale);
+    const input = harness.elements.get('auto-open-pdf');
+    input.checked = true;
+    await input.listeners.change();
+    assert.equal(harness.elements.get('settings-status').textContent, status);
+  }
+  for (const [browserLanguage, expectedLocale] of [['zh-Hant-HK', 'zh-TW'], ['fr-CA', 'fr'], ['ko-KR', 'ko']]) {
+    const harness = await setup({ browserLanguage });
+    assert.equal(harness.document.documentElement.lang, expectedLocale);
+  }
+});
+
+test("extension option catalogs cover all settings messages", () => {
+  const catalogs = vm.runInNewContext(source.slice(0, source.indexOf('let uiLanguage')) + '; MESSAGES');
+  const keys = Object.keys(catalogs.en).sort();
+  for (const [locale, catalog] of Object.entries(catalogs)) {
+    assert.deepEqual(Object.keys(catalog).sort(), keys, locale);
+    for (const key of keys) assert.ok(catalog[key]?.trim(), `${locale}.${key}`);
+  }
+});
+
 test("extension options treat a legacy saved reader language as an explicit preference", async () => {
   const legacy = await setup({
     browserLanguage: "en-US",

@@ -273,7 +273,7 @@ test("retrieveExcerpts packs a window around a hit instead of the whole long pag
   assert.equal(pack.truncated, true);
 });
 
-test("buildAskMessages grounds the model on excerpts and target language", () => {
+test("buildAskMessages grounds the model on excerpts and follows the question language", () => {
   const messages = buildAskMessages(
     "Where is cooling water?",
     {
@@ -285,6 +285,9 @@ test("buildAskMessages grounds the model on excerpts and target language", () =>
   );
   assert.equal(messages.length, 2);
   assert.match(messages[0].content, /简体中文/);
+  assert.match(messages[0].content, /Otherwise reply in the same language as the question/);
+  assert.match(messages[0].content, /explicitly requests a response language/);
+  assert.doesNotMatch(messages[0].content, /Reply in 简体中文/);
   assert.match(messages[0].content, /keyword search/);
   assert.match(
     buildAskMessages("总结一下", { intent: "survey", outlineTitles: [], excerpts: [{ pageNumber: 1, text: "Hello" }] }, "zh-CN")[0].content,

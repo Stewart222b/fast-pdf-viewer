@@ -1,4 +1,5 @@
 import { t } from "./i18n.js";
+import { languageName } from "./languages.js";
 import {
   DEFAULT_API_BASE,
   DEFAULT_MODEL,
@@ -23,13 +24,6 @@ export {
   modelsUrl,
   normalizeApiBase,
   parseSseTranslationChunk,
-};
-
-const LANG_NAME = {
-  "zh-CN": "简体中文",
-  "zh-TW": "繁体中文",
-  en: "English",
-  ja: "日本語",
 };
 
 export const MAX_TRANSLATE_CHARS = 4000;
@@ -132,7 +126,7 @@ export async function fetchModelList(settings, { signal } = {}) {
 
 /** @param {'term' | 'passage'} mode */
 export function buildTranslationMessages(text, targetLang, mode = "passage") {
-  const language = LANG_NAME[targetLang] || targetLang;
+  const language = languageName(targetLang);
   if (mode === "term") {
     return [
       {

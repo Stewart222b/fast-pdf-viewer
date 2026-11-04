@@ -1,4 +1,5 @@
 import { t } from "./i18n.js";
+import { languageName } from "./languages.js";
 import { completeChatTurn } from "./openai-chat.js";
 import { searchDocument } from "./search.js";
 import { createDocumentTools, documentToolDefinitions } from "./document-tools.js";
@@ -14,13 +15,6 @@ export const MAX_AGENT_TEXT_CHARS = 96_000;
 export const MATCH_WINDOW_CHARS = 360;
 /** Head of a sampled/anchor page when the whole page would blow the budget. */
 export const SAMPLE_PAGE_HEAD_CHARS = 1_800;
-
-const LANG_NAME = {
-  "zh-CN": "简体中文",
-  "zh-TW": "繁体中文",
-  en: "English",
-  ja: "日本語",
-};
 
 const STOPWORDS = new Set([
   "a", "an", "the", "and", "or", "of", "to", "in", "on", "for", "is", "are", "was", "were",
@@ -564,10 +558,10 @@ export function retrieveExcerpts(pageTexts, question, outlineTitles = [], option
 /**
  * @param {string} question
  * @param {{ excerpts: Array<{pageNumber: number, text: string}>, outlineTitles: string[], intent?: string }} pack
- * @param {string} targetLang
+ * @param {string} uiLanguage - Fallback only when the question's language is ambiguous.
  */
-export function buildAskMessages(question, pack, targetLang) {
-  const language = LANG_NAME[targetLang] || targetLang || "简体中文";
+export function buildAskMessages(question, pack, uiLanguage = "zh-CN") {
+  const fallbackLanguage = languageName(uiLanguage);
   const intent = pack.intent || "locate";
   const sections = [];
   if (pack.outlineTitles?.length) {
@@ -592,11 +586,13 @@ export function buildAskMessages(question, pack, targetLang) {
       content: [
         `You answer questions about one PDF using only the provided excerpts.`,
         retrievalNote,
-        `Reply in ${language}.`,
+        "Choose the response language from the ORIGINAL user question in the Question field, not from document excerpts, tool results or later reading-budget messages.",
+        "If that question explicitly requests a response language, use that language. Otherwise reply in the same language as the question.",
+        `Only when the question's language is ambiguous (for example, a bare acronym), use the interface language ${fallbackLanguage}. The translation target language does not control Ask responses.`,
         "If the excerpts do not contain the answer, say so clearly and do not invent details.",
         "For greetings, reply briefly and offer to answer from the document.",
         "Write a concise explanation first.",
-        'Add clickable references next to supported statements using [第12页](pdf:12) (or [p12](pdf:12) in English). Use only pages you actually received. Never invent pixel coordinates or external URLs. Keep links outside code blocks.',
+        'Add clickable references next to supported statements using [p12](pdf:12), localizing the visible page label to the response language. Use only pages you actually received. Never invent pixel coordinates or external URLs. Keep links outside code blocks.',
         "Then end with a citation block exactly in this form:",
         "---",
         'p12: "exact quote from the excerpts"',
@@ -770,7 +766,7 @@ export async function askDocument({
     throw error;
   }
 
-  const messages = buildAskMessages(trimmed, pack, settings.targetLang);
+  const messages = buildAskMessages(trimmed, pack, settings.uiLanguage);
   const toolkit = createDocumentTools({ pageTexts: pages, outlineEntries: entries, pageCount,
     readPageImage: vision ? readPageImage : undefined, onProgress, signal });
   for (const excerpt of pack.excerpts) toolkit.seenPages.add(excerpt.pageNumber);
@@ -798,7 +794,7 @@ export async function askDocument({
     const finalRound = round === MAX_AGENT_ROUNDS || toolkit.textChars >= MAX_AGENT_TEXT_CHARS;
     if (finalRound) {
       budgetReached = true;
-      messages.push({ role: "user", content: "Reading budget reached. Answer now using evidence already read. State unresolved questions and limits; do not request more tools." });
+      messages.push({ role: "user", content: "Reading budget reached. Answer now using evidence already read, preserving the response language determined from the original Question. State unresolved questions and limits; do not request more tools." });
     }
     const previousReasoning = reasoning;
     let response;

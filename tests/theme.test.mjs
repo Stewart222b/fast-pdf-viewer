@@ -8,6 +8,7 @@ function setup(stored, blocked = false) {
   const button = { setAttribute(k,v) { attrs[k] = v; }, addEventListener(k,fn) { listeners[k] = fn; } };
   const root = { dataset: {} };
   const storageListeners = [];
+  let languageListener;
   const storage = {
     getItem() { if(blocked) throw Error(); return stored; },
     setItem(k,v) { if(blocked) throw Error(); stored=v; },
@@ -19,6 +20,7 @@ function setup(stored, blocked = false) {
     globalThis: {
       addEventListener(k, fn) {
         if (k === "storage") storageListeners.push(fn);
+        if (k === "fast-pdf-viewer-language-change") languageListener = fn;
       },
     },
   });
@@ -28,6 +30,7 @@ function setup(stored, blocked = false) {
     ready: () => ready(),
     click: () => listeners.click(),
     stored: () => stored,
+    languageEvent: (detail) => languageListener({ detail }),
     storageEvent: (newValue) => {
       for (const listener of storageListeners) {
         listener({ key: "fast-pdf-viewer-theme", newValue, storageArea: storage });
@@ -43,6 +46,17 @@ test('defaults dark before DOM ready and persists switching both ways', () => {
   assert.equal(a.stored(),'light');
   assert.equal(a.attrs['aria-label'],'切换到暗色主题');
   a.click(); assert.equal(a.stored(),'dark');
+});
+
+test('theme labels follow interface translations through toggles and storage updates', () => {
+  const app = setup('dark');
+  app.ready();
+  app.languageEvent({ switchLight: 'Passer au thème clair', switchDark: 'Passer au thème sombre' });
+  assert.equal(app.attrs.title, 'Passer au thème clair');
+  app.click();
+  assert.equal(app.attrs['aria-label'], 'Passer au thème sombre');
+  app.storageEvent('dark');
+  assert.equal(app.attrs.title, 'Passer au thème clair');
 });
 test('restores light and ignores invalid stored values', () => {
   assert.equal(setup('light').root.dataset.theme,'light');
