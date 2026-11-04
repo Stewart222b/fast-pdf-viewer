@@ -1,0 +1,18 @@
+{
+  "extensionName": {
+    "message": "Fast PDF Viewer ? Traducci?n con IA",
+    "description": "The extension name shown in the browser and store listing."
+  },
+  "extensionDescription": {
+    "message": "Abre y lee PDF en Microsoft Edge con b?squeda local, navegaci?n y traducci?n opcional del texto seleccionado.",
+    "description": "The short extension description shown in the manifest and store metadata."
+  },
+  "actionTitle": {
+    "message": "Abrir Fast PDF Viewer ? AI Translation",
+    "description": "Toolbar action tooltip."
+  },
+  "contextMenuOpenPdf": {
+    "message": "Abrir PDF con Fast PDF Viewer ? AI Translation",
+    "description": "Link context menu item for PDF links."
+  }
+}

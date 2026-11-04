@@ -184,6 +184,20 @@ async function readExtensionManifest(extensionDirectory) {
   if (optionsPage !== "options.html") {
     throw new Error('extension/manifest.json must use root options.html as its options page.');
   }
+  if (manifest.default_locale && manifest.name?.startsWith("__MSG_") && manifest.description?.startsWith("__MSG_")) {
+    const localeDirectory = join(extensionDirectory, "_locales");
+    for (const locale of await readdir(localeDirectory)) {
+      const messagesPath = join(localeDirectory, locale, "messages.json");
+      let messages;
+      try { messages = JSON.parse(await readFile(messagesPath, "utf8")); }
+      catch (error) { throw new Error(`Invalid extension locale ${locale}: ${error.message}`); }
+      for (const key of ["extensionName", "extensionDescription"]) {
+        if (typeof messages?.[key]?.message !== "string" || !messages[key].message.trim()) {
+          throw new Error(`Extension locale ${locale} is missing ${key} in _locales/${locale}/messages.json.`);
+        }
+      }
+    }
+  }
   return manifest;
 }
 

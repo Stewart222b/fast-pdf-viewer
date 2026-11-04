@@ -1,0 +1,18 @@
+{
+  "extensionName": {
+    "message": "?? PDF ??? ? AI ??",
+    "description": "The extension name shown in the browser and store listing."
+  },
+  "extensionDescription": {
+    "message": "? Microsoft Edge ?????? PDF????????????????????",
+    "description": "The short extension description shown in the manifest and store metadata."
+  },
+  "actionTitle": {
+    "message": "?? Fast PDF Viewer ? AI Translation",
+    "description": "Toolbar action tooltip."
+  },
+  "contextMenuOpenPdf": {
+    "message": "?? Fast PDF Viewer ? AI Translation ?? PDF",
+    "description": "Link context menu item for PDF links."
+  }
+}
