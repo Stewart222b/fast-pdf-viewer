@@ -154,6 +154,34 @@ test('Ask streaming, composer layout, and original PDF download work in the brow
     assert.equal(await evaluate("document.querySelector('#ask-citations-wrap')"),null);
     await evaluate("document.querySelector('#ask-thinking-wrap summary').click()");
     assert.match(await evaluate("document.getElementById('ask-thinking-preview').textContent"),/Verify/);
+    // A finished reasoning row keeps only its label and duration while folded:
+    // the preview snippet is a live-progress hint, not a summary.
+    assert.equal(await evaluate("document.getElementById('ask-thinking-wrap').open"),false);
+    assert.equal(await evaluate("getComputedStyle(document.getElementById('ask-thinking-preview')).display"),'none');
+    const caret = await evaluate(`(async () => {
+      const before = el => getComputedStyle(el.querySelector('summary'), '::before');
+      const reading = document.getElementById('ask-reading-wrap');
+      const settle = () => new Promise(resolve => setTimeout(resolve, 260));
+      const folded = { transform: before(reading).transform, content: before(reading).content.slice(0, 1) };
+      reading.open = true;
+      await settle();
+      const opened = before(reading).transform;
+      reading.open = false;
+      await settle();
+      const closedAgain = before(reading).transform;
+      return {
+        folded: folded.transform,
+        marker: folded.content,
+        opened,
+        closedAgain,
+        transition: before(document.getElementById('ask-thinking-wrap')).transitionDuration,
+      };
+    })()`);
+    assert.equal(caret.folded, 'none', 'folded caret is not rotated');
+    assert.equal(caret.opened, 'matrix(0, 1, -1, 0, 0, 0)', 'expanded caret turns a quarter');
+    assert.equal(caret.closedAgain, 'none', 'caret turns back when the fold closes');
+    assert.match(caret.transition, /0\.16s/);
+    assert.equal(caret.marker, '"', 'the reading caret is drawn by CSS, not a list marker');
     await evaluate("document.getElementById('ask-thread').scrollTop=document.getElementById('ask-thread').scrollHeight");
     const layout=await evaluate("({gap:document.getElementById('ask-thread').getBoundingClientRect().bottom-document.querySelector('.ask-turn-actions').getBoundingClientRect().bottom,button:document.querySelector('.ask-copy').getBoundingClientRect().width,icon:document.querySelector('.ask-copy .icon').getBoundingClientRect().width})");
     assert.ok(layout.gap >= 39, 'answer actions leave space above the composer: ' + JSON.stringify(layout));
@@ -189,6 +217,22 @@ test('Ask streaming, composer layout, and original PDF download work in the brow
       const expanded=await send('Page.captureScreenshot',{format:'png'});
       writeFileSync(process.env.ASK_PREVIEW_PATH.replace('.png','-expanded.png'),Buffer.from(expanded.data,'base64'));
     }
+    const motion = await evaluate(`({
+      send: getComputedStyle(document.getElementById('ask-submit')).transitionDuration,
+      actions: getComputedStyle(document.querySelector('.ask-turn-actions')).transitionDuration,
+      row: getComputedStyle(document.querySelector('.ask-reading li')).animationDuration,
+      detail: getComputedStyle(document.getElementById('ask-meter-detail')).transitionDuration
+    })`);
+    assert.match(motion.send, /0\.12s/);
+    assert.match(motion.actions, /0\.12s/);
+    assert.equal(motion.row, '0.15s');
+    assert.match(motion.detail, /0\.16s/);
+    await send('Emulation.setEmulatedMedia', {features: [{name: 'prefers-reduced-motion', value: 'reduce'}]});
+    assert.equal(await evaluate("getComputedStyle(document.getElementById('ask-submit')).transitionDuration"), '0s');
+    assert.equal(await evaluate("getComputedStyle(document.querySelector('.ask-reading li')).animationName"), 'none');
+    await send('Emulation.setEmulatedMedia', {features: []});
+    // Exercise the download fallback when a native save picker is unavailable.
+    await evaluate("window.showSaveFilePicker = undefined");
     // Exercise a real browser download after opening an actual local PDF.
     const downloadPath=path.join(profile,'downloads');
     mkdirSync(downloadPath,{recursive:true});

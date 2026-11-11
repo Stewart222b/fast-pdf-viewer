@@ -17,7 +17,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
   chrome = undefined, localStorageStore = new Map(), clipboardWrite = async () => {},
   toolbarCompact = false, readingFingerprint = () => '',
   saveReadingPosition = () => {}, clearReadingPositions = () => {},
-  loadReadingPosition = () => null, innerWidth = 1024 } = {}) {
+  loadReadingPosition = () => null, showSaveFilePicker, innerWidth = 1024 } = {}) {
   const elements = new Map(), timers = new Map(), documentListeners = {};
   let currentSelection = { rangeCount: 0 };
   let timerId = 0, viewer, fileInput;
@@ -226,6 +226,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
       addEventListener(name, fn) { (documentListeners[name] ||= []).push(fn); },
     },
     window: {
+      showSaveFilePicker,
       innerWidth,
       innerHeight: 800,
       matchMedia: () => ({ matches: toolbarCompact, addEventListener() {} }),
@@ -502,6 +503,25 @@ test('switching interface language re-renders the empty outline message', async 
   await Promise.resolve(saveClick);
   await new Promise((resolve) => setImmediate(resolve));
   assert.match(String(pane.innerHTML || pane.textContent), /no outline/i);
+});
+
+test('settings opened from 更多 restores focus and toggles inert', async () => {
+  const app = await setup({
+    loadSettings: () => ({ apiKey: '', apiBaseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4o-mini', targetLang: 'zh-CN', uiLanguage: 'zh-CN', autoTranslateOnSelect: false }),
+  });
+  const menu = app.get('toolbar-more-menu');
+  const menuSettingsButton = app.get('btn-settings');
+  const moreButton = app.get('btn-toolbar-more');
+  let restoredFocus = 0;
+  menu.contains = node => node === menuSettingsButton;
+  moreButton.focus = () => { restoredFocus += 1; };
+  app.document.activeElement = menuSettingsButton;
+
+  app.click('btn-settings');
+  assert.equal(app.get('settings-modal').inert, false);
+  app.click('btn-settings-cancel');
+  assert.equal(app.get('settings-modal').inert, true);
+  assert.equal(restoredFocus, 1);
 });
 
 test('settings save writes reasoning effort and show-thinking', async () => {
@@ -1679,7 +1699,7 @@ test('outline renders as a one-line tree with disclosure state', async () => {
   app.viewer.currentPage = 12;
   const longTitle = '5.4.2.4. Z Classification Norm with a very long heading that must not wrap';
   app.viewer.outlinePromise = Promise.resolve([
-    { title: 'Chapter 5', dest: [0, 'XYZ', null, null], items: [
+    { title: 'Chapter\t\u00a05', dest: [0, 'XYZ', null, null], items: [
       { title: longTitle, dest: [10, 'XYZ', null, null], items: [
         { title: 'Deep child', dest: [11, 'XYZ', null, null] },
       ] },
@@ -1727,7 +1747,7 @@ test('filename popover lists the current outline path', async () => {
   };
   app.viewer.currentPage = 12;
   app.viewer.outlinePromise = Promise.resolve([
-    { title: 'Chapter 5', dest: [0, 'XYZ', null, null], items: [
+    { title: 'Chapter\t\u00a05', dest: [0, 'XYZ', null, null], items: [
       { title: '5.4 Heading', dest: [10, 'XYZ', null, null], items: [
         { title: 'Deep child', dest: [11, 'XYZ', null, null] },
       ] },
@@ -1746,6 +1766,7 @@ test('filename popover lists the current outline path', async () => {
     pop.querySelectorAll('.doc-title-crumb').map((crumb) => crumb.textContent),
     ['Chapter 5', '5.4 Heading', 'Deep child'],
   );
+  assert.equal((await app.viewer.outlinePromise)[0].title, 'Chapter\t\u00a05');
   const parent = pop.querySelectorAll('.doc-title-crumb')[0];
   parent.listeners.click();
   assert.deepEqual(dests[0], [0, 'XYZ', null, null]);
@@ -2042,6 +2063,13 @@ test('ask send hidden attribute wins over display grid', async () => {
   const start = css.indexOf('.ask-send {');
   assert.ok(start >= 0, 'ask send has a display rule');
   assert.match(css, /\.ask-send\[hidden\]\s*\{[\s\S]*?display:\s*none/);
+  // A "display ... allow-discrete" transition keeps the outgoing button rendered
+  // for the whole fade, so a hidden send button would still sit on top of stop.
+  const blocks = [...css.matchAll(/(^|\n)\.ask-send\s*\{([^}]*)\}/g)];
+  assert.ok(blocks.length, 'ask send has a display rule');
+  for (const [, , body] of blocks) {
+    assert.doesNotMatch(body, /transition:[^;]*\bdisplay\b/);
+  }
 });
 
 test('ask send stays disabled while empty and becomes stop while answering', async () => {
@@ -2083,7 +2111,7 @@ test('ask meter chip opens a floating popover above the line and closes on outsi
 
   app.click('ask-meter-summary');
   assert.equal(detail.hidden, true);
-  assert.equal(detail.parentElement, meter);
+  assert.equal(detail.parentElement, app.document.body);
   assert.equal(summary.attrs['aria-expanded'], 'false');
 
   app.click('ask-meter-summary');
@@ -2092,7 +2120,7 @@ test('ask meter chip opens a floating popover above the line and closes on outsi
 
   app.dispatchDocument('pointerdown', { target: app.get('ask-input') });
   assert.equal(detail.hidden, true);
-  assert.equal(detail.parentElement, meter);
+  assert.equal(detail.parentElement, app.document.body);
 });
 
 test('ask foot usage and coverage share a 24px row with even pane padding', async () => {
@@ -2101,6 +2129,57 @@ test('ask foot usage and coverage share a 24px row with even pane padding', asyn
   assert.match(css, /\.ask-meter-summary \{[\s\S]*?height:\s*24px/);
   assert.match(css, /\.ask-status \{[\s\S]*?height:\s*24px/);
   assert.match(css, /\.ask-status \{[\s\S]*?line-height:\s*1/);
+});
+
+test('ask effort chip sits by send and mirrors the saved reasoning effort', async () => {
+  const html = await readFile(new URL('../web/index.html', import.meta.url), 'utf8');
+  const css = await readFile(new URL('../web/styles.css', import.meta.url), 'utf8');
+  assert.match(html, /class="ask-compose-actions"[\s\S]*id="ask-more"[\s\S]*id="ask-effort"[\s\S]*class="ask-send-slot"/);
+  assert.match(html, /id="ask-effort-label"/);
+  assert.equal((html.match(/class="ask-effort-item"/g) || []).length, 5);
+  assert.match(html, /id="setting-reasoning-effort"/);
+  assert.match(css, /\n\.ask-effort \{[\s\S]*?margin-left:\s*auto/);
+  assert.match(css, /\.ask-effort-menu \{[\s\S]*?position:\s*fixed/);
+  assert.match(css, /\.ask-effort-item\[aria-checked="true"\] \.ask-effort-check \{[\s\S]*?visibility:\s*visible/);
+});
+
+test('ask effort chip opens a menu by send and saves the picked effort', async () => {
+  let saved;
+  const app = await setup({
+    saveSettings: async (next) => { saved = { ...next }; return { reasoningEffort: next.reasoningEffort }; },
+  });
+  const menu = app.get('ask-effort-menu');
+  const button = app.get('btn-ask-effort');
+  const host = app.get('ask-effort');
+  // The fake DOM does not parse index.html, so mirror the shipped start state.
+  host.appendChild(menu);
+  menu.hidden = true;
+  button.setAttribute('aria-expanded', 'false');
+  const pick = (effort) => app.dispatchElement('ask-effort-menu', 'click', {
+    target: { closest: selector => (selector === '.ask-effort-item' ? { dataset: { effort } } : null) },
+  });
+
+  assert.equal(menu.hidden, true);
+  assert.equal(app.get('ask-effort-label').textContent, '默认');
+
+  app.click('btn-ask-effort');
+  assert.equal(menu.hidden, false);
+  assert.equal(menu.parentElement, app.document.body);
+  assert.equal(button.attrs['aria-expanded'], 'true');
+
+  pick('high');
+  assert.equal(menu.hidden, true);
+  assert.equal(button.attrs['aria-expanded'], 'false');
+  assert.equal(menu.parentElement, host);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(saved.reasoningEffort, 'high');
+  assert.equal(app.get('ask-effort-label').textContent, '高');
+  assert.match(button.attrs.title, /高/);
+
+  app.click('btn-ask-effort');
+  app.dispatchElement('ask-input', 'keydown', { key: 'Escape', preventDefault() {}, stopPropagation() {} });
+  assert.equal(menu.hidden, true);
+  assert.equal(button.attrs['aria-expanded'], 'false');
 });
 
 test('ask thread uses a user bubble, answer icons, and a composer clear menu', async () => {
@@ -2140,6 +2219,39 @@ test('ask thread keeps a stable scrollbar gutter on the pane edge', async () => 
   assert.doesNotMatch(askComposer, /scrollbar-gutter/);
   assert.match(askComposer, /padding-right:\s*var\(--pane-inline-pad\)/);
   assert.doesNotMatch(askComposer, /border-top/);
+});
+
+test('ask tables scroll sideways instead of squeezing every column', async () => {
+  const css = await readFile(new URL('../web/styles.css', import.meta.url), 'utf8');
+  const wrapperStart = css.indexOf('\n.ask-answer .md-table {');
+  assert.ok(wrapperStart >= 0, 'table wrapper has its own block');
+  const wrapper = css.slice(wrapperStart, css.indexOf('}', wrapperStart));
+  assert.match(wrapper, /overflow-x:\s*auto/);
+  const tableStart = css.indexOf('\n.ask-answer .md-table table {');
+  assert.ok(tableStart >= 0, 'table element has its own block');
+  const table = css.slice(tableStart, css.indexOf('}', tableStart));
+  assert.match(table, /width:\s*max-content/);
+  assert.match(table, /min-width:\s*100%/);
+  assert.doesNotMatch(table, /(^|[\s;])width:\s*100%/);
+  const cellStart = css.indexOf('\n.ask-answer th,');
+  assert.ok(cellStart >= 0, 'table cells have their own block');
+  const cell = css.slice(cellStart, css.indexOf('}', cellStart));
+  assert.match(cell, /max-width:\s*\d+em/);
+});
+
+test('ask folds share one rotating caret and a finished thinking row drops its preview', async () => {
+  const css = await readFile(new URL('../web/styles.css', import.meta.url), 'utf8');
+  const caretStart = css.indexOf('\n.ask-turn .ask-reading > summary::before,');
+  assert.ok(caretStart >= 0, 'reading log and thinking share a caret rule');
+  const caret = css.slice(caretStart, css.indexOf('}', caretStart));
+  assert.match(caret, /border-left:\s*5px solid currentColor/);
+  assert.match(caret, /transition:\s*transform\s*160ms/);
+  assert.match(css, /\.ask-turn \.ask-reading\[open\] > summary::before,\s*\n\.ask-turn \.thinking-fold\[open\] > summary::before \{\s*\n\s*transform:\s*rotate\(90deg\);/);
+  assert.match(css, /\.ask-turn \.ask-reading > summary::-webkit-details-marker,\s*\n\.ask-turn \.thinking-fold > summary::-webkit-details-marker \{\s*\n\s*display:\s*none;/);
+  assert.match(css, /\.thinking-fold:not\(\.is-streaming\) \.thinking-preview \{ display: none; \}/);
+  const content = css.slice(css.indexOf('@supports (interpolate-size: allow-keywords)'));
+  assert.match(content, /\.ask-turn \.ask-reading::details-content/);
+  assert.match(content, /\.ask-turn \.ask-reading\[open\]::details-content \{ height: auto; \}/);
 });
 
 test('bubble language picker keeps focus on its border instead of an outer ring', async () => {
@@ -2329,4 +2441,83 @@ test('clearing during an answer aborts it and prevents late results from restori
   assert.equal(app.ask.askMemory.totalTurns, 0);
   assert.equal(app.ask.askThread.length, 0);
   assert.equal(app.get('ask-status').textContent, clearedStatus);
+});
+
+
+test('ask preserves provider API Key errors when a key is configured', async () => {
+  const app = await setup({
+    loadSettings: () => ({ apiKey: 'test-key', apiBaseUrl: 'https://mock.invalid/v1' }),
+    fetchResponse: async () => { throw new Error('API Key is not authorized for this model'); },
+  });
+  app.viewer.pdf = {};
+  app.viewer.pageCount = 1;
+  app.viewer.indexedPages = 1;
+  app.viewer.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }];
+  await app.ask.runAsk('What is Alpha?');
+  assert.match(app.get('ask-status').textContent, /API Key is not authorized for this model/);
+});
+
+
+test('pinned bubble updates selections without replaying entrance animation', async () => {
+  const app = await setup({ loadSettings: () => ({ autoTranslateOnSelect: true }) });
+  let animations = 0;
+  app.get('translate-bubble').animate = () => { animations++; return { cancel() {} }; };
+  const textLayer = { closest(selector) { return selector === '.textLayer' ? this : null; } };
+  const node = { parentElement: textLayer };
+  const rect = { left: 10, top: 10, right: 30, bottom: 20, width: 20, height: 10 };
+  const range = {
+    commonAncestorContainer: { nodeType: 1 }, startContainer: node, endContainer: node,
+    cloneRange() { return { collapse() {}, getClientRects: () => [rect], getBoundingClientRect: () => rect }; },
+    getClientRects: () => [rect], getBoundingClientRect: () => rect,
+  };
+  const select = text => {
+    app.setSelection({ rangeCount: 1, toString: () => text, getRangeAt: () => range });
+    app.dispatchDocument('mouseup', { target: textLayer });
+  };
+  select('First selection');
+  assert.equal(animations, 1);
+  app.click('btn-bubble-pin');
+  select('Second selection');
+  assert.equal(animations, 1);
+  app.click('btn-bubble-pin');
+  select('Third selection');
+  assert.equal(animations, 2);
+});
+
+
+test('local copy uses the save picker and writes original bytes', async () => {
+  let options, written, closed = false;
+  const app = await setup({ showSaveFilePicker: async value => {
+    options = value;
+    return { createWritable: async () => ({ write: async blob => { written = blob; }, close: async () => { closed = true; } }) };
+  } });
+  const file = new Blob(['%PDF-original'], { type: 'application/pdf' });
+  file.name = 'local.pdf';
+  app.fileInput.files = [file];
+  await app.fileInput.listeners.change();
+  await app.savePdf();
+  assert.equal(options.suggestedName, 'local.pdf');
+  assert.equal(written, file);
+  assert.equal(closed, true);
+  assert.equal(app.downloads.length, 0);
+});
+
+test('cancelling local save picker does not download or show an error', async () => {
+  const app = await setup({ showSaveFilePicker: async () => { throw Object.assign(new Error('cancelled'), { name: 'AbortError' }); } });
+  const file = new Blob(['%PDF']); file.name = 'local.pdf';
+  app.fileInput.files = [file];
+  await app.fileInput.listeners.change();
+  await app.savePdf();
+  assert.equal(app.downloads.length, 0);
+  assert.equal(app.get('pdf-export-notice').hidden, true);
+  assert.equal(app.get('btn-save-pdf').disabled, false);
+});
+
+test('remote PDF keeps downloading even when a save picker is available', async () => {
+  let picks = 0;
+  const app = await setup({ startup: { data: new Uint8Array([37, 80, 68, 70]), name: 'remote.pdf', originalUrl: 'https://example.org/remote.pdf', mimeStream: true }, showSaveFilePicker: async () => { picks++; } });
+  await new Promise(resolve => setImmediate(resolve));
+  await app.savePdf();
+  assert.equal(picks, 0);
+  assert.equal(app.downloads.length, 1);
 });

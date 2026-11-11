@@ -153,17 +153,13 @@ function fillDocTitlePopover() {
   label.className = "doc-title-location-label";
   label.textContent = typeof t === "function" ? t("currentLocation") : "";
   location.append(label);
+  const ancestors = document.createElement("div");
+  ancestors.className = "doc-title-ancestors";
   path.forEach((entry, index) => {
-    if (index > 0) {
-      const sep = document.createElement("span");
-      sep.className = "doc-title-sep";
-      sep.setAttribute("aria-hidden", "true");
-      sep.textContent = " › ";
-      location.append(sep);
-    }
     const last = index === path.length - 1;
     const crumb = document.createElement(last ? "span" : "button");
     crumb.className = last ? "doc-title-crumb is-current" : "doc-title-crumb";
+    const title = (entry.title || "").replace(/\s+/gu, " ").trim();
     if (!last) {
       crumb.type = "button";
       crumb.addEventListener("click", () => {
@@ -174,9 +170,22 @@ function fillDocTitlePopover() {
         else if (Number.isFinite(entry.page) && entry.page > 0) viewer.goToPage(entry.page, { push: true });
         closeDocTitlePopover();
       });
+      const step = document.createElement("span");
+      step.className = "doc-title-step";
+      if (index > 0) {
+        const sep = document.createElement("span");
+        sep.className = "doc-title-sep";
+        sep.setAttribute("aria-hidden", "true");
+        sep.textContent = "›";
+        step.append(sep);
+      }
+      crumb.textContent = title;
+      step.append(crumb);
+      ancestors.append(step);
+    } else {
+      crumb.textContent = title;
+      location.append(ancestors, crumb);
     }
-    crumb.textContent = entry.title || "";
-    location.append(crumb);
   });
   docTitlePopover.append(location);
 }
@@ -405,6 +414,8 @@ const ASK_LIVE_IDS = [
 let askMeterState = null;
 let askMeterOpen = false;
 let askMoreOpen = false;
+let askEffortOpen = false;
+let askEffortRevision = 0;
 let askCopyTimer = 0;
 let outlineTitles = [];
 let outlineEntries = [];
@@ -475,8 +486,26 @@ async function saveCurrentPdf() {
   clearPdfExportNotice();
   syncPdfExportButton();
   try {
+    // Open the picker before reading bytes so the click still has user activation.
+    const handle = activeDocument.sourceKind === "local" && typeof window.showSaveFilePicker === "function"
+      ? await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: "PDF", accept: { "application/pdf": [".pdf"] } }],
+      }) : null;
+    if (job.generation !== openGeneration || job.pdf !== viewer.pdf) return;
     const original = await originalPdfBlob(job.pdf, blob);
     if (job.generation !== openGeneration || job.pdf !== viewer.pdf) return;
+    if (handle) {
+      const writable = await handle.createWritable();
+      try {
+        await writable.write(original);
+        await writable.close();
+      } catch (error) {
+        try { await writable.abort(); } catch {}
+        throw error;
+      }
+      return;
+    }
     const url = URL.createObjectURL(original);
     const link = document.createElement("a");
     link.href = url;
@@ -490,6 +519,7 @@ async function saveCurrentPdf() {
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     }
   } catch (error) {
+    if (error?.name === "AbortError") return;
     if (job.generation !== openGeneration || job.pdf !== viewer.pdf) return;
     const notice = $("pdf-export-notice");
     notice.textContent = t("pdfExportFailed", { message: localizedErrorMessage(error) });
@@ -674,7 +704,7 @@ function expandAllOutlineNodes() {
 function collapseAllOutlineNodes() {
   if (!outlineTreeApi) return;
   for (const entry of outlineTreeApi.entries) {
-    if (entry.hasChildren) outlineTreeApi.setEntryExpanded(entry, false);
+    if (entry.hasChildren) outlineTreeApi.setEntryExpanded(entry, false, true);
   }
   pinOutlineDisclosure();
 }
@@ -950,10 +980,52 @@ async function renderOutline(request) {
   // revealed without DOM tree-walking.
   const entries = [];
   const titles = [];
-  const setEntryExpanded = (entry, expanded) => {
-    entry.branch?.classList.toggle("expanded", expanded);
+  const branchAnimations = new WeakMap();
+  const setEntryExpanded = (entry, expanded, animate = false) => {
+    const branch = entry.branch;
+    if (!branch) return;
+    const wasExpanded = branch.classList.contains("expanded");
     entry.toggle?.setAttribute("aria-expanded", String(expanded));
     if (entry.hasChildren) entry.node?.setAttribute("aria-expanded", String(expanded));
+    branch.inert = !expanded;
+    const prior = branchAnimations.get(branch);
+    const fromHeight = branch.getBoundingClientRect().height;
+    const fromOpacity = prior ? Number.parseFloat(getComputedStyle(branch).opacity) : (wasExpanded ? 1 : 0);
+    if (prior) {
+      prior.cancel();
+      branchAnimations.delete(branch);
+    }
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    if (!animate || wasExpanded === expanded || reduceMotion || typeof branch.animate !== "function") {
+      branch.classList.toggle("expanded", expanded);
+      branch.style.display = "";
+      branch.style.height = "";
+      branch.style.overflow = "";
+      branch.style.opacity = "";
+      return;
+    }
+    if (expanded) {
+      branch.style.display = "block";
+      branch.classList.add("expanded");
+    } else {
+      branch.classList.remove("expanded");
+      branch.style.display = "block";
+    }
+    const toHeight = expanded ? branch.scrollHeight : 0;
+    branch.style.overflow = "hidden";
+    const animation = branch.animate([
+      { height: `${fromHeight}px`, opacity: fromOpacity },
+      { height: `${toHeight}px`, opacity: expanded ? 1 : 0 },
+    ], { duration: expanded ? 160 : 120, easing: "ease-out" });
+    branchAnimations.set(branch, animation);
+    animation.finished.then(() => {
+      if (branchAnimations.get(branch) !== animation) return;
+      branchAnimations.delete(branch);
+      branch.style.height = "";
+      branch.style.overflow = "";
+      branch.style.opacity = "";
+      branch.style.display = "";
+    }).catch(() => {});
   };
   const mount = (items, depth, container, parentEntry) => {
     for (const item of items) {
@@ -1020,17 +1092,17 @@ async function renderOutline(request) {
         toggle.addEventListener("click", (event) => {
           event.stopPropagation();
           pinOutlineDisclosure();
-          setEntryExpanded(entry, !branch.classList.contains("expanded"));
+          setEntryExpanded(entry, !branch.classList.contains("expanded"), true);
         });
         btn.addEventListener("keydown", (event) => {
           if (event.key === "ArrowRight" && !branch.classList.contains("expanded")) {
             event.preventDefault();
             pinOutlineDisclosure();
-            setEntryExpanded(entry, true);
+            setEntryExpanded(entry, true, true);
           } else if (event.key === "ArrowLeft" && branch.classList.contains("expanded")) {
             event.preventDefault();
             pinOutlineDisclosure();
-            setEntryExpanded(entry, false);
+            setEntryExpanded(entry, false, true);
           }
         });
         mount(item.items, depth + 1, branch, entry);
@@ -1533,6 +1605,98 @@ function syncAskMore() {
   if (more.hidden) setAskMoreOpen(false);
 }
 
+const ASK_EFFORT_VALUES = ["default", "none", "low", "medium", "high"];
+
+function normalizeAskEffort(value) {
+  return ASK_EFFORT_VALUES.includes(value) ? value : "default";
+}
+
+function askEffortShortLabel(value) {
+  const key = value === "default" ? "reasoningEffortDefaultShort" : `reasoningEffort${value[0].toUpperCase()}${value.slice(1)}`;
+  return t(key) || value;
+}
+
+function askEffortItems() {
+  return [...($("ask-effort-menu")?.querySelectorAll?.(".ask-effort-item") || [])];
+}
+
+// The composer chip mirrors the saved setting, so the picker stays correct when
+// the settings dialog (or another tab) writes a different effort.
+function syncAskEffort(value = loadSettings().reasoningEffort) {
+  const effort = normalizeAskEffort(value);
+  const label = $("ask-effort-label");
+  if (label) label.textContent = askEffortShortLabel(effort);
+  const button = $("btn-ask-effort");
+  if (button) button.setAttribute("title", `${t("reasoningEffort")} · ${askEffortShortLabel(effort)}`);
+  for (const item of askEffortItems()) {
+    item.setAttribute("aria-checked", String(item.dataset?.effort === effort));
+  }
+}
+
+function isAskEffortOpen() {
+  return askEffortOpen && Boolean($("ask-effort-menu")) && !$("ask-effort-menu").hidden;
+}
+
+function isAskEffortTarget(node) {
+  return Boolean(node && ($("ask-effort")?.contains(node) || $("ask-effort-menu")?.contains(node)));
+}
+
+function placeAskEffortMenu() {
+  const button = $("btn-ask-effort");
+  const menu = $("ask-effort-menu");
+  if (!button || !menu || menu.hidden) return;
+  const rect = button.getBoundingClientRect();
+  const width = Math.min(240, Math.max(168, menu.offsetWidth || 168));
+  const left = Math.min(Math.max(8, rect.left), window.innerWidth - width - 8);
+  menu.style.left = `${left}px`;
+  menu.style.top = "auto";
+  menu.style.maxHeight = `${Math.max(96, rect.top - 14)}px`;
+  menu.style.right = "auto";
+  menu.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 6)}px`;
+}
+
+function setAskEffortOpen(open) {
+  const host = $("ask-effort");
+  const button = $("btn-ask-effort");
+  const menu = $("ask-effort-menu");
+  if (!host || !button || !menu) {
+    askEffortOpen = false;
+    return;
+  }
+  const show = open === true;
+  askEffortOpen = show;
+  menu.hidden = !show;
+  button.setAttribute("aria-expanded", String(show));
+  if (show) {
+    document.body?.appendChild(menu);
+    placeAskEffortMenu();
+    return;
+  }
+  if (menu.parentElement !== host) host.appendChild(menu);
+  menu.style.left = "";
+  menu.style.top = "";
+  menu.style.right = "";
+  menu.style.bottom = "";
+  menu.style.maxHeight = "";
+}
+
+async function chooseAskEffort(value) {
+  const effort = normalizeAskEffort(value);
+  setAskEffortOpen(false);
+  const revision = ++askEffortRevision;
+  syncAskEffort(effort);
+  const select = $("setting-reasoning-effort");
+  if (select) select.value = effort;
+  try {
+    settings = await queueSettingsSave({ reasoningEffort: effort });
+    if (revision !== askEffortRevision) return;
+    syncAskEffort(settings.reasoningEffort);
+  } catch {
+    if (revision !== askEffortRevision) return;
+    syncAskEffort(loadSettings().reasoningEffort);
+  }
+}
+
 function syncAskPlaceholder() {
   const el = document.querySelector?.(".ask-input-placeholder");
   if (!el) return;
@@ -1757,13 +1921,8 @@ function setAskMeterOpen(open) {
     placeAskMeterPopover();
     return;
   }
-  if (detail.parentElement !== meter) meter.appendChild(detail);
-  detail.style.width = "";
-  detail.style.left = "";
-  detail.style.right = "";
-  detail.style.top = "";
-  detail.style.bottom = "";
-  detail.style.maxHeight = "";
+  // Keep the closed popover in its portal so its fade-out retains its position.
+
 }
 
 function placeAskMeterPopover() {
@@ -1999,7 +2158,7 @@ async function runAsk(question = $("ask-input")?.value || "") {
     if (request !== askGeneration) return;
     $("ask-answer")?.classList.remove("is-streaming");
     const message = error?.message || String(error);
-    const missingKey = /API Key|api key/i.test(message) || message === t("apiKeyRequired");
+    const missingKey = !loadSettings().apiKey?.trim() && message === t("apiKeyRequired");
     if ($("ask-input") && !controller.signal.aborted) {
       $("ask-input").value = trimmed;
       syncAskInputSize();
@@ -2338,6 +2497,16 @@ $("ask-stop")?.addEventListener("click", () => {
 $("btn-ask-more")?.addEventListener("click", () => {
   setAskMoreOpen(!isAskMoreOpen());
 });
+$("btn-ask-effort")?.addEventListener("click", () => {
+  setAskEffortOpen(!isAskEffortOpen());
+});
+$("btn-ask-effort")?.addEventListener("mousedown", keepAskInputFocus);
+$("ask-effort-menu")?.addEventListener("click", event => {
+  const item = event.target.closest?.(".ask-effort-item");
+  if (!item) return;
+  chooseAskEffort(item.dataset?.effort);
+});
+syncAskEffort();
 $("ask-clear")?.addEventListener("click", () => {
   setAskMoreOpen(false);
   clearAskSession();
@@ -2363,14 +2532,17 @@ $("ask-meter-summary")?.addEventListener("click", () => {
 document.addEventListener("pointerdown", event => {
   if (!isAskMeterTarget(event.target)) setAskMeterOpen(false);
   if (!isAskMoreTarget(event.target)) setAskMoreOpen(false);
+  if (!isAskEffortTarget(event.target)) setAskEffortOpen(false);
 });
 $("ask-thread")?.addEventListener("scroll", () => {
   setAskMeterOpen(false);
   setAskMoreOpen(false);
+  setAskEffortOpen(false);
 }, { passive: true });
 window.addEventListener("resize", () => {
   if (isAskMeterOpen()) placeAskMeterPopover();
   if (isAskMoreOpen()) placeAskMoreMenu();
+  if (isAskEffortOpen()) placeAskEffortMenu();
 });
 $("ask-input")?.addEventListener("input", () => {
   syncAskSend();
@@ -2386,6 +2558,11 @@ $("ask-input")?.addEventListener("keydown", (event) => {
     event.preventDefault();
     if (isAskMoreOpen()) {
       setAskMoreOpen(false);
+      return;
+    }
+    if (isAskEffortOpen()) {
+      setAskEffortOpen(false);
+      $("btn-ask-effort")?.focus();
       return;
     }
     if (isAskMeterOpen()) {
@@ -2707,6 +2884,11 @@ window.addEventListener("keydown", (event) => {
       $("btn-ask-more")?.focus();
       return;
     }
+    if (isAskEffortOpen()) {
+      setAskEffortOpen(false);
+      $("btn-ask-effort")?.focus();
+      return;
+    }
     if (isAskMeterOpen()) {
       setAskMeterOpen(false);
       $("ask-meter-summary")?.focus();
@@ -2727,6 +2909,7 @@ window.addEventListener("keydown", (event) => {
 });
 
 const bubble = $("translate-bubble");
+let bubbleEntrance = null;
 const translateChip = $("translate-chip");
 const bubblePinButton = $("btn-bubble-pin");
 const bubbleHeader = $("bubble-header");
@@ -3172,6 +3355,15 @@ function openTranslatePanel(selectionRect, text, { startTranslate = true } = {})
   result.replaceChildren();
   bubble.hidden = false;
   repositionBubble();
+  // Pinned panels update in place without replaying their entrance.
+  bubbleEntrance?.cancel();
+  bubbleEntrance = null;
+  if (!isBubblePinned && !window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
+    bubbleEntrance = bubble.animate?.([{ opacity: 0 }, { opacity: 1 }], {
+      duration: 180,
+      easing: "ease-out",
+    }) || null;
+  }
   if (startTranslate) void runTranslate(selectionId);
   return selectionId;
 }
@@ -3637,8 +3829,11 @@ function openSettings() {
   if ($("setting-reasoning-effort")) $("setting-reasoning-effort").value = settings.reasoningEffort || "default";
   if ($("setting-show-thinking")) $("setting-show-thinking").checked = settings.showThinking === true;
   if ($("setting-ask-vision")) $("setting-ask-vision").checked = settings.askVisionEnabled === true;
-  lastSettingsTrigger = document.activeElement;
+  lastSettingsTrigger = toolbarMoreMenu.contains(document.activeElement)
+    ? toolbarMoreButton
+    : document.activeElement;
   $("settings-modal").hidden = false;
+  $("settings-modal").inert = false;
   try {
     document.getElementById("app")?.setAttribute("inert", "");
   } catch {
@@ -3652,6 +3847,7 @@ function openSettings() {
 function closeSettings(restore = true) {
   modelPicker.invalidatePending();
   $("settings-modal").hidden = true;
+  $("settings-modal").inert = true;
   try {
     document.getElementById("app")?.removeAttribute("inert");
   } catch {
@@ -3819,6 +4015,7 @@ function applyInterfaceLanguage(locale) {
   if (askMeterState) renderAskMeter(askMeterState, { remembered: askMeterState.remembered });
   syncAskPlaceholder();
   syncAskMore();
+  syncAskEffort();
   if (viewer.pdf || viewerStatusDescriptor?.key === "openFailed") {
     void renderOutline(openGeneration);
   }

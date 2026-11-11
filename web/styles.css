@@ -214,6 +214,34 @@ select {
   border-top: 1px solid var(--line);
 }
 
+.doc-title-ancestors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  min-width: 0;
+}
+
+.doc-title-step {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.doc-title-step .doc-title-crumb,
+.doc-title-crumb.is-current {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.doc-title-crumb.is-current {
+  display: block;
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
 .doc-title-location-label {
   color: var(--muted);
   font-size: 12px;
@@ -270,6 +298,9 @@ button.doc-title-crumb:hover {
   right: 0;
   z-index: 30;
   display: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 90ms ease-out, display 90ms allow-discrete;
   width: max-content;
   min-width: 184px;
   max-width: min(calc(100vw - 16px), 320px);
@@ -287,6 +318,16 @@ button.doc-title-crumb:hover {
 
 .toolbar-more-menu.is-open {
   display: flex;
+  opacity: 1;
+  pointer-events: auto;
+  transition-duration: 150ms, 150ms;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1), linear;
+}
+
+@starting-style {
+  .toolbar-more-menu.is-open {
+    opacity: 0;
+  }
 }
 
 /* Menu rows are id-scoped so the toolbar's icon-button sizing rules
@@ -667,6 +708,10 @@ button.doc-title-crumb:hover {
 }
 
 .rail-inner {
+  /* Anchor the inner rail so container width and translation do not stack. */
+  position: absolute;
+  top: 0;
+  right: 0;
   width: var(--rail-w, var(--sidebar-w));
   min-width: var(--rail-w, var(--sidebar-w));
   height: 100%;
@@ -845,6 +890,41 @@ button.doc-title-crumb:hover {
   gap: 2px;
   background: transparent;
   padding: 0;
+}
+
+#rail .sidebar-tabs {
+  position: relative;
+}
+
+#rail .sidebar-tabs::after {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: calc((100% - 2px) / 2);
+  height: 2px;
+  content: "";
+  background: var(--accent);
+  transform: translateX(0);
+  transition: transform 180ms ease-out;
+  pointer-events: none;
+}
+
+#rail .sidebar-tabs:has(#rail-tab-ask[aria-selected="true"])::after {
+  transform: translateX(calc(100% + 2px));
+}
+
+#rail .sidebar-tab.active,
+#rail .sidebar-tab[aria-selected="true"] {
+  box-shadow: none;
+}
+
+#rail-panes > .sidebar-pane.active {
+  animation: rail-pane-fade-in 120ms ease-out both;
+}
+
+@keyframes rail-pane-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .sidebar-tab {
@@ -1180,7 +1260,7 @@ button.doc-title-crumb:hover {
 .ask-send-slot {
   position: relative;
   flex: 0 0 34px;
-  margin-left: auto;
+  margin-left: 8px;
   width: 34px;
   height: 34px;
 }
@@ -1422,9 +1502,49 @@ button.doc-title-crumb:hover {
   text-overflow: ellipsis;
 }
 
+/* Reading log and thinking share one caret: the browser marker is dropped and a
+   CSS triangle turns a quarter, the same gesture the outline tree uses. */
+.ask-turn .ask-reading > summary,
+.ask-turn .thinking-fold > summary {
+  list-style: none;
+}
+
+.ask-turn .ask-reading > summary::-webkit-details-marker,
+.ask-turn .thinking-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ask-turn .ask-reading > summary::marker,
+.ask-turn .thinking-fold > summary::marker {
+  content: "";
+}
+
+.ask-turn .ask-reading > summary::before,
+.ask-turn .thinking-fold > summary::before {
+  content: "";
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-right: 5px;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  border-left: 5px solid currentColor;
+  vertical-align: -1px;
+  transform-origin: 50% 50%;
+  transition: transform 160ms ease-out;
+}
+
+.ask-turn .ask-reading[open] > summary::before,
+.ask-turn .thinking-fold[open] > summary::before {
+  transform: rotate(90deg);
+}
+
 .thinking-state { margin-left: 6px; font-size: 11px; }
 .thinking-preview { margin-left: 10px; color: var(--muted); }
 .thinking-fold[open] .thinking-preview { display: none; }
+/* The live snippet is a progress hint, not a summary: once reasoning finishes
+   the collapsed row keeps only its label and duration. */
+.thinking-fold:not(.is-streaming) .thinking-preview { display: none; }
 .thinking-fold.is-streaming .thinking-state { color: var(--accent); }
 
 .thinking-body {
@@ -1465,20 +1585,25 @@ button.doc-title-crumb:hover {
 .ask-answer blockquote { margin: 0 0 0.8em; padding-left: 0.8em; border-left: 3px solid var(--line); }
 .ask-answer :is(h1, h2, h3, h4, h5, h6) { font-size: 1.1em; margin: 0.9em 0 0.5em; }
 
+/* Tables keep their columns readable: the wrapper owns the sideways scroll and
+   the table is sized by its content instead of being squeezed into the pane. */
 .ask-answer .md-table {
   max-width: 100%;
   overflow-x: auto;
   overscroll-behavior-x: contain;
+  scrollbar-width: thin;
   scrollbar-gutter: stable;
 }
 
 .ask-answer .md-table table {
   border-collapse: collapse;
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
 }
 
 .ask-answer th,
 .ask-answer td {
+  max-width: 18em;
   padding: 4px 8px;
   border-bottom: 1px solid var(--line);
   text-align: left;
@@ -1619,6 +1744,121 @@ button.doc-title-crumb:hover {
   height: 14px;
 }
 
+/* The effort chip sits right before send: `margin-left: auto` takes the free
+   space so the composer menu keeps hugging the left edge while the chip and the
+   send button stay packed together on the right. */
+.ask-effort {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.ask-effort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  max-width: 92px;
+  margin: 0;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  appearance: none;
+}
+
+.ask-effort-btn .icon {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+}
+
+.ask-effort-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ask-effort-btn:hover,
+.ask-effort-btn[aria-expanded="true"] {
+  border-color: var(--line);
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.ask-effort-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ask-effort-menu {
+  position: fixed;
+  z-index: 28;
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  min-width: 152px;
+  max-width: min(260px, calc(100vw - 16px));
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow);
+}
+
+.ask-effort-menu[hidden] {
+  display: none;
+}
+
+.ask-effort-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+}
+
+.ask-effort-item .ask-effort-check {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--accent);
+  visibility: hidden;
+}
+
+.ask-effort-item[aria-checked="true"] .ask-effort-check {
+  visibility: visible;
+}
+
+.ask-effort-item:hover {
+  background: var(--bg-hover);
+}
+
+.ask-effort-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .ask-more-menu {
   position: fixed;
   z-index: 28;
@@ -1754,6 +1994,7 @@ button.doc-title-crumb:hover {
 }
 
 .outline-toggle .icon {
+  transition: transform 160ms ease-out;
   width: 12px;
   height: 12px;
   fill: currentColor;
@@ -1989,6 +2230,7 @@ button.doc-title-crumb:hover {
 }
 
 .translate-bubble {
+  opacity: 1;
   position: fixed;
   z-index: 20;
   width: min(420px, 100%);
@@ -2184,6 +2426,12 @@ html.bubble-edge-resize * {
 .copy-feedback[data-copy-state="success"] .copy-success-icon,
 .copy-feedback[data-copy-state="error"] .copy-error-icon {
   display: block;
+  animation: copy-feedback-arrive 120ms ease-out both;
+}
+
+@keyframes copy-feedback-arrive {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .bubble-pin[aria-pressed="true"] {
@@ -2661,6 +2909,27 @@ html.bubble-edge-resize * {
   display: none !important;
 }
 
+#settings-modal {
+  opacity: 1;
+  transition: opacity 90ms ease-out, display 90ms allow-discrete;
+}
+#settings-modal:not([hidden]) {
+  pointer-events: auto;
+  transition-duration: 150ms, 150ms;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1), linear;
+}
+
+#settings-modal[hidden] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@starting-style {
+  #settings-modal:not([hidden]) {
+    opacity: 0;
+  }
+}
+
 .modal-card {
   width: min(460px, calc(100vw - 24px));
   background: var(--bg-raised);
@@ -2976,11 +3245,37 @@ summary:focus-visible,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar,
-  .sidebar-inner {
+  .outline-toggle .icon {
     transition: none;
   }
-  .translate-caret {
+  #rail .sidebar-tabs::after {
+    transition: none;
+  }
+  #rail-panes > .sidebar-pane.active {
+    animation: none;
+  }
+  .sidebar,
+  .sidebar-inner,
+  .rail,
+  .rail-inner,
+  .toolbar-more-menu,
+  #settings-modal {
+    transition: none !important;
+    animation: none !important;
+  }
+  .outline-toggle .icon {
+    transition: none;
+  }
+  .outline-toggle[aria-expanded="true"] .icon {
+    transform: none;
+  }
+  .translate-bubble,
+  .copy-feedback[data-copy-state="success"] .copy-success-icon,
+  .copy-feedback[data-copy-state="error"] .copy-error-icon {
+    animation: none !important;
+  }
+  .translate-caret,
+  .ask-answer.is-streaming::after {
     animation: none;
     opacity: 0.85;
     transform: none;
@@ -4116,5 +4411,79 @@ summary:focus-visible,
     height: 42px;
     padding: 0 14px;
     font-size: 17px;
+  }
+}
+
+/* Small state cues for the Ask panel. */
+.ask-send {
+  opacity: 1;
+  transition: background-color 100ms ease, opacity 120ms ease-out;
+}
+.ask-send[hidden] {
+  pointer-events: none;
+  opacity: 0;
+  display: none;
+}
+@starting-style {
+  .ask-send:not([hidden]) { opacity: 0; }
+}
+
+.ask-reading li {
+  animation: ask-row-arrive 150ms ease-out both;
+}
+@keyframes ask-row-arrive {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.ask-turn-actions {
+  opacity: 1;
+  transition: opacity 120ms ease-out, display 120ms allow-discrete;
+}
+.ask-turn-actions[hidden] {
+  pointer-events: none;
+  opacity: 0;
+  display: none;
+}
+@starting-style {
+  .ask-turn-actions:not([hidden]) { opacity: 0; }
+}
+
+.ask-meter-detail {
+  opacity: 1;
+  transition: opacity 160ms ease-out, display 160ms allow-discrete;
+}
+.ask-meter-detail[hidden] {
+  pointer-events: none;
+  opacity: 0;
+  display: none;
+}
+@starting-style {
+  .ask-meter-detail:not([hidden]) { opacity: 0; }
+}
+
+@supports (interpolate-size: allow-keywords) {
+  .ask-turn .thinking-fold::details-content,
+  .ask-turn .ask-reading::details-content {
+    interpolate-size: allow-keywords;
+    height: 0;
+    overflow: clip;
+    transition: content-visibility 160ms allow-discrete, height 160ms ease-out;
+  }
+  .ask-turn .thinking-fold[open]::details-content,
+  .ask-turn .ask-reading[open]::details-content { height: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ask-send,
+  .ask-turn-actions,
+  .ask-meter-detail,
+  .ask-reading li,
+  .ask-turn .thinking-fold::details-content,
+  .ask-turn .ask-reading::details-content,
+  .ask-turn .ask-reading > summary::before,
+  .ask-turn .thinking-fold > summary::before {
+    animation: none !important;
+    transition: none !important;
   }
 }

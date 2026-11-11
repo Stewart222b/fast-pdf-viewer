@@ -181,6 +181,7 @@ const rows = {
   autoTranslate: ["選取文字後自動翻譯（關閉時按「譯」）", "選択したテキストを自動翻訳（オフの場合は「翻訳」をクリック）", "선택한 텍스트 자동 번역(끄면 번역 버튼 클릭)", "Ausgewählten Text automatisch übersetzen (sonst auf Übersetzen klicken)", "Traduire automatiquement la sélection (sinon, cliquer sur Traduire)", "Traducir la selección automáticamente (si se desactiva, pulsa Traducir)"],
   reasoningEffort: ["問答思考強度", "質問の推論レベル", "질문 추론 강도", "Denkaufwand für Fragen", "Effort de raisonnement des questions", "Esfuerzo de razonamiento de preguntas"],
   reasoningEffortDefault: ["依模型預設", "モデルの既定値を使用", "모델 기본값 사용", "Modellstandard verwenden", "Valeur par défaut du modèle", "Valor predeterminado del modelo"],
+  reasoningEffortDefaultShort: ["預設", "既定", "기본값", "Standard", "Défaut", "Predeterminado"],
   reasoningEffortNone: ["關閉", "オフ", "끄기", "Aus", "Désactivé", "Desactivado"],
   reasoningEffortLow: ["低", "低", "낮음", "Niedrig", "Faible", "Bajo"],
   reasoningEffortMedium: ["中", "中", "보통", "Mittel", "Moyen", "Medio"],

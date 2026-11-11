@@ -108,6 +108,7 @@ export class PdfViewer {
     this.generation = 0;
     this.loadingTask = null;
     this.renderJobs = new Map();
+    this.zoomAnimations = new Map();
     this.textLayers = new Map();
     this.textMappings = new Map();
     this.visiblePages = new Set();
@@ -284,6 +285,7 @@ export class PdfViewer {
   }
 
   close() {
+    this.cancelZoomAnimations();
     this.cancelPinch();
     this.generation += 1;
     this.hitGeneration += 1;
@@ -448,7 +450,48 @@ export class PdfViewer {
     return Number.isFinite(n) ? Math.min(5, Math.max(0.25, n / 100)) : 1.5;
   }
 
+  cancelZoomAnimations() {
+    for (const animation of this.zoomAnimations.values()) animation.cancel();
+    this.zoomAnimations.clear();
+  }
+
+  visiblePageRects() {
+    const wrap = this.wrapEl.getBoundingClientRect();
+    const rects = new Map();
+    for (const page of this.pageEls) {
+      const rect = page.getBoundingClientRect();
+      if (rect.right > wrap.left && rect.left < wrap.right && rect.bottom > wrap.top && rect.top < wrap.bottom) {
+        rects.set(page, { left: rect.left, top: rect.top, width: rect.width, height: rect.height });
+      }
+    }
+    return rects;
+  }
+
+  animateZoomRects(previousRects) {
+    if (!previousRects?.size || typeof this.pageEls[0]?.animate !== "function") return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
+    for (const page of this.pageEls) {
+      const previous = previousRects.get(page);
+      if (!previous) continue;
+      const current = page.getBoundingClientRect();
+      if (!current.width || !current.height) continue;
+      const dx = previous.left - current.left;
+      const dy = previous.top - current.top;
+      const sx = previous.width / current.width;
+      const sy = previous.height / current.height;
+      const animation = page.animate([
+        { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, transformOrigin: "0 0" },
+        { transform: "none", transformOrigin: "0 0" },
+      ], { duration: 170, easing: "ease-out" });
+      this.zoomAnimations.set(page, animation);
+      animation.finished.then(() => {
+        if (this.zoomAnimations.get(page) === animation) this.zoomAnimations.delete(page);
+      }).catch(() => {});
+    }
+  }
+
   setZoom(mode, { silent = false, keepPage = true } = {}) {
+    this.cancelZoomAnimations();
     this.cancelPinch();
     const anchor = keepPage ? this.captureScrollAnchor() : null;
     this.zoomMode = String(mode);
@@ -478,6 +521,7 @@ export class PdfViewer {
     const hasNativeScale = Number.isFinite(nativeScale) && nativeScale > 0;
     if (!this.pdf || !this.pageEls.length || (!hasNativeScale && (!Number.isFinite(event.deltaY) || !event.deltaY))) return;
     if (!this.pinch) {
+      this.cancelZoomAnimations();
       const rect = this.wrapEl.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
@@ -541,7 +585,11 @@ export class PdfViewer {
 
   bumpZoom(delta) {
     const next = stepZoomPercent(this.zoom * 100, delta > 0 ? 1 : -1);
+    const canAnimate = this.pdf && this.pageEls.some(page => typeof page.animate === "function")
+      && !window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    const previousRects = canAnimate ? this.visiblePageRects() : null;
     this.setZoom(String(next));
+    this.animateZoomRects(previousRects);
     return String(next);
   }
 

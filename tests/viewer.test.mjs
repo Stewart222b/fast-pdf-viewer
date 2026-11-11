@@ -722,6 +722,33 @@ test('zoom redraw keeps the old bitmap until the new render completes', async ()
   assert.notEqual(viewer.pageEls[0].querySelector('canvas'), original);
 });
 
+test('bumpZoom FLIP animates visible pages and preserves its return value', async () => {
+  const { viewer, wrapEl } = await setup();
+  let size = 100;
+  let cancelled = 0;
+  let frames;
+  const page = {
+    getBoundingClientRect() { return { left: size === 100 ? 10 : 30, top: size === 100 ? 20 : 40, right: (size === 100 ? 10 : 30) + size, bottom: (size === 100 ? 20 : 40) + size * 2, width: size, height: size * 2 }; },
+    animate(keyframes, options) {
+      frames = { keyframes, options };
+      return { finished: Promise.resolve(), cancel() { cancelled += 1; } };
+    },
+  };
+  viewer.pdf = {};
+  viewer.zoom = 1;
+  viewer.pageEls = [page];
+  wrapEl.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 600 });
+  viewer.setZoom = () => { size = 200; viewer.zoom = 1.1; };
+
+  assert.equal(viewer.bumpZoom(1), '125');
+  assert.equal(frames.options.duration, 170);
+  assert.equal(frames.keyframes[0].transform, 'translate(-20px, -20px) scale(0.5, 0.5)');
+  assert.equal(frames.keyframes[1].transform, 'none');
+  viewer.setZoom('125');
+  viewer.cancelZoomAnimations();
+  assert.equal(cancelled, 1);
+});
+
 test('mouse wheel uses preset steps, not a relative 10% of current zoom', async () => {
   const { viewer, wrapEl } = await setup();
   viewer.pdf = {};

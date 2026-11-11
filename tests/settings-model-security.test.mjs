@@ -88,6 +88,8 @@ async function createSettingsDialog() {
     URL,
     AbortController,
     document,
+    toolbarMoreMenu: { contains: () => false },
+    toolbarMoreButton: get("btn-toolbar-more"),
     $: get,
     loadSettings: () => ({ ...savedSettings }),
     syncBubbleTargetLanguage(targetLang = savedSettings.targetLang) {

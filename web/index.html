@@ -153,6 +153,10 @@
       <symbol id="i-moon" viewBox="0 0 24 24">
         <path d="M20.5 13A8.5 8.5 0 0 1 11 3.5 8.5 8.5 0 1 0 20.5 13Z" />
       </symbol>
+      <symbol id="i-gauge" viewBox="0 0 24 24">
+        <path d="M3.34 19a10 10 0 1 1 17.32 0" />
+        <path d="m12 14 3.5-3.5" />
+      </symbol>
     </svg>
     <div id="app">
       <header class="toolbar">
@@ -279,6 +283,34 @@
                         <button id="ask-clear" class="ask-more-item" type="button" role="menuitem" data-i18n-title="askClearHint" title="忘掉这份文档里刚问过的内容，下一问当作新的开始">
                           <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
                           <span data-i18n="askClear">清理</span>
+                        </button>
+                      </div>
+                    </span>
+                    <span id="ask-effort" class="ask-effort">
+                      <button id="btn-ask-effort" class="ask-effort-btn" type="button" title="问答思考强度" data-i18n-title="reasoningEffort" aria-label="问答思考强度" data-i18n-aria="reasoningEffort" aria-haspopup="menu" aria-expanded="false" aria-controls="ask-effort-menu">
+                        <svg class="icon" aria-hidden="true"><use href="#i-gauge" /></svg>
+                        <span id="ask-effort-label" class="ask-effort-label">默认</span>
+                      </button>
+                      <div id="ask-effort-menu" class="ask-effort-menu" role="menu" hidden>
+                        <button class="ask-effort-item" type="button" role="menuitemradio" aria-checked="true" data-effort="default">
+                          <svg class="icon ask-effort-check" aria-hidden="true"><use href="#i-check" /></svg>
+                          <span data-i18n="reasoningEffortDefault">跟随模型默认</span>
+                        </button>
+                        <button class="ask-effort-item" type="button" role="menuitemradio" aria-checked="false" data-effort="none">
+                          <svg class="icon ask-effort-check" aria-hidden="true"><use href="#i-check" /></svg>
+                          <span data-i18n="reasoningEffortNone">关闭</span>
+                        </button>
+                        <button class="ask-effort-item" type="button" role="menuitemradio" aria-checked="false" data-effort="low">
+                          <svg class="icon ask-effort-check" aria-hidden="true"><use href="#i-check" /></svg>
+                          <span data-i18n="reasoningEffortLow">低</span>
+                        </button>
+                        <button class="ask-effort-item" type="button" role="menuitemradio" aria-checked="false" data-effort="medium">
+                          <svg class="icon ask-effort-check" aria-hidden="true"><use href="#i-check" /></svg>
+                          <span data-i18n="reasoningEffortMedium">中</span>
+                        </button>
+                        <button class="ask-effort-item" type="button" role="menuitemradio" aria-checked="false" data-effort="high">
+                          <svg class="icon ask-effort-check" aria-hidden="true"><use href="#i-check" /></svg>
+                          <span data-i18n="reasoningEffortHigh">高</span>
                         </button>
                       </div>
                     </span>
