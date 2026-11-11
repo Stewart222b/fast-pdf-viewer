@@ -662,6 +662,42 @@ export function buildAskMessages(question, pack, uiLanguage = "zh-CN", {
   return messages;
 }
 
+const ASK_CITATION_PREFIX = /^\s*p\.?\s*\d+\s*[:：]/i;
+const ASK_RULE = /^ {0,3}-{3,}\s*$/;
+
+function splitAskCitationTail(text) {
+  const raw = String(text || "").replace(/\r\n/g, "\n");
+  const lines = raw.split("\n");
+  let end = lines.length;
+  while (end > 0 && !lines[end - 1].trim()) end -= 1;
+  let citeStart = end;
+  let citeCount = 0;
+  while (citeStart > 0) {
+    const trimmed = lines[citeStart - 1].trim();
+    if (!trimmed) {
+      citeStart -= 1;
+      continue;
+    }
+    if (ASK_CITATION_PREFIX.test(trimmed)) {
+      citeStart -= 1;
+      citeCount += 1;
+      continue;
+    }
+    break;
+  }
+  if (!citeCount) return { answer: raw.replace(/\s+$/, ""), citationBlock: "" };
+  let answerEnd = citeStart;
+  while (answerEnd > 0 && !lines[answerEnd - 1].trim()) answerEnd -= 1;
+  if (answerEnd > 0 && ASK_RULE.test(lines[answerEnd - 1])) {
+    answerEnd -= 1;
+    while (answerEnd > 0 && !lines[answerEnd - 1].trim()) answerEnd -= 1;
+  }
+  return {
+    answer: lines.slice(0, answerEnd).join("\n").replace(/\s+$/, ""),
+    citationBlock: lines.slice(citeStart, end).join("\n").trim(),
+  };
+}
+
 /**
  * @param {string} text
  * @returns {{ answer: string, citations: Array<{pageNumber: number, quote: string}> }}
@@ -670,13 +706,8 @@ export function parseAskResponse(text) {
   const raw = String(text || "").replace(/\r\n/g, "\n").trim();
   if (!raw) return { answer: "", citations: [] };
 
-  const marker = raw.lastIndexOf("\n---\n");
-  let answer = raw;
-  let citationBlock = "";
-  if (marker >= 0) {
-    answer = raw.slice(0, marker).trim();
-    citationBlock = raw.slice(marker + 5).trim();
-  }
+  const { answer: splitAnswer, citationBlock } = splitAskCitationTail(raw);
+  const answer = splitAnswer;
 
   const citations = [];
   const seen = new Set();
@@ -705,7 +736,7 @@ export function parseAskResponse(text) {
   }
 
   if (!citations.length) {
-    for (const match of raw.matchAll(/(?:第\s*(\d+)\s*页|p\.?\s*(\d+))/giu)) {
+    for (const match of raw.matchAll(/(?:第\s*(\d+)\s*页|(?<![A-Za-z0-9_])p\.?\s*(\d+)(?![0-9]))/giu)) {
       push(match[1] || match[2], "", { allowEmpty: true });
     }
   }
@@ -729,8 +760,7 @@ export function resolveCitations(pageTexts, citations) {
     let hit = null;
     if (quote) {
       const pageScoped = pages.filter((page) => page.pageNumber === pageNumber);
-      const scopedHits = pageScoped.length ? searchDocument(pageScoped, quote) : [];
-      hit = scopedHits[0] || searchDocument(pages, quote)[0] || null;
+      hit = (pageScoped.length ? searchDocument(pageScoped, quote) : [])[0] || null;
     }
 
     if (hit) {
@@ -763,11 +793,26 @@ export function resolveCitations(pageTexts, citations) {
   return { citations: resolved, hits };
 }
 
+/**
+ * Consume unused hits for the same PDF page in document order so two
+ * `[p12](pdf:12)` buttons can jump to two different quotes on that page.
+ */
+export function takeCitationHitIndex(hits, pageNumber, used = new Set()) {
+  const page = Number(pageNumber);
+  const list = Array.isArray(hits) ? hits : [];
+  const match = (hit) => (hit?.sourcePageNumber || hit?.pageNumber) === page;
+  for (let i = 0; i < list.length; i += 1) {
+    if (used.has(i)) continue;
+    if (match(list[i])) {
+      used.add(i);
+      return i;
+    }
+  }
+  return list.findIndex(match);
+}
+
 function streamingAnswerPreview(text) {
-  const raw = String(text || "").replace(/\r\n/g, "\n");
-  const marker = raw.lastIndexOf("\n---\n");
-  if (marker < 0) return raw;
-  return raw.slice(0, marker);
+  return splitAskCitationTail(text).answer;
 }
 
 /**

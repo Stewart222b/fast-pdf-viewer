@@ -32,7 +32,8 @@ export function createLoadingProgress({ wrap, track, fill, detail }, { translate
     start() { active = true; phase = "download"; loaded = 0; total = 0; render(); },
     update(event = {}) {
       if (!active) return;
-      phase = event.phase || "download";
+      if (event.phase) phase = event.phase;
+      else if (phase !== "prepare") phase = "download";
       if (phase !== "prepare") {
         const next = Number(event.loaded);
         loaded = Math.max(loaded, Number.isFinite(next) ? next : 0);

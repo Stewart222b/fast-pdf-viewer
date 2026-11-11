@@ -7,7 +7,7 @@ import {
   readingFingerprint,
   saveReadingPosition,
 } from "./reading-position.js";
-import { askDocument, clearAskMemory, createAskMemory } from "./ask-document.js";
+import { askDocument, clearAskMemory, createAskMemory, takeCitationHitIndex } from "./ask-document.js";
 import { cacheHitPercent, formatCompactCount } from "./openai-chat.js";
 import { renderThinking } from "./thinking-view.js";
 import { highlightSnippet, searchDocument } from "./search.js";
@@ -1598,11 +1598,21 @@ function setAskMoreOpen(open) {
   menu.style.maxHeight = "";
 }
 
+function dismissAskPopovers() {
+  setAskMoreOpen(false);
+  setAskEffortOpen(false);
+  setAskMeterOpen(false);
+}
+
 function syncAskMore() {
   const more = $("ask-more");
   if (!more) return;
   more.hidden = !(isAskPaneActive() && (askMemory.turns.length > 0 || askThread.length > 0));
   if (more.hidden) setAskMoreOpen(false);
+  if (!isAskPaneActive()) {
+    setAskEffortOpen(false);
+    setAskMeterOpen(false);
+  }
 }
 
 const ASK_EFFORT_VALUES = ["default", "none", "low", "medium", "high"];
@@ -1787,7 +1797,7 @@ function clearAskSession() {
   clearAskMemory(askMemory);
   resetAskThread();
   hideAskMeter();
-  setAskMoreOpen(false);
+  dismissAskPopovers();
   syncAskMore();
   syncAskPlaceholder();
   setAskStatus(t("askCleared"));
@@ -2043,8 +2053,9 @@ async function waitForAskIndex(signal) {
 function renderAskAnswer(text, hits = [], root) {
   const target = root?.querySelector(".ask-answer") || $("ask-answer");
   if (!target) return;
+  const usedHits = new Set();
   renderMarkdown(target, text, { renderReference({ pageNumber, label }) {
-    const index = hits.findIndex(hit => (hit.sourcePageNumber || hit.pageNumber) === pageNumber);
+    const index = takeCitationHitIndex(hits, pageNumber, usedHits);
     if (index < 0) return document.createTextNode(label);
     const hit = hits[index];
     const button = document.createElement("button");
@@ -2553,6 +2564,10 @@ syncAskInputSize();
 $("ask-input")?.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
+    if (isAskEffortOpen()) {
+      setAskEffortOpen(false);
+      return;
+    }
     runAsk();
   } else if (event.key === "Escape") {
     event.preventDefault();

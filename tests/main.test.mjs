@@ -2182,6 +2182,46 @@ test('ask effort chip opens a menu by send and saves the picked effort', async (
   assert.equal(button.attrs['aria-expanded'], 'false');
 });
 
+test('Enter closes an open effort menu instead of sending the question', async () => {
+  const app = await setup();
+  const menu = app.get('ask-effort-menu');
+  const host = app.get('ask-effort');
+  host.appendChild(menu);
+  menu.hidden = true;
+  app.get('ask-input').value = 'hello';
+  app.click('btn-ask-effort');
+  assert.equal(menu.hidden, false);
+
+  app.dispatchElement('ask-input', 'keydown', { key: 'Enter', preventDefault() {}, stopPropagation() {} });
+  assert.equal(menu.hidden, true);
+  assert.equal(app.get('ask-input').value, 'hello');
+  assert.equal(app.ask.askThread.length, 0);
+  assert.notEqual(app.get('ask-status').textContent, '未打开文件');
+});
+
+test('Ctrl+F dismisses Ask effort and meter popovers', async () => {
+  const app = await setup();
+  const effortMenu = app.get('ask-effort-menu');
+  const effortHost = app.get('ask-effort');
+  effortHost.appendChild(effortMenu);
+  effortMenu.hidden = true;
+  const meter = app.get('ask-meter');
+  const detail = app.get('ask-meter-detail');
+  meter.hidden = false;
+  app.get('ask-meter-summary').getBoundingClientRect = () => (
+    { left: 120, top: 520, right: 400, bottom: 538, width: 280, height: 18 }
+  );
+
+  app.click('btn-ask-effort');
+  app.click('ask-meter-summary');
+  assert.equal(effortMenu.hidden, false);
+  assert.equal(detail.hidden, false);
+
+  app.dispatch('keydown', { key: 'f', ctrlKey: true, preventDefault() {} });
+  assert.equal(effortMenu.hidden, true);
+  assert.equal(detail.hidden, true);
+});
+
 test('ask thread uses a user bubble, answer icons, and a composer clear menu', async () => {
   const html = await readFile(new URL('../web/index.html', import.meta.url), 'utf8');
   const css = await readFile(new URL('../web/styles.css', import.meta.url), 'utf8');

@@ -15,6 +15,7 @@ import {
   parseAskResponse,
   resolveCitations,
   retrieveExcerpts,
+  takeCitationHitIndex,
 } from "../web/js/ask-document.js";
 
 function page(pageNumber, text) {
@@ -366,6 +367,33 @@ test("parseAskResponse falls back to page mentions when citation block is missin
   );
 });
 
+test("parseAskResponse keeps markdown rules inside the answer", () => {
+  const parsed = parseAskResponse("Intro.\n\n---\n\nMore explanation about App15 and temp12.");
+  assert.equal(parsed.answer, "Intro.\n\n---\n\nMore explanation about App15 and temp12.");
+  assert.deepEqual(parsed.citations, []);
+});
+
+test("parseAskResponse still splits a trailing citation block after a markdown rule", () => {
+  const parsed = parseAskResponse([
+    "Intro.",
+    "",
+    "---",
+    "",
+    "More explanation.",
+    "",
+    "---",
+    'p12: "Cooling water inlet is on the rear panel."',
+  ].join("\n"));
+  assert.equal(parsed.answer, "Intro.\n\n---\n\nMore explanation.");
+  assert.equal(parsed.citations.length, 1);
+  assert.equal(parsed.citations[0].pageNumber, 12);
+});
+
+test("parseAskResponse does not invent pages from tokens like App15 or temp12", () => {
+  const parsed = parseAskResponse("The App15 roadmap and temp12 checklist are unrelated.");
+  assert.deepEqual(parsed.citations, []);
+});
+
 test("resolveCitations maps quotes to search hits and falls back to page jumps", () => {
   const pages = [
     page(12, "Cooling water inlet is on the rear panel."),
@@ -382,6 +410,32 @@ test("resolveCitations maps quotes to search hits and falls back to page jumps",
   assert.equal(citations[1].pageNumber, 9);
   assert.equal(citations[1].length, 0);
   assert.equal(hits.length, 2);
+});
+
+test("takeCitationHitIndex walks unused same-page hits in order", () => {
+  const hits = [
+    { sourcePageNumber: 12, pageNumber: 12, quote: "first" },
+    { sourcePageNumber: 12, pageNumber: 12, quote: "second" },
+    { sourcePageNumber: 4, pageNumber: 4, quote: "other" },
+  ];
+  const used = new Set();
+  assert.equal(takeCitationHitIndex(hits, 12, used), 0);
+  assert.equal(takeCitationHitIndex(hits, 12, used), 1);
+  assert.equal(takeCitationHitIndex(hits, 4, used), 2);
+  assert.equal(takeCitationHitIndex(hits, 12, used), 0);
+});
+
+test("resolveCitations stays on the cited page when the quote only matches elsewhere", () => {
+  const pages = [
+    page(12, "Unrelated calibration notes."),
+    page(4, "Cooling water inlet is on the rear panel."),
+  ];
+  const { citations } = resolveCitations(pages, [
+    { pageNumber: 12, quote: "Cooling water inlet is on the rear panel." },
+  ]);
+  assert.equal(citations[0].kind, "page");
+  assert.equal(citations[0].pageNumber, 12);
+  assert.equal(citations[0].sourcePageNumber, 12);
 });
 
 test("askDocument rejects empty or oversized questions before calling the API", async () => {

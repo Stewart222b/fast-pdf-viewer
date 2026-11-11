@@ -40,6 +40,17 @@ test("known sizes show byte-based percentages and switch to preparation without 
   assert.equal(detail.textContent, "");
 });
 
+test("prepare phase is not overwritten by byte-only PDF.js progress events", () => {
+  const { progress, wrap, track, detail } = fixture();
+  progress.start();
+  progress.update({ phase: "prepare" });
+  assert.match(detail.textContent, /pdfLoadingPrepare/);
+  progress.update({ loaded: 20, total: 20 });
+  assert.equal(wrap.dataset.mode, "indeterminate");
+  assert.equal(track.attrs["aria-valuenow"], undefined);
+  assert.match(detail.textContent, /pdfLoadingPrepare/);
+});
+
 test("inconsistent totals do not produce percentages above 100 and new opens reset counters", () => {
   const { progress, wrap, track } = fixture();
   progress.start(); progress.update({ loaded: 2000, total: 1000 });
