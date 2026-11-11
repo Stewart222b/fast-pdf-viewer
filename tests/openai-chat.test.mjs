@@ -5,8 +5,12 @@ import {
   completeChatTurn,
   extractStreamDelta,
   extractStreamParts,
+  extractTokenUsage,
+  formatCompactCount,
+  cacheHitPercent,
   normalizeReasoningEffort,
   parseSseTranslationChunk,
+  promptCacheMessages,
 } from "../web/js/openai-chat.js";
 import { translateWithProvider } from "../web/js/translate-provider.js";
 
@@ -176,4 +180,71 @@ test("OpenAI translation uses none only for supported models and no parameter fo
   assert.deepEqual(chatReasoningFields({ ...settings, model: 'gpt-4o-mini' }, { disableReasoning: true }), {});
   assert.deepEqual(chatReasoningFields({ ...settings, model: 'gpt-5.1' }, { disableReasoning: true }), { reasoning_effort: 'none' });
   assert.deepEqual(chatReasoningFields({ ...settings, model: 'o3' }, { disableReasoning: true }), { reasoning_effort: 'low' });
+});
+
+test("compact token counts and cache hit percent match the usage chip", () => {
+  assert.equal(formatCompactCount(35117), "35.1k");
+  assert.equal(formatCompactCount(1070038), "1.1M");
+  assert.equal(formatCompactCount(980), "980");
+  assert.equal(cacheHitPercent(35117, 29724), 85);
+  assert.equal(cacheHitPercent(0, 10), 0);
+});
+
+test("extractTokenUsage reads OpenAI cached_tokens and DeepSeek hit tokens", () => {
+  assert.deepEqual(extractTokenUsage({
+    usage: { prompt_tokens: 1000, completion_tokens: 10, prompt_tokens_details: { cached_tokens: 800 } },
+  }), { promptTokens: 1000, cachedTokens: 800, completionTokens: 10, requests: 1 });
+  assert.deepEqual(extractTokenUsage({
+    usage: { prompt_tokens: 500, prompt_cache_hit_tokens: 400, completion_tokens: 8 },
+  }), { promptTokens: 500, cachedTokens: 400, completionTokens: 8, requests: 1 });
+});
+
+test("OpenRouter Ask requests mark the system prompt for caching and ask for stream usage", async () => {
+  const original = globalThis.fetch;
+  let body;
+  globalThis.fetch = async (_url, init) => {
+    body = JSON.parse(init.body);
+    return { ok: true, headers: { get: () => "application/json" }, json: async () => ({
+      choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 2000, completion_tokens: 4, prompt_tokens_details: { cached_tokens: 1500 } },
+    }) };
+  };
+  try {
+    const result = await completeChatTurn({
+      apiKey: "k",
+      apiBaseUrl: "https://openrouter.ai/api/v1",
+    }, { messages: [{ role: "system", content: "stable doc" }, { role: "user", content: "Question:\nwhy" }] });
+    assert.equal(body.stream_options.include_usage, true);
+    assert.equal(body.messages[0].content[0].cache_control.type, "ephemeral");
+    assert.equal(body.messages[0].content[0].text, "stable doc");
+    assert.equal(body.messages[1].content, "Question:\nwhy");
+    assert.equal(result.usage.cachedTokens, 1500);
+    assert.deepEqual(promptCacheMessages([{ role: "system", content: "stable doc" }], { apiBaseUrl: "https://example.com/v1" }),
+      [{ role: "system", content: "stable doc" }]);
+  } finally { globalThis.fetch = original; }
+});
+
+test("SSE keeps reading after finish_reason so usage is not dropped", async () => {
+  const original = globalThis.fetch;
+  const encoder = new TextEncoder();
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: { get: () => "text/event-stream" },
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"答案"},"finish_reason":"stop"}]}\n\n'));
+        controller.enqueue(encoder.encode('data: {"usage":{"prompt_tokens":1800,"completion_tokens":2,"prompt_tokens_details":{"cached_tokens":1200}}}\n\n'));
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    }),
+  });
+  try {
+    const result = await completeChatTurn({ apiKey: "k", apiBaseUrl: "https://example.com/v1" }, {
+      messages: [{ role: "user", content: "hi" }],
+    });
+    assert.equal(result.content, "答案");
+    assert.equal(result.usage.promptTokens, 1800);
+    assert.equal(result.usage.cachedTokens, 1200);
+  } finally { globalThis.fetch = original; }
 });

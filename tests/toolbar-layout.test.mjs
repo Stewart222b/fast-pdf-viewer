@@ -59,6 +59,8 @@ function makeFixture() {
     + "};\n"
     + "__setPage(\"999999\", \"888888\");\n"
     + "__setTitle(title);\n"
+    + "$(\"btn-save-pdf\").hidden = false;\n"
+    + "$(\"btn-save-pdf\").disabled = false;\n"
     + "$(\"btn-original-pdf\").hidden = false;\n"  // extension chrome is on
     + "$(\"btn-doc-title-menu\").setAttribute(\"aria-label\", title);\n"
     + "$(\"btn-doc-title-menu\").title = title;\n"

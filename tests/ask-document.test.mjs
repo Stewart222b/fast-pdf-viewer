@@ -10,6 +10,8 @@ import {
   classifyAskIntent,
   parseChapterRef,
   buildAskMessages,
+  createAskMemory,
+  rememberAskTurn,
   parseAskResponse,
   resolveCitations,
   retrieveExcerpts,
@@ -27,6 +29,40 @@ test("ARC retrieval ranks actual terms above search substrings", () => {
   assert.equal(pack.excerpts[0].pageNumber, 80);
   assert.match(pack.excerpts[0].text, /Anti-Reflective Coating/);
   assert.equal(pack.excerpts.some(item => item.reason === 'match' && item.pageNumber !== 80), false);
+});
+
+test("Ask includes the compressed summary and recent turns, and counts compression usage", async () => {
+  const original = globalThis.fetch;
+  const memory = createAskMemory();
+  const requests = [];
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    requests.push(body);
+    const content = body.messages[0].content.includes("Compress the following")
+      ? "Earlier questions established Alpha; verify details on p1."
+      : "Alpha is described on [p1](pdf:1).";
+    return { ok: true, headers: { get: () => "application/json" }, json: async () => ({
+      choices: [{ message: { content }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 100, completion_tokens: 20 },
+    }) };
+  };
+  const options = { settings: { apiKey: "k", apiBaseUrl: "https://example.com/v1" }, pageTexts: [page(1, "Alpha evidence")], memory, documentId: "alpha" };
+  try {
+    await askDocument({ ...options, question: "First question" });
+    for (let i = 0; i < 5; i++) rememberAskTurn(memory, `old Q${i}`, "evidence ".repeat(700));
+    requests.length = 0;
+    const result = await askDocument({ ...options, question: "What remains unclear?" });
+    assert.equal(requests.length, 2);
+    const sent = requests[1].messages;
+    assert.match(sent[1].content, /Earlier conversation summary/);
+    assert.match(sent[1].content, /verify details on p1/);
+    assert.doesNotMatch(JSON.stringify(sent), /old Q0/);
+    assert.match(JSON.stringify(sent), /old Q4/);
+    assert.match(sent.at(-1).content, /What remains unclear/);
+    assert.equal(memory.totalTurns, 7);
+    assert.equal(result.usage.requests, 2);
+    assert.equal(result.usage.promptTokens, 200);
+  } finally { globalThis.fetch = original; }
 });
 
 test("askQuestionTokens keeps english terms and chinese bigrams", () => {
@@ -288,14 +324,16 @@ test("buildAskMessages grounds the model on excerpts and follows the question la
   assert.match(messages[0].content, /Otherwise reply in the same language as the question/);
   assert.match(messages[0].content, /explicitly requests a response language/);
   assert.doesNotMatch(messages[0].content, /Reply in 简体中文/);
-  assert.match(messages[0].content, /keyword search/);
+  assert.doesNotMatch(messages[0].content, /keyword search/);
+  assert.match(messages[1].content, /keyword search/);
   assert.match(
-    buildAskMessages("总结一下", { intent: "survey", outlineTitles: [], excerpts: [{ pageNumber: 1, text: "Hello" }] }, "zh-CN")[0].content,
+    buildAskMessages("总结一下", { intent: "survey", outlineTitles: [], excerpts: [{ pageNumber: 1, text: "Hello" }] }, "zh-CN")[1].content,
     /sample across the whole document/,
   );
   assert.match(messages[1].content, /Page 12/);
   assert.match(messages[1].content, /Cooling water inlet/);
   assert.match(messages[1].content, /Where is cooling water\?/);
+  assert.match(messages[1].content, /Question:\nWhere is cooling water\?/);
 });
 
 test("inline PDF references work without a quote block and do not duplicate quoted pages", () => {
@@ -502,6 +540,75 @@ test("askDocument keeps reasoning off the answer and returns it separately", asy
     assert.doesNotMatch(result.raw, /plan the cite/);
     assert.equal(result.reasoning, "plan the cite");
     assert.equal(extras.at(-1), "plan the cite");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("full-document system prompt stays stable and puts the question last", () => {
+  const pack = {
+    mode: "full",
+    intent: "survey",
+    outlineTitles: ["Intro"],
+    excerpts: [{ pageNumber: 1, text: "Hello body" }],
+  };
+  const first = buildAskMessages("总结一下", pack, "zh-CN");
+  const second = buildAskMessages("结论是什么", pack, "zh-CN", {
+    memoryTurns: [{ question: "总结一下", answer: "这是一份介绍。" }],
+  });
+  assert.equal(first[0].content, second[0].content);
+  assert.match(first[0].content, /Hello body/);
+  assert.match(first.at(-1).content, /^Question:\n总结一下$/);
+  assert.equal(second[1].content, "Question:\n总结一下");
+  assert.equal(second[2].role, "assistant");
+  assert.match(second.at(-1).content, /^Question:\n结论是什么$/);
+});
+
+test("askDocument reuses a frozen prefix and remembers prior Q&A until cleared", async () => {
+  const original = globalThis.fetch;
+  const systems = [];
+  const tails = [];
+  const memory = createAskMemory();
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    systems.push(body.messages[0].content);
+    tails.push(body.messages.slice(1));
+    const question = body.messages.at(-1).content;
+    const answer = question.includes("第二问") ? "第二答。\n---\np1: \"page body\"" : "第一答。\n---\np1: \"page body\"";
+    return {
+      ok: true,
+      headers: { get: () => "application/json" },
+      json: async () => ({
+        choices: [{ message: { content: answer }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1200, completion_tokens: 20, prompt_tokens_details: { cached_tokens: systems.length > 1 ? 900 : 0 } },
+      }),
+    };
+  };
+  const pageTexts = [page(1, "page body")];
+  try {
+    const first = await askDocument({
+      question: "第一问", settings: { apiKey: "k", apiBaseUrl: "https://example.com/v1" },
+      pageTexts, memory, documentId: "doc-a",
+    });
+    const second = await askDocument({
+      question: "第二问", settings: { apiKey: "k", apiBaseUrl: "https://example.com/v1" },
+      pageTexts, memory, documentId: "doc-a",
+    });
+    assert.equal(systems[0], systems[1]);
+    assert.equal(tails[0].length, 1);
+    assert.equal(tails[1][0].content, "Question:\n第一问");
+    assert.equal(tails[1][1].content, "第一答。");
+    assert.match(tails[1].at(-1).content, /第二问/);
+    assert.equal(memory.turns.length, 2);
+    assert.equal(first.usage.cachedTokens, 0);
+    assert.equal(second.usage.cachedTokens, 900);
+    memory.turns = [];
+    await askDocument({
+      question: "第三问", settings: { apiKey: "k", apiBaseUrl: "https://example.com/v1" },
+      pageTexts, memory, documentId: "doc-a",
+    });
+    assert.equal(tails[2].length, 1);
+    assert.match(tails[2][0].content, /第三问/);
   } finally {
     globalThis.fetch = original;
   }

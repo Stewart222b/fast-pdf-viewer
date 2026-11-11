@@ -14,6 +14,7 @@ function element(tagName = "div") {
     children: [],
     className: "",
     attributes: {},
+    style: {},
     classList: {
       toggles: {},
       toggle(name, on) { this.toggles[name] = Boolean(on); },
@@ -119,6 +120,53 @@ test("renderBubbleTranslation leaves streaming markdown raw until completion", (
     renderBubbleTranslation(el, "**partial**", "term", { streaming: true });
     assert.equal(el.children[0].textContent, "**partial**");
     assert.equal(el.children[1].className, "translate-caret");
+  });
+});
+
+test("renderMarkdown turns GFM pipe tables into HTML tables and keeps cell HTML inert", () => {
+  withDocument(() => {
+    const el = sourceEl();
+    const references = [];
+    renderMarkdown(el, [
+      "Intro",
+      "",
+      "| Name | Page |",
+      "| --- | ---: |",
+      "| Inspection | [p165](pdf:165) |",
+      "| Recipe | <img src=x> |",
+      "",
+      "Outro",
+    ].join("\n"), {
+      renderReference(reference) {
+        references.push(reference);
+        const button = element("button");
+        button.textContent = reference.label;
+        return button;
+      },
+    });
+    assert.deepEqual(el.children.map((node) => node.tagName), ["P", "DIV", "P"]);
+    assert.equal(el.children[0].textContent, "Intro");
+    assert.equal(el.children[1].className, "md-table");
+    const table = el.children[1].children[0];
+    assert.equal(table.tagName, "TABLE");
+    const header = table.children[0].children[0].children;
+    assert.deepEqual(header.map((node) => node.textContent), ["Name", "Page"]);
+    assert.equal(header[1].style.textAlign, "right");
+    const firstRow = table.children[1].children[0].children;
+    assert.equal(firstRow[0].textContent, "Inspection");
+    assert.equal(firstRow[1].children[0].tagName, "BUTTON");
+    assert.deepEqual(references.map((ref) => ref.pageNumber), [165]);
+    assert.equal(table.children[1].children[1].children[1].textContent, "<img src=x>");
+    assert.equal(el.children[2].textContent, "Outro");
+  });
+});
+
+test("renderMarkdown leaves a pipe line as a paragraph until a separator appears", () => {
+  withDocument(() => {
+    const el = sourceEl();
+    renderMarkdown(el, "See a | b in the sentence.");
+    assert.equal(el.children[0].tagName, "P");
+    assert.equal(el.children[0].textContent, "See a | b in the sentence.");
   });
 });
 

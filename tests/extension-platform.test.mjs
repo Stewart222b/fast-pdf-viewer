@@ -43,6 +43,43 @@ test("ordinary extension page without a stream or query opens nothing", async ()
   assert.equal(startupFetches, 0);
 });
 
+test("MIME download reports byte progress before completion and preserves the exact bytes", async () => {
+  let controller;
+  const body = new ReadableStream({ start(value) { controller = value; } });
+  const events = [];
+  const platform = createExtensionPlatform({
+    chrome: chromeApi({ mimeHandler: { getStreamInfo: async () => ({ originalUrl: "https://example.com/a.pdf", streamUrl: "blob:once" }) } }),
+    location: extensionLocation(),
+    fetch: async () => ({ ok: true, body, headers: new Headers({ "Content-Length": "4" }),
+      arrayBuffer() { throw new Error("stream must not be consumed twice"); } }),
+  });
+  let finished = false;
+  const opening = platform.startupOpen({ onProgress: event => events.push(event) }).then(value => { finished = true; return value; });
+  controller.enqueue(new Uint8Array([37, 80]));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(finished, false);
+  assert.ok(events.some(event => event.loaded === 2 && event.total === 4));
+  controller.enqueue(new Uint8Array([68, 70])); controller.close();
+  const source = await opening;
+  assert.deepEqual(source.data, new Uint8Array([37, 80, 68, 70]));
+  assert.deepEqual(events.at(-1), { phase: "prepare" });
+  assert.strictEqual(await platform.startupOpen(), source);
+  assert.equal(body.locked, false);
+});
+
+test("MIME streams without a usable size still report received bytes", async () => {
+  const events = [];
+  const platform = createExtensionPlatform({
+    chrome: chromeApi({ mimeHandler: { getStreamInfo: async () => ({ originalUrl: "https://example.com/a.pdf", streamUrl: "blob:once" }) } }),
+    location: extensionLocation(),
+    fetch: async () => ({ ok: true, headers: new Headers({ "Content-Length": "2", "Content-Encoding": "gzip" }),
+      body: new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array([37, 80, 68, 70])); controller.close(); } }) }),
+  });
+  await platform.startupOpen({ onProgress: event => events.push(event) });
+  assert.ok(events.some(event => event.loaded === 4 && event.total === 0));
+  assert.ok(events.some(event => event.loaded === 4 && event.total === 4));
+});
+
 test("MIME stream fetch works with an unbound global fetch reference", async () => {
   let fetchCalls = 0;
   const platform = createExtensionPlatform({

@@ -36,8 +36,10 @@ test("short PDF sends every page, even beyond the old eight-page cap", async () 
   globalThis.fetch = async (_url, init) => {
     const body = JSON.parse(init.body);
     assert.equal(body.tools, undefined);
-    assert.match(body.messages[1].content, /last-page-proof/);
+    assert.match(body.messages[0].content, /last-page-proof/);
     assert.match(body.messages[0].content, /complete indexed document/);
+    assert.match(body.messages[1].content, /Question:\n总结一下/);
+    assert.doesNotMatch(body.messages[1].content, /last-page-proof/);
     return jsonResponse({ content: 'Found it.\n---\np20: "last-page-proof"' });
   };
   try {
@@ -83,8 +85,13 @@ test("tool-unsupported endpoint continues using a bounded text tool protocol", a
   globalThis.fetch = async (_url, init) => {
     requests++;
     const body = JSON.parse(init.body);
-    if (requests === 1) return { ok: false, status: 400, json: async () => ({ error: { message: "tools unsupported" } }) };
+    if (requests === 1) {
+      assert.doesNotMatch(body.messages[0].content, /Native function calling is unavailable/);
+      return { ok: false, status: 400, json: async () => ({ error: { message: "tools unsupported" } }) };
+    }
     assert.equal(body.tools, undefined);
+    assert.doesNotMatch(body.messages[0].content, /Native function calling is unavailable/);
+    assert.match(body.messages.map(message => message.content).join("\n"), /Native function calling is unavailable/);
     if (requests === 2) return jsonResponse({ content: JSON.stringify({ tool: "search_document", arguments: { query: "ARC" } }) });
     assert.match(body.messages.at(-1).content, /Anti-Reflective/);
     return jsonResponse({ content: "ARC is on p200." });
@@ -102,7 +109,8 @@ test("reading rounds stop at the budget and force an evidence-limited final answ
   globalThis.fetch = async (_url, init) => {
     count++;
     const body = JSON.parse(init.body);
-    return body.tools ? jsonResponse(call("search_document", { query: "missing" }, `call-${count}`))
+    return body.tools && body.tool_choice !== "none"
+      ? jsonResponse(call("search_document", { query: "missing" }, `call-${count}`))
       : jsonResponse({ content: "My searches have not found evidence; coverage is incomplete." });
   };
   try {
@@ -142,5 +150,27 @@ test("SSE assembles fragmented tool calls and reasoning without leaking them int
     assert.equal(result.message.reasoning_content, "Find ARC");
     assert.equal(result.toolCalls[0].function.arguments, '{"query":"ARC"}');
     assert.equal(result.toolCalls[0].id, "call_1");
+  } finally { globalThis.fetch = original; }
+});
+
+test("agent rounds keep the same tools list and freeze the system prompt", async () => {
+  const original = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    requests.push(body);
+    if (requests.length === 1) return jsonResponse(call("search_document", { query: "ARC" }));
+    if (requests.length === 2) return jsonResponse(call("read_pages", { startPage: 200, endPage: 200 }, "call-2"));
+    return jsonResponse({ content: "done.\n---\np200: \"ARC means Anti-Reflective Coating.\"" });
+  };
+  try {
+    await askDocument({ settings, question: "ARC", pageTexts: pages, pageCount: 200 });
+    assert.equal(requests.length, 3);
+    assert.equal(requests[0].messages[0].content, requests[1].messages[0].content);
+    assert.equal(requests[1].messages[0].content, requests[2].messages[0].content);
+    assert.ok(requests[0].tools?.length);
+    assert.deepEqual(requests[0].tools, requests[1].tools);
+    assert.deepEqual(requests[1].tools, requests[2].tools);
+    assert.equal(requests[2].tool_choice, "auto");
   } finally { globalThis.fetch = original; }
 });

@@ -267,6 +267,8 @@ def open_window(url: str, title: str) -> bool:
     except ImportError:
         return False
 
+    # Enable the same Blob download action used by the browser/extension reader.
+    webview.settings["ALLOW_DOWNLOADS"] = True
     webview.create_window(
         title,
         url,

@@ -35,6 +35,21 @@
         <path d="M5 12h14" />
         <path d="m12 5 7 7-7 7" />
       </symbol>
+      <symbol id="i-arrow-up" viewBox="0 0 24 24">
+        <path d="M12 19V5" />
+        <path d="m5 12 7-7 7 7" />
+      </symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24">
+        <rect x="7" y="7" width="10" height="10" rx="2" />
+      </symbol>
+      <symbol id="i-download" viewBox="0 0 24 24">
+        <path d="M12 3v12m-5-5 5 5 5-5" />
+        <path d="M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4" />
+      </symbol>
+      <symbol id="i-save" viewBox="0 0 24 24">
+        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12l4 4v12a2 2 0 0 1-2 2Z" />
+        <path d="M7 3v6h10V3M7 21v-8h10v8" />
+      </symbol>
       <symbol id="i-chevron-up" viewBox="0 0 24 24">
         <path d="m18 15-6-6-6 6" />
       </symbol>
@@ -68,6 +83,16 @@
         <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4.5" />
         <path d="M12 17h.01" />
       </symbol>
+      <symbol id="i-chat-question" viewBox="0 0 24 24">
+        <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+        <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2.5-3 4.5" />
+        <path d="M12 17h.01" />
+      </symbol>
+      <symbol id="i-tokens" viewBox="0 0 24 24">
+        <ellipse cx="12" cy="6" rx="8" ry="3" />
+        <path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6" />
+        <path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" />
+      </symbol>
       <symbol id="i-settings" viewBox="0 0 24 24">
         <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
         <circle cx="12" cy="12" r="3" />
@@ -80,6 +105,17 @@
       <symbol id="i-copy" viewBox="0 0 24 24">
         <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
         <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+      </symbol>
+      <symbol id="i-retry" viewBox="0 0 24 24">
+        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+        <path d="M3 3v5h5" />
+      </symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24">
+        <path d="M3 6h18" />
+        <path d="M8 6V4h8v2" />
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+        <path d="M10 11v6" />
+        <path d="M14 11v6" />
       </symbol>
       <symbol id="i-check" viewBox="0 0 24 24">
         <path d="m5 12 4 4L19 6" />
@@ -162,8 +198,9 @@
           <span class="tb-divider" aria-hidden="true"></span>
           <span class="tb-group" role="group" aria-label="搜索" data-i18n-aria="search">
             <button id="btn-search-toggle" class="btn toolbar-ghost icon" type="button" title="搜索 (Ctrl+F)" aria-label="搜索" aria-controls="search-pane" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-search" /></svg></button>
-            <button id="btn-ask-toggle" class="btn toolbar-ghost icon ask-toggle" type="button" title="问答 (beta)" data-i18n-title="ask" aria-label="问答 (beta)" data-i18n-aria="ask" aria-controls="ask-pane" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-ask" /></svg></button>
+            <button id="btn-ask-toggle" class="btn toolbar-ghost icon ask-toggle" type="button" title="问答 (beta)" data-i18n-title="ask" aria-label="问答 (beta)" data-i18n-aria="ask" aria-controls="ask-pane" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-chat-question" /></svg></button>
           </span>
+          <button id="btn-save-pdf" class="btn toolbar-ghost icon" type="button" hidden disabled title="下载 PDF (Ctrl+S)" aria-label="下载 PDF (Ctrl+S)"><svg class="icon" aria-hidden="true"><use id="pdf-save-icon" href="#i-download" /></svg></button>
           <span class="toolbar-more">
             <button id="btn-toolbar-more" class="btn toolbar-ghost icon toolbar-more-button" type="button" title="更多" data-i18n-title="more" aria-label="更多" data-i18n-aria="more" aria-haspopup="true" aria-expanded="false" aria-controls="toolbar-more-menu"><svg class="icon" aria-hidden="true"><use href="#i-more" /></svg></button>
             <span id="toolbar-more-menu" class="toolbar-more-menu" role="group" aria-label="更多" data-i18n-aria="more" aria-hidden="true">
@@ -219,36 +256,85 @@
               <div id="search-list" class="search-list"></div>
             </div>
             <div id="ask-pane" class="sidebar-pane">
-              <div class="ask-controls">
-                <label class="ask-label" for="ask-input" data-i18n="askDocument">问这份文档</label>
-                <textarea id="ask-input" class="ask-input" rows="3" placeholder="问这份 PDF，例如总结一下、冷却水规格在哪" data-i18n-placeholder="askPrompt" aria-label="问这份文档" data-i18n-aria="askDocument"></textarea>
-                <div class="ask-actions">
-                  <button id="ask-submit" class="btn primary tiny" type="button" data-i18n="askSubmit">提问</button>
-                  <button id="ask-stop" class="btn toolbar-ghost tiny" type="button" data-i18n="askStop" hidden>停止</button>
+              <div id="ask-thread" class="ask-thread">
+                <div id="ask-empty" class="ask-empty">
+                  <svg class="icon ask-empty-icon" aria-hidden="true"><use href="#i-chat-question" /></svg>
+                  <p class="ask-empty-title" data-i18n="askEmptyTitle">关于这份 PDF，你想了解什么？</p>
+                  <p class="ask-empty-hint" data-i18n="askEmptyHint">可以帮你总结内容、查找参数或解答技术问题</p>
                 </div>
-                <p id="ask-status" class="ask-status" role="status" aria-live="polite" hidden></p>
+                <div id="ask-turns" class="ask-turns"></div>
               </div>
-              <div id="ask-empty" class="empty-side" data-i18n="askPrompt">问这份 PDF，例如总结一下、冷却水规格在哪</div>
-              <div id="ask-result" class="ask-result" hidden>
-                <details id="ask-reading-wrap" class="ask-reading" hidden>
-                  <summary data-i18n="askReadingLog">读取记录</summary>
-                  <ol id="ask-reading-log"></ol>
-                </details>
-                <details id="ask-thinking-wrap" class="thinking-fold" hidden>
-                  <summary><span data-i18n="thinkingProcess">思考过程</span><span id="ask-thinking-status" class="thinking-state"></span><span id="ask-thinking-preview" class="thinking-preview"></span></summary>
-                  <pre id="ask-thinking" class="thinking-body"></pre>
-                </details>
-                <div class="ask-answer-label" data-i18n="askAnswer">回答</div>
-                <div id="ask-answer" class="ask-answer" dir="auto"></div>
-                <details id="ask-citations-wrap" class="ask-citations-wrap" hidden>
-                  <summary class="ask-answer-label" data-i18n="askCitations">引用</summary>
-                  <div id="ask-citations" class="search-list ask-citations"></div>
-                </details>
-                <div id="ask-result-actions" class="ask-result-actions" hidden>
-                  <button id="ask-retry" class="btn toolbar-ghost tiny" type="button" data-i18n="retry">重试</button>
-                  <button id="ask-setup" class="btn toolbar-ghost tiny" type="button" data-i18n="setupTranslation" hidden>设置翻译</button>
+              <div class="ask-composer">
+                <div class="ask-compose">
+                  <div class="ask-input-wrap">
+                    <textarea id="ask-input" class="ask-input" rows="1" aria-label="问这份文档" data-i18n-aria="askDocument"></textarea>
+                    <span class="ask-input-placeholder" aria-hidden="true" data-i18n="askPrompt">输入你的问题...</span>
+                  </div>
+                  <div class="ask-compose-actions">
+                    <span id="ask-more" class="ask-more" hidden>
+                      <button id="btn-ask-more" class="btn toolbar-ghost icon tiny" type="button" title="更多" data-i18n-title="more" aria-label="更多" data-i18n-aria="more" aria-haspopup="menu" aria-expanded="false" aria-controls="ask-more-menu">
+                        <svg class="icon" aria-hidden="true"><use href="#i-more" /></svg>
+                      </button>
+                      <div id="ask-more-menu" class="ask-more-menu" role="menu" hidden>
+                        <button id="ask-clear" class="ask-more-item" type="button" role="menuitem" data-i18n-title="askClearHint" title="忘掉这份文档里刚问过的内容，下一问当作新的开始">
+                          <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
+                          <span data-i18n="askClear">清理</span>
+                        </button>
+                      </div>
+                    </span>
+                    <span class="ask-send-slot">
+                      <button id="ask-submit" class="ask-send" type="button" disabled data-i18n-title="askSubmit" data-i18n-aria="askSubmit" title="提问" aria-label="提问">
+                        <svg class="icon" aria-hidden="true"><use href="#i-arrow-up" /></svg>
+                      </button>
+                      <button id="ask-stop" class="ask-send is-stop" type="button" hidden data-i18n-title="askStop" data-i18n-aria="askStop" title="停止" aria-label="停止">
+                        <svg class="icon" aria-hidden="true"><use href="#i-stop" /></svg>
+                      </button>
+                    </span>
+                  </div>
+                </div>
+                <div class="ask-foot">
+                  <div id="ask-meter" class="ask-meter" hidden>
+                    <button id="ask-meter-summary" class="ask-meter-summary" type="button" aria-expanded="false" aria-controls="ask-meter-detail" data-i18n-title="askMeterHint" title="查看本次提问的 Token 与缓存">
+                      <svg class="icon" aria-hidden="true"><use href="#i-tokens" /></svg>
+                      <span id="ask-meter-summary-text" class="ask-meter-summary-text"></span>
+                    </button>
+                    <div id="ask-meter-detail" class="ask-meter-detail" hidden>
+                      <div class="ask-meter-head">
+                        <svg class="icon" aria-hidden="true"><use href="#i-tokens" /></svg>
+                        <span id="ask-meter-head-label" class="ask-meter-head-label" data-i18n="askMeterTokens">Token 用量</span>
+                        <span id="ask-meter-head-value" class="ask-meter-head-value"></span>
+                      </div>
+                      <dl id="ask-meter-rows" class="ask-meter-rows"></dl>
+                    </div>
+                  </div>
+                  <p id="ask-status" class="ask-status" role="status" aria-live="polite" hidden></p>
                 </div>
               </div>
+              <template id="ask-turn-template">
+                <article class="ask-turn">
+                  <p class="ask-turn-question"></p>
+                  <details id="ask-reading-wrap" class="ask-reading" hidden>
+                    <summary data-i18n="askReadingLog">读取记录</summary>
+                    <ol id="ask-reading-log"></ol>
+                  </details>
+                  <details id="ask-thinking-wrap" class="thinking-fold" hidden>
+                    <summary><span data-i18n="thinkingProcess">思考过程</span><span id="ask-thinking-status" class="thinking-state"></span><span id="ask-thinking-preview" class="thinking-preview"></span></summary>
+                    <pre id="ask-thinking" class="thinking-body"></pre>
+                  </details>
+                  <div class="ask-answer-label" data-i18n="askAnswer">回答</div>
+                  <div id="ask-answer" class="ask-answer" dir="auto"></div>
+                  <div class="ask-turn-actions" hidden>
+                    <button class="ask-icon-btn ask-copy" type="button" data-i18n-title="askCopy" data-i18n-aria="askCopy" title="复制回答" aria-label="复制回答">
+                      <svg class="icon ask-copy-icon" aria-hidden="true"><use href="#i-copy" /></svg>
+                      <svg class="icon ask-copy-done" aria-hidden="true"><use href="#i-check" /></svg>
+                    </button>
+                    <button class="ask-icon-btn ask-retry" type="button" data-i18n-title="retry" data-i18n-aria="retry" title="重试" aria-label="重试">
+                      <svg class="icon" aria-hidden="true"><use href="#i-retry" /></svg>
+                    </button>
+                    <button class="btn toolbar-ghost tiny ask-setup" type="button" data-i18n="setupTranslation" hidden>设置翻译</button>
+                  </div>
+                </article>
+              </template>
             </div>
           </div>
           <div id="sidebar-resize-handle" class="sidebar-resize-handle" role="separator" aria-orientation="vertical" aria-label="调整侧栏宽度" data-i18n-aria="resizeSidebar" aria-valuemin="272" aria-valuemax="480" aria-valuenow="272" tabindex="0"></div>
@@ -256,6 +342,12 @@
         <main id="viewer-wrap" class="viewer-wrap">
           <div id="viewer-status" class="viewer-status" hidden>
             <p id="viewer-status-text" class="viewer-status-text" role="status"></p>
+            <div id="viewer-loading" class="viewer-loading" data-mode="indeterminate" hidden>
+              <div id="viewer-loading-track" class="viewer-loading-track" role="progressbar" aria-label="PDF 加载进度" aria-valuemin="0" aria-valuemax="100">
+                <div id="viewer-loading-fill" class="viewer-loading-fill"></div>
+              </div>
+              <p id="viewer-loading-detail" class="viewer-loading-detail"></p>
+            </div>
             <button id="viewer-status-action" class="btn primary" type="button" data-i18n="chooseAgain" hidden>重新选择文件</button>
             <button id="viewer-status-restore" class="btn" type="button" data-i18n="restorePreviousDocument" hidden>返回上一文档</button>
           </div>
@@ -273,6 +365,7 @@
             <button id="btn-reading-start" class="link-btn reading-notice-action" type="button" data-i18n="backToStart">回到开头</button>
             <button id="btn-reading-notice-close" class="btn toolbar-ghost icon tiny reading-notice-close" type="button" title="关闭提示" data-i18n-title="dismissNotice" aria-label="关闭提示" data-i18n-aria="dismissNotice"><svg class="icon" aria-hidden="true"><use href="#i-x" /></svg></button>
           </div>
+          <div id="pdf-export-notice" class="reading-notice pdf-export-notice" role="status" aria-live="polite" hidden></div>
         </main>
         <aside id="rail" class="rail" aria-hidden="true" inert>
           <div id="rail-resize-handle" class="rail-resize-handle" role="separator" aria-orientation="vertical" aria-label="调整右侧栏宽度" data-i18n-aria="resizeRail" aria-valuemin="272" aria-valuemax="480" aria-valuenow="272" tabindex="0"></div>

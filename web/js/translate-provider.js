@@ -1,5 +1,6 @@
 import { t } from "./i18n.js";
 import { languageName } from "./languages.js";
+import { rememberModelContexts } from "./model-context.js";
 import {
   DEFAULT_API_BASE,
   DEFAULT_MODEL,
@@ -114,6 +115,7 @@ export async function fetchModelList(settings, { signal } = {}) {
     throw new Error(message);
   }
   const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+  rememberModelContexts(settings, rows);
   const models = rows
     .map((row) => ({
       id: String(row?.id || row?.name || "").trim(),

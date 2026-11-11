@@ -11,7 +11,7 @@ function deferred() {
 async function setup({ platform = 'Linux x86_64', startup = null,
   requestHostAccess = async () => true, saveSettings = () => ({}),
   loadSettings = () => ({}), initSettings = async () => {},
-  translateText = async () => '',
+  translateText = async () => '', fetchResponse = async () => ({ ok: false }),
   platformId = 'test', canFallbackToBrowser = undefined,
   clearBrowserFallback = undefined, restoreFile = undefined,
   chrome = undefined, localStorageStore = new Map(), clipboardWrite = async () => {},
@@ -25,6 +25,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
   const revoked = [];
   const createdBlobs = [];
   const openedTabs = [];
+  const downloads = [];
   let nextBlob = 0;
   const documentElement = element();
   documentElement.style.setProperty = (name, value) => { documentElement.style[name] = value; };
@@ -35,6 +36,8 @@ async function setup({ platform = 'Linux x86_64', startup = null,
       offsetWidth: 320, offsetHeight: 180,
       classList: { toggle(name, on) { el.toggles[name] = on; }, add() {}, remove() {},
         contains(name) { return Boolean(el.toggles[name]); } },
+      click() { if (this.tagName === "A") downloads.push({ href: this.href, filename: this.download }); },
+      remove() { const index = this.parentElement?.children.indexOf(this); if (index >= 0) this.parentElement.children.splice(index, 1); this.parentElement = null; },
       addEventListener(name, fn) { this.listeners[name] = fn; },
       removeEventListener() {},
       replaceChildren() { this.children = []; },
@@ -62,7 +65,14 @@ async function setup({ platform = 'Linux x86_64', startup = null,
           node.parentElement = parent;
         }
       },
-      contains() { return false; }, focus() {}, select() {},
+      contains(node) {
+        let cur = node;
+        while (cur) {
+          if (cur === el) return true;
+          cur = cur.parentElement;
+        }
+        return false;
+      }, focus() {}, select() {},
       getBoundingClientRect() { return { left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600 }; },
       closest() { return null; },
       getAttribute(name) { return this.attrs[name]; },
@@ -127,6 +137,10 @@ async function setup({ platform = 'Linux x86_64', startup = null,
     get(id).tagName = tag;
     get('ask-pane').appendChild(get(id));
   }
+  get('ask-meter-summary').tagName = 'BUTTON';
+  get('ask-meter').appendChild(get('ask-meter-summary'));
+  get('ask-meter').appendChild(get('ask-meter-detail'));
+  get('ask-pane').appendChild(get('ask-meter'));
   for (const [id, tag] of [['search-input', 'INPUT'], ['search-match-case', 'BUTTON'], ['search-whole-word', 'BUTTON']]) {
     get(id).tagName = tag;
     get('search-pane').appendChild(get(id));
@@ -187,7 +201,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
   TestURL.revokeObjectURL = url => revoked.push(url);
   const context = vm.createContext({
     URL: TestURL, Blob,
-    console, fetch: async () => ({ ok: false }),
+    console, fetch: fetchResponse,
     document: {
       title: 'Fast PDF Viewer – AI Translation',
       getElementById: get,
@@ -213,6 +227,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
     },
     window: {
       innerWidth,
+      innerHeight: 800,
       matchMedia: () => ({ matches: toolbarCompact, addEventListener() {} }),
       addEventListener(type, fn) { (windowListeners[type] ||= []).push(fn); },
       getSelection() { return currentSelection; },
@@ -259,7 +274,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
     './platform/index.js': {
       createPlatform: () => ({
         id: platformId,
-        async startupOpen() { return typeof startup === 'function' ? startup() : startup; },
+        async startupOpen(options) { return typeof startup === 'function' ? startup(options) : startup; },
         async pickFile() { return null; },
         ...(canFallbackToBrowser !== undefined ? { canFallbackToBrowser } : {}),
         ...(clearBrowserFallback !== undefined ? { clearBrowserFallback } : {}),
@@ -270,7 +285,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
       wireModelPicker: () => ({ refresh() {}, hideMenu() {}, invalidatePending() {}, showPrompt() {} }),
     },
   };
-  const main = new vm.SourceTextModule(await readFile(new URL('../web/js/main.js', import.meta.url), 'utf8'), { context });
+  const main = new vm.SourceTextModule((await readFile(new URL('../web/js/main.js', import.meta.url), 'utf8')) + '\nexport { runAsk, askMemory, askThread, saveCurrentPdf };', { context });
   await main.link(async spec => {
     if (
       spec === './search.js' ||
@@ -282,9 +297,13 @@ async function setup({ platform = 'Linux x86_64', startup = null,
       spec === './translate-provider.js' ||
       spec === './openai-chat.js' ||
       spec === './ask-document.js' ||
+      spec === './ask-memory.js' ||
+      spec === './model-context.js' ||
       spec === './document-tools.js' ||
       spec === './thinking-view.js' ||
       spec === './document-properties.js' ||
+      spec === './pdf-download.js' ||
+      spec === './loading-progress.js' ||
       spec === './i18n.js' || spec === './languages.js' || spec === './locale-messages.js'
     ) {
       return new vm.SourceTextModule(await readFile(new URL(`../web/js/${spec.slice(2)}`, import.meta.url), 'utf8'), { context });
@@ -298,6 +317,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
       for (const [key, value] of Object.entries(exports[spec])) this.setExport(key, value);
     }, { context });
   });
+  get('viewer-status').hidden = true;
   await main.evaluate();
   // Mirror shipped empty-state chrome: em-dash page readout until a doc opens.
   get('page-input').value = '—';
@@ -310,7 +330,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
   get('btn-original-pdf').hidden = true;
   get('doc-properties-modal').hidden = true;
   get('btn-doc-properties').hidden = true;
-  return { viewer, get, fileInput, revoked, createdBlobs, openedTabs, document: context.document, localStorageStore,
+  return { downloads, savePdf: main.namespace.saveCurrentPdf, ask: main.namespace, viewer, get, fileInput, revoked, createdBlobs, openedTabs, document: context.document, localStorageStore,
     setSelection(selection) { currentSelection = selection; },
     dispatch(type, event) { for (const fn of windowListeners[type] || []) fn(event); },
     dispatchDocument(type, event) { for (const fn of documentListeners[type] || []) fn(event); },
@@ -1125,6 +1145,90 @@ test('local files can open in the browser PDF viewer', async () => {
   assert.ok(app.createdBlobs.length > before);
 });
 
+test('web MIME PDF uses download and Ctrl+S saves the retained original bytes', async () => {
+  const bytes = new Uint8Array([37, 80, 68, 70, 0, 255]);
+  const app = await setup({ startup: { data: bytes, name: '1706.03762', originalUrl: 'https://arxiv.org/pdf/1706.03762', mimeStream: true } });
+  await new Promise(resolve => setImmediate(resolve));
+  const button = app.get('btn-save-pdf');
+  assert.equal(button.hidden, false);
+  assert.equal(button.disabled, false);
+  assert.equal(app.get('pdf-save-icon').getAttribute('href'), '#i-download');
+  assert.match(button.title, /下载 PDF.*Ctrl\+S/);
+  let prevented = false;
+  app.dispatch('keydown', { key: 's', ctrlKey: true, preventDefault() { prevented = true; } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(prevented, true);
+  assert.equal(app.downloads.length, 1);
+  assert.equal(app.downloads[0].filename, '1706.03762.pdf');
+  assert.deepEqual(new Uint8Array(await app.createdBlobs.at(-1).arrayBuffer()), bytes);
+  assert.equal(button.disabled, false);
+});
+
+test('local selection uses the save icon and exports a copy of the original file', async () => {
+  const app = await setup();
+  assert.equal(app.get('btn-save-pdf').hidden, true);
+  const file = new Blob(['%PDF-local-original'], { type: 'application/pdf' });
+  file.name = '本地手册.pdf';
+  app.fileInput.files = [file];
+  await app.fileInput.listeners.change();
+  assert.equal(app.get('pdf-save-icon').getAttribute('href'), '#i-save');
+  assert.match(app.get('btn-save-pdf').title, /保存副本.*Ctrl\+S/);
+  await app.savePdf();
+  assert.equal(app.downloads[0].filename, file.name);
+  assert.equal(app.createdBlobs.at(-1), file);
+  assert.equal(await file.text(), '%PDF-local-original');
+});
+
+test('file MIME sources and desktop paths stay local despite transferred bytes and proxy URLs', async () => {
+  for (const source of [
+    { originalUrl: 'file:///C:/manual.pdf', data: new Uint8Array([37, 80, 68, 70]), mimeStream: true },
+    { path: 'C:\\manual.pdf', url: '/opened/123.pdf' },
+  ]) {
+    const app = await setup({ startup: { name: 'manual.pdf', ...source }, platform: 'MacIntel' });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(app.get('pdf-save-icon').getAttribute('href'), '#i-save');
+    assert.match(app.get('btn-save-pdf').title, /保存副本.*Cmd\+S/);
+  }
+});
+
+test('download ignores repeated clicks and discards an old request after switching documents', async () => {
+  const pending = deferred();
+  const app = await setup({ startup: { name: 'remote.pdf', url: 'https://example.org/remote.pdf' } });
+  await new Promise(resolve => setImmediate(resolve));
+  let reads = 0;
+  app.viewer.pdf.getData = () => { reads++; return pending.promise; };
+  const first = app.savePdf();
+  await app.savePdf();
+  assert.equal(reads, 1);
+  assert.equal(app.get('btn-save-pdf').disabled, true);
+  const next = new Blob(['%PDF-new']); next.name = 'next.pdf';
+  app.fileInput.files = [next];
+  await app.fileInput.listeners.change();
+  pending.resolve(new Uint8Array([37, 80, 68, 70]));
+  await first;
+  assert.equal(app.downloads.length, 0);
+  assert.equal(app.get('btn-save-pdf').disabled, false);
+  assert.equal(app.get('pdf-save-icon').getAttribute('href'), '#i-save');
+  await app.savePdf();
+  assert.equal(app.downloads[0].filename, 'next.pdf');
+});
+
+test('download failure allows retry and does not block the PDF reading surface', async () => {
+  const app = await setup({ startup: { name: 'remote.pdf', url: 'https://example.org/remote.pdf' } });
+  await new Promise(resolve => setImmediate(resolve));
+  app.viewer.pdf.getData = async () => { throw new Error('network offline'); };
+  await app.savePdf();
+  assert.equal(app.downloads.length, 0);
+  assert.equal(app.get('btn-save-pdf').disabled, false);
+  assert.equal(app.get('viewer-status').hidden, true);
+  assert.equal(app.get('pdf-export-notice').hidden, false);
+  assert.match(app.get('pdf-export-notice').textContent, /network offline/);
+  app.viewer.pdf.getData = async () => new Uint8Array([37, 80, 68, 70]);
+  await app.savePdf();
+  assert.equal(app.downloads.length, 1);
+  assert.equal(app.get('pdf-export-notice').hidden, true);
+});
+
 test('late empty outline does not leave an active search sidebar', async () => {
   const app = await setup(), waiting = deferred();
   app.viewer.outlinePromise = waiting.promise;
@@ -1903,6 +2007,141 @@ test('document properties open from 更多 with filename and page count', async 
   assert.equal(app.get('doc-properties-modal').hidden, true);
 });
 
+test('ask composer has no title row and a one-line auto-growing input', async () => {
+  const html = await readFile(new URL('../web/index.html', import.meta.url), 'utf8');
+  const css = await readFile(new URL('../web/styles.css', import.meta.url), 'utf8');
+  assert.doesNotMatch(html, /class="ask-label"/);
+  assert.match(html, /id="ask-input"[^>]*rows="1"/);
+  assert.match(html, /class="ask-input-placeholder"/);
+  assert.match(html, /class="ask-empty-title"/);
+  assert.match(html, /class="ask-send-slot"/);
+  assert.doesNotMatch(html, /class="ask-input-row"/);
+  assert.doesNotMatch(html, /class="ask-actions"/);
+  assert.match(css, /\.ask-input \{[\s\S]*?resize:\s*none/);
+  assert.match(html, /class="ask-compose-actions"[\s\S]*id="ask-more"[\s\S]*class="ask-send-slot"/);
+});
+
+test('ask input grows with wrapped text up to max-height', async () => {
+  const app = await setup();
+  const input = app.get('ask-input');
+  input.scrollHeight = 72;
+  app.dispatchElement('ask-input', 'input', { target: input });
+  assert.equal(input.style.height, '72px');
+  input.scrollHeight = 400;
+  app.dispatchElement('ask-input', 'input', { target: input });
+  assert.equal(input.style.height, '160px');
+  assert.equal(input.style.overflowY, 'auto');
+  input.value = '';
+  input.scrollHeight = 0;
+  app.dispatchElement('ask-input', 'input', { target: input });
+  assert.equal(input.style.height, '');
+});
+
+test('ask send hidden attribute wins over display grid', async () => {
+  const css = await readFile(new URL('../web/styles.css', import.meta.url), 'utf8');
+  const start = css.indexOf('.ask-send {');
+  assert.ok(start >= 0, 'ask send has a display rule');
+  assert.match(css, /\.ask-send\[hidden\]\s*\{[\s\S]*?display:\s*none/);
+});
+
+test('ask send stays disabled while empty and becomes stop while answering', async () => {
+  const app = await setup();
+  const submit = app.get('ask-submit');
+  const stop = app.get('ask-stop');
+  const input = app.get('ask-input');
+  assert.equal(submit.disabled, true);
+  assert.equal(stop.hidden, true);
+
+  input.value = '冷却水规格在哪';
+  app.dispatchElement('ask-input', 'input', { target: input });
+  assert.equal(submit.disabled, false);
+  assert.equal(submit.hidden, false);
+  assert.equal(stop.hidden, true);
+
+  input.value = '   ';
+  app.dispatchElement('ask-input', 'input', { target: input });
+  assert.equal(submit.disabled, true);
+});
+
+test('ask meter chip opens a floating popover above the line and closes on outside click', async () => {
+  const app = await setup();
+  const meter = app.get('ask-meter');
+  const summary = app.get('ask-meter-summary');
+  const detail = app.get('ask-meter-detail');
+  meter.hidden = false;
+  summary.getBoundingClientRect = () => ({ left: 120, top: 520, right: 400, bottom: 538, width: 280, height: 18 });
+  app.get('ask-pane').getBoundingClientRect = () => ({ left: 100, top: 48, right: 420, bottom: 760, width: 320, height: 712 });
+
+  app.click('ask-meter-summary');
+  assert.equal(detail.hidden, false);
+  assert.equal(detail.parentElement, app.document.body);
+  assert.equal(summary.attrs['aria-expanded'], 'true');
+  const left = Number.parseFloat(detail.style.left);
+  assert.ok(left >= 100 && left <= 120);
+  const bottom = Number.parseFloat(detail.style.bottom);
+  assert.equal(bottom, 800 - 520 + 6);
+
+  app.click('ask-meter-summary');
+  assert.equal(detail.hidden, true);
+  assert.equal(detail.parentElement, meter);
+  assert.equal(summary.attrs['aria-expanded'], 'false');
+
+  app.click('ask-meter-summary');
+  app.dispatchDocument('pointerdown', { target: detail });
+  assert.equal(detail.hidden, false);
+
+  app.dispatchDocument('pointerdown', { target: app.get('ask-input') });
+  assert.equal(detail.hidden, true);
+  assert.equal(detail.parentElement, meter);
+});
+
+test('ask foot usage and coverage share a 24px row with even pane padding', async () => {
+  const css = await readFile(new URL('../web/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /#ask-pane\.active \{[\s\S]*?padding-bottom:\s*8px/);
+  assert.match(css, /\.ask-meter-summary \{[\s\S]*?height:\s*24px/);
+  assert.match(css, /\.ask-status \{[\s\S]*?height:\s*24px/);
+  assert.match(css, /\.ask-status \{[\s\S]*?line-height:\s*1/);
+});
+
+test('ask thread uses a user bubble, answer icons, and a composer clear menu', async () => {
+  const html = await readFile(new URL('../web/index.html', import.meta.url), 'utf8');
+  const css = await readFile(new URL('../web/styles.css', import.meta.url), 'utf8');
+  assert.match(html, /id="ask-more"/);
+  assert.match(html, /id="ask-clear"[\s\S]*data-i18n="askClear"/);
+  assert.match(html, /class="ask-icon-btn ask-copy"/);
+  assert.match(html, /class="ask-icon-btn ask-retry"/);
+  assert.match(html, /data-i18n="askPrompt"/);
+  assert.match(css, /\.ask-turn-question \{[\s\S]*?align-self:\s*flex-end/);
+  assert.match(css, /\.ask-turn-question \{[\s\S]*?border-radius:\s*16px/);
+  assert.doesNotMatch(html, /id="ask-result-actions"/);
+  assert.doesNotMatch(html, /id="ask-retry"/);
+});
+
+test('ask thinking stays in the thread without a nested card', async () => {
+  const css = await readFile(new URL('../web/styles.css', import.meta.url), 'utf8');
+  const start = css.indexOf('.thinking-body {');
+  assert.ok(start >= 0, 'thinking body has styles');
+  const block = css.slice(start, css.indexOf('}', start) + 1);
+  assert.match(block, /border:\s*none/);
+  assert.match(block, /background:\s*transparent/);
+  assert.match(block, /overflow:\s*visible/);
+  assert.match(block, /max-height:\s*none/);
+  assert.doesNotMatch(block, /border-radius/);
+  assert.match(css, /\.ask-answer \.md-table \{[\s\S]*?overflow-x:\s*auto/);
+});
+
+test('ask thread keeps a stable scrollbar gutter on the pane edge', async () => {
+  const css = await readFile(new URL('../web/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /#search-pane\.active,\s*#ask-pane\.active \{[\s\S]*?padding-right:\s*0;/);
+  assert.match(css, /\.ask-thread,\s*#search-list \{[\s\S]*?scrollbar-gutter:\s*stable/);
+  const searchControls = css.slice(css.indexOf('.search-controls {'), css.indexOf('}', css.indexOf('.search-controls {')));
+  const askComposer = css.slice(css.indexOf('.ask-composer {'), css.indexOf('}', css.indexOf('.ask-composer {')));
+  assert.doesNotMatch(searchControls, /scrollbar-gutter/);
+  assert.doesNotMatch(askComposer, /scrollbar-gutter/);
+  assert.match(askComposer, /padding-right:\s*var\(--pane-inline-pad\)/);
+  assert.doesNotMatch(askComposer, /border-top/);
+});
+
 test('bubble language picker keeps focus on its border instead of an outer ring', async () => {
   const css = await readFile(new URL('../web/styles.css', import.meta.url), 'utf8');
   const start = css.indexOf('.bubble-target-lang:focus');
@@ -1935,6 +2174,7 @@ test('extension chrome sits in the toolbar and settings footer', async () => {
   assert.match(settings, /id="setting-show-thinking"/);
   assert.match(html, /id="ask-thinking-wrap"/);
   assert.doesNotMatch(html, /id="bubble-thinking-wrap"/);
+  assert.match(html, /id="ask-thread"[\s\S]*class="ask-composer"/);
 });
 
 test('extension boot failure without file keeps original-pdf button hidden', async () => {
@@ -1949,6 +2189,77 @@ test('extension boot failure without file keeps original-pdf button hidden', asy
   assert.equal(app.get('btn-original-pdf').hidden, true);
   assert.equal(app.get('btn-extension-options').hidden, false);
   assert.equal(openOptionsPage.length, 0);
+  assert.equal(app.get('viewer-loading').hidden, true);
+});
+
+test('extension shows opening during settings initialization and slow MIME startup', async () => {
+  const settingsReady = deferred();
+  const stream = deferred();
+  let startupCalls = 0;
+  let reportProgress;
+  const app = await setup({
+    platformId: 'extension',
+    chrome: { runtime: { openOptionsPage() {} } },
+    initSettings: () => settingsReady.promise,
+    startup: ({ onProgress }) => { startupCalls++; reportProgress = onProgress; return stream.promise; },
+  });
+  assert.equal(startupCalls, 0);
+  assert.equal(app.get('viewer-status').hidden, false);
+  assert.equal(app.get('viewer-status-text').textContent, '正在打开…');
+  assert.equal(app.get('drop-hint').toggles.hidden, true);
+  assert.equal(app.viewer.openedSources.length, 0);
+
+  settingsReady.resolve();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(startupCalls, 1);
+  assert.equal(app.get('viewer-status').hidden, false);
+  assert.equal(app.get('viewer-status-text').textContent, '正在打开…');
+  assert.equal(app.get('drop-hint').toggles.hidden, true);
+  assert.equal(app.viewer.openedSources.length, 0);
+
+  reportProgress({ loaded: 5 * 1024 ** 2, total: 20 * 1024 ** 2 });
+  assert.equal(app.get('viewer-loading').hidden, false);
+  assert.equal(app.get('viewer-loading-track').getAttribute('aria-valuenow'), '25');
+  assert.match(app.get('viewer-loading-detail').textContent, /5 MB.*20 MB.*25%/);
+  const bytes = new Uint8Array([37, 80, 68, 70]);
+  stream.resolve({ data: bytes, name: 'large.pdf', originalUrl: 'https://example.org/large.pdf' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.viewer.source.data, bytes);
+  assert.equal(app.get('viewer-status').hidden, true);
+  assert.equal(app.get('viewer-status-text').textContent, '');
+  assert.equal(app.get('drop-hint').toggles.hidden, true);
+  assert.equal(app.get('viewer-loading').hidden, true);
+});
+
+test('extension without an associated PDF returns to the normal empty state', async () => {
+  const stream = deferred();
+  const app = await setup({ platformId: 'extension', startup: () => stream.promise,
+    chrome: { runtime: { openOptionsPage() {} } } });
+  assert.equal(app.get('viewer-status').hidden, false);
+  stream.resolve(null);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.get('viewer-status').hidden, true);
+  assert.equal(app.get('drop-hint').toggles.hidden, false);
+  assert.equal(app.viewer.openedSources.length, 0);
+});
+
+test('a late startup failure cannot replace a locally opened PDF with an error', async () => {
+  let failStartup;
+  let reportProgress;
+  const pending = new Promise((_resolve, reject) => { failStartup = reject; });
+  const app = await setup({ platformId: 'extension', startup: ({ onProgress }) => { reportProgress = onProgress; return pending; },
+    chrome: { runtime: { openOptionsPage() {} } } });
+  await new Promise(resolve => setImmediate(resolve));
+  const file = new Blob(['%PDF-local']); file.name = 'local.pdf';
+  app.fileInput.files = [file];
+  await app.fileInput.listeners.change();
+  assert.equal(app.get('viewer-status').hidden, true);
+  reportProgress({ loaded: 1, total: 10 });
+  assert.equal(app.get('viewer-loading').hidden, true);
+  failStartup(new Error('old MIME request failed'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.get('viewer-status').hidden, true);
+  assert.equal(app.viewer.name, 'local.pdf');
 });
 
 test('extension local open clears original-pdf fallback state', async () => {
@@ -1986,4 +2297,36 @@ test('extension boot failure with file shows original-pdf button', async () => {
   assert.equal(app.get('btn-original-pdf').hidden, false);
   assert.equal(app.get('btn-extension-options').hidden, false);
   assert.equal(openOptionsPage.length, 0);
+});
+
+
+test('clearing during an answer aborts it and prevents late results from restoring history', async () => {
+  const pending = deferred();
+  let requestSignal;
+  const app = await setup({
+    loadSettings: () => ({ apiKey: 'k', apiBaseUrl: 'https://mock.invalid/v1' }),
+    fetchResponse: async (_url, init) => { requestSignal = init.signal; return pending.promise; },
+  });
+  app.viewer.pdf = {};
+  app.viewer.pageCount = 1;
+  app.viewer.indexedPages = 1;
+  app.viewer.pageTexts = [{ pageNumber: 1, text: 'Alpha Beta' }];
+  const running = app.ask.runAsk('What is Alpha?');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(requestSignal);
+  assert.equal(app.get('ask-stop').hidden, false);
+  app.click('ask-clear');
+  assert.equal(requestSignal.aborted, true);
+  assert.equal(app.ask.askThread.length, 0);
+  assert.equal(app.get('ask-stop').hidden, true);
+  const clearedStatus = app.get('ask-status').textContent;
+  pending.resolve({ ok: true, headers: { get: () => 'application/json' }, json: async () => ({
+    choices: [{ message: { content: 'Late answer' }, finish_reason: 'stop' }],
+  }) });
+  await running;
+  assert.equal(app.ask.askMemory.turns.length, 0);
+  assert.equal(app.ask.askMemory.summary, '');
+  assert.equal(app.ask.askMemory.totalTurns, 0);
+  assert.equal(app.ask.askThread.length, 0);
+  assert.equal(app.get('ask-status').textContent, clearedStatus);
 });

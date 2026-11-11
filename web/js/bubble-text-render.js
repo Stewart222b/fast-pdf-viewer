@@ -40,6 +40,78 @@ function startsBlock(line) {
     Boolean(listItem(line));
 }
 
+function splitTableCells(line) {
+  let value = String(line).trim();
+  if (value.startsWith("|")) value = value.slice(1);
+  if (value.endsWith("|")) value = value.slice(0, -1);
+  return value.split("|").map(cell => cell.trim());
+}
+
+function isTableSeparatorLine(line) {
+  if (!line || !line.includes("-")) return false;
+  const cells = splitTableCells(line);
+  return cells.length > 0 && cells.every(cell => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, "")));
+}
+
+function isTableStart(lines, index) {
+  const row = lines[index];
+  const separator = lines[index + 1];
+  return Boolean(row?.includes("|") && isTableSeparatorLine(separator));
+}
+
+function tableAlign(cell) {
+  const compact = cell.replace(/\s+/g, "");
+  const left = compact.startsWith(":");
+  const right = compact.endsWith(":");
+  if (left && right) return "center";
+  if (right) return "right";
+  return "";
+}
+
+function appendTable(parent, lines, index, options) {
+  const header = splitTableCells(lines[index]);
+  const aligns = splitTableCells(lines[index + 1]).map(tableAlign);
+  index += 2;
+  const rows = [];
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim() || !line.includes("|") || isTableSeparatorLine(line) || listItem(line)) break;
+    rows.push(splitTableCells(line));
+    index += 1;
+  }
+
+  const wrap = document.createElement("div");
+  wrap.className = "md-table";
+  const table = document.createElement("table");
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  header.forEach((cell, column) => {
+    const th = document.createElement("th");
+    if (aligns[column]) th.style.textAlign = aligns[column];
+    appendInlineMarkdown(th, cell, options);
+    headRow.append(th);
+  });
+  head.append(headRow);
+  table.append(head);
+  if (rows.length) {
+    const body = document.createElement("tbody");
+    for (const row of rows) {
+      const tr = document.createElement("tr");
+      for (let column = 0; column < header.length; column += 1) {
+        const td = document.createElement("td");
+        if (aligns[column]) td.style.textAlign = aligns[column];
+        appendInlineMarkdown(td, row[column] || "", options);
+        tr.append(td);
+      }
+      body.append(tr);
+    }
+    table.append(body);
+  }
+  wrap.append(table);
+  parent.append(wrap);
+  return index;
+}
+
 function appendInlineMarkdown(parent, text, { renderReference } = {}) {
   const pattern = /\[[^\]\n]+\]\(pdf:\d+\)|\[\[p\d+\]\]|\*\*[^*\n]+?\*\*|\*[^*\n]+?\*|`[^`\n]+`/g;
   let offset = 0;
@@ -138,9 +210,14 @@ export function renderMarkdown(el, text, options = {}) {
       continue;
     }
 
+    if (isTableStart(lines, index)) {
+      index = appendTable(el, lines, index, options);
+      continue;
+    }
+
     const paragraphLines = [line.trim()];
     index += 1;
-    while (index < lines.length && lines[index].trim() && !startsBlock(lines[index])) {
+    while (index < lines.length && lines[index].trim() && !startsBlock(lines[index]) && !isTableStart(lines, index)) {
       paragraphLines.push(lines[index].trim());
       index += 1;
     }

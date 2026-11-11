@@ -138,7 +138,41 @@ async function openLegacyUrl(state) {
   };
 }
 
-async function startup(state) {
+async function readMimeStream(response, onProgress) {
+  const encoding = response.headers?.get?.("Content-Encoding");
+  const size = Number(response.headers?.get?.("Content-Length"));
+  const total = (!encoding || encoding === "identity") && Number.isFinite(size) && size > 0 ? size : 0;
+  onProgress?.({ loaded: 0, total });
+  if (!response.body?.getReader) {
+    const data = new Uint8Array(await response.arrayBuffer());
+    onProgress?.({ loaded: data.length, total: data.length });
+    return data;
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let loaded = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      loaded += value.byteLength;
+      onProgress?.({ loaded, total });
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+  const data = new Uint8Array(loaded);
+  let offset = 0;
+  for (const chunk of chunks) { data.set(chunk, offset); offset += chunk.byteLength; }
+  onProgress?.({ loaded, total: loaded });
+  return data;
+}
+
+async function startup(state, { onProgress } = {}) {
   if (!isExtensionContext(state.chrome, state.location)) return null;
 
   if (typeof state.chrome.mimeHandler?.getStreamInfo === "function") {
@@ -156,7 +190,8 @@ async function startup(state) {
     if (response.ok === false) {
       throw extensionError("extensionMimeReadFailed", { status: response.status });
     }
-    const buffer = await response.arrayBuffer();
+    const data = await readMimeStream(response, onProgress);
+    onProgress?.({ phase: "prepare" });
     const originalUrl = info.originalUrl;
     let name = "document.pdf";
     try {
@@ -166,7 +201,7 @@ async function startup(state) {
     }
     await setBrowserTabTitle(state, name);
     return {
-      data: new Uint8Array(buffer),
+      data,
       name,
       path: originalUrl,
       originalUrl,
@@ -210,8 +245,8 @@ export function createExtensionPlatform(options = {}) {
   return {
     id: "extension",
     label: "扩展版",
-    startupOpen() {
-      state.startupPromise ||= startup(state);
+    startupOpen(options) {
+      state.startupPromise ||= startup(state, options);
       return state.startupPromise;
     },
     async pickFile() {

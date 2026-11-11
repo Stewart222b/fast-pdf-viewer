@@ -7,12 +7,15 @@ import {
   readingFingerprint,
   saveReadingPosition,
 } from "./reading-position.js";
-import { askDocument } from "./ask-document.js";
+import { askDocument, clearAskMemory, createAskMemory } from "./ask-document.js";
+import { cacheHitPercent, formatCompactCount } from "./openai-chat.js";
 import { renderThinking } from "./thinking-view.js";
 import { highlightSnippet, searchDocument } from "./search.js";
 import { loadSettings, saveSettings, initSettings } from "./settings.js";
 import { applyDocumentTranslations, getLocale, setLocale, t } from "./i18n.js";
 import { buildDocumentPropertyRows } from "./document-properties.js";
+import { originalPdfBlob, pdfDownloadName, pdfSourceKind } from "./pdf-download.js";
+import { createLoadingProgress } from "./loading-progress.js";
 import { formatExtensionError, requestHostAccess, fallbackToBrowser } from "./platform/extension.js";
 import { wireModelPicker } from "./model-picker.js";
 import {
@@ -376,6 +379,8 @@ let objectUrl = null;
 let nativePdf = null;
 let activeDocument = null;
 let recoverableDocument = null;
+let pdfExportJob = null;
+let pdfExportNoticeTimer = 0;
 let readingNoticeTimer = 0;
 let currentFingerprint = "";
 let positionSaveTimer = 0;
@@ -390,6 +395,17 @@ let askCitationIndex = -1;
 let askAbort = null;
 let askGeneration = 0;
 let askLastQuestion = "";
+const askMemory = createAskMemory();
+let askDocumentId = 0;
+const askThread = [];
+const ASK_LIVE_IDS = [
+  "ask-reading-wrap", "ask-reading-log", "ask-thinking-wrap", "ask-thinking",
+  "ask-thinking-status", "ask-thinking-preview", "ask-answer",
+];
+let askMeterState = null;
+let askMeterOpen = false;
+let askMoreOpen = false;
+let askCopyTimer = 0;
 let outlineTitles = [];
 let outlineEntries = [];
 
@@ -428,7 +444,64 @@ function syncOriginalPdfButton() {
   $("btn-original-pdf").hidden = !(
     platform.canFallbackToBrowser?.() || nativePdf?.blob || nativePdf?.url || nativePdf?.path
   );
+  syncPdfExportButton();
 }
+
+function syncPdfExportButton() {
+  const button = $("btn-save-pdf");
+  const ready = Boolean(viewer.pdf && activeDocument);
+  const busy = Boolean(pdfExportJob && pdfExportJob.pdf === viewer.pdf);
+  const label = t(activeDocument?.sourceKind === "local" ? "savePdfCopy" : "downloadPdf");
+  button.hidden = !ready;
+  button.disabled = !ready || busy;
+  button.title = `${busy ? t("exportingPdf") : label} (${shortcutChord("S")})`;
+  button.setAttribute("aria-label", button.title);
+  button.setAttribute("aria-busy", String(busy));
+  $("pdf-save-icon").setAttribute("href", activeDocument?.sourceKind === "local" ? "#i-save" : "#i-download");
+}
+
+function clearPdfExportNotice() {
+  clearTimeout(pdfExportNoticeTimer);
+  $("pdf-export-notice").hidden = true;
+  $("pdf-export-notice").textContent = "";
+}
+
+async function saveCurrentPdf() {
+  if (!viewer.pdf || !activeDocument || pdfExportJob?.pdf === viewer.pdf) return;
+  const job = { pdf: viewer.pdf, generation: openGeneration };
+  const blob = nativePdf?.blob;
+  const filename = pdfDownloadName(activeDocument.name);
+  pdfExportJob = job;
+  clearPdfExportNotice();
+  syncPdfExportButton();
+  try {
+    const original = await originalPdfBlob(job.pdf, blob);
+    if (job.generation !== openGeneration || job.pdf !== viewer.pdf) return;
+    const url = URL.createObjectURL(original);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.hidden = true;
+    document.body.appendChild(link);
+    try { link.click(); }
+    finally {
+      link.remove();
+      // Let the browser consume the Blob before releasing it.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }
+  } catch (error) {
+    if (job.generation !== openGeneration || job.pdf !== viewer.pdf) return;
+    const notice = $("pdf-export-notice");
+    notice.textContent = t("pdfExportFailed", { message: localizedErrorMessage(error) });
+    notice.hidden = false;
+    pdfExportNoticeTimer = setTimeout(clearPdfExportNotice, 8_000);
+  } finally {
+    if (pdfExportJob === job) pdfExportJob = null;
+    syncPdfExportButton();
+  }
+}
+
+$("btn-save-pdf").addEventListener("click", () => { void saveCurrentPdf(); });
 
 function nativePdfFromSource(source, recoveryBlob) {
   const next = {};
@@ -487,10 +560,11 @@ function syncToolbar(state) {
   $("btn-doc-title-menu").setAttribute("aria-label", documentTitle);
   if (!docTitlePopover.hidden) fillDocTitlePopover();
   repositionDocTitlePopover();
-  $("drop-hint").classList.toggle("hidden", hasDoc);
+  $("drop-hint").classList.toggle("hidden", hasDoc || !$("viewer-status").hidden);
   // The central empty state owns the primary open action until a document exists.
   $("btn-open").hidden = !hasDoc;
   $("btn-doc-properties").hidden = !hasDoc;
+  syncPdfExportButton();
   syncZoom(viewer.pinch ? viewer.pinch.target * 100 : state.zoom);
   $("btn-back").disabled = !history.canBack();
   $("btn-forward").disabled = !history.canForward();
@@ -607,6 +681,10 @@ function collapseAllOutlineNodes() {
 
 /** @type {{ key?: string, values?: Record<string, unknown>, error?: Error } | null} */
 let viewerStatusDescriptor = null;
+const pdfLoadingProgress = createLoadingProgress({
+  wrap: $("viewer-loading"), track: $("viewer-loading-track"),
+  fill: $("viewer-loading-fill"), detail: $("viewer-loading-detail"),
+}, { translate: t, locale: getLocale });
 
 function localizedErrorMessage(error) {
   return formatExtensionError(error, t) || error?.message || String(error ?? "");
@@ -630,9 +708,13 @@ function showViewerStatus(text, { action = false, descriptor = null } = {}) {
   const btn = $("viewer-status-action");
   if (btn) btn.hidden = !action;
   box.hidden = false;
+  if (descriptor?.key === "opening") pdfLoadingProgress.start();
+  else pdfLoadingProgress.stop();
+  $("drop-hint").classList.toggle("hidden", true);
 }
 
 function hideViewerStatus() {
+  pdfLoadingProgress.stop();
   const box = $("viewer-status");
   if (box) box.hidden = true;
   const text = $("viewer-status-text");
@@ -642,9 +724,11 @@ function hideViewerStatus() {
   const restore = $("viewer-status-restore");
   if (restore) restore.hidden = true;
   viewerStatusDescriptor = null;
+  $("drop-hint").classList.toggle("hidden", Boolean(viewer.pdf));
 }
 
 function refreshViewerStatus() {
+  pdfLoadingProgress.refresh();
   const box = $("viewer-status");
   if (!box || box.hidden || !viewerStatusDescriptor) return;
   const text = viewerStatusText();
@@ -689,6 +773,7 @@ async function openSource(getSource, { restore = null } = {}) {
     recoverableDocument = { ...activeDocument, state: viewer.getState() };
   }
   activeDocument = null;
+  clearPdfExportNotice();
   hideReadingNotice();
   $("viewer-status-restore").hidden = true;
   clearTimeout(indexRefreshTimer);
@@ -696,7 +781,10 @@ async function openSource(getSource, { restore = null } = {}) {
   clearTimeout(searchTimer);
   cancelTranslate();
   cancelAsk();
+  clearAskMemory(askMemory);
+  askDocumentId += 1;
   clearAskUi({ keepQuestion: false });
+  syncAskMore();
   viewer.close();
   if (objectUrl) URL.revokeObjectURL(objectUrl);
   objectUrl = null;
@@ -730,7 +818,10 @@ async function openSource(getSource, { restore = null } = {}) {
       objectUrl = URL.createObjectURL(recoveryBlob);
       return { ...source, data: undefined, url: objectUrl };
     } : getSource;
-    const opened = await viewer.open(source);
+    if (source.data) pdfLoadingProgress.update({ phase: "prepare" });
+    const opened = await viewer.open(source, {
+      onProgress: event => { if (request === openGeneration) pdfLoadingProgress.update(event); },
+    });
     if (request !== openGeneration) return false;
     if (!opened) {
       // Closed mid-open without a newer open taking over the chrome.
@@ -742,7 +833,8 @@ async function openSource(getSource, { restore = null } = {}) {
     hideViewerStatus();
     currentFingerprint = fingerprint;
     nativePdf = restore?.nativePdf || nativePdfFromSource(source, recoveryBlob);
-    activeDocument = { getSource: reopen, fingerprint, name: source.name, nativePdf };
+    activeDocument = { getSource: reopen, fingerprint, name: source.name, nativePdf,
+      sourceKind: restore?.sourceKind || pdfSourceKind(source) };
     syncOriginalPdfButton();
     const saved = restore?.state || loadReadingPosition(currentFingerprint, source);
     if (saved) {
@@ -784,6 +876,7 @@ async function openFile(file) {
       name: file.name,
       size: file.size,
       lastModified: file.lastModified,
+      sourceKind: "local",
     };
   });
   if (opened) {
@@ -804,6 +897,8 @@ async function openFromPlatform(meta) {
     name: meta.name,
     id: meta.id,
     path: meta.path,
+    originalUrl: meta.originalUrl,
+    sourceKind: meta.sourceKind,
   }));
 }
 
@@ -1249,6 +1344,7 @@ function syncPaneVisibility() {
   $("rail-tab-ask")?.setAttribute("aria-selected", String(railMode === "ask"));
   $("rail-tab-search")?.classList.toggle("active", railMode === "search");
   $("rail-tab-ask")?.classList.toggle("active", railMode === "ask");
+  syncAskMore();
 }
 
 function selectSidebar(name) {
@@ -1374,6 +1470,228 @@ applyDualRailLayout(isDualRail());
 function cancelAsk() {
   askAbort?.abort();
   askAbort = null;
+  syncAskSend();
+}
+
+function isAskPaneActive() {
+  return dualRailActive
+    ? !isRailCollapsed() && railMode === "ask"
+    : sidebarMode === "ask" && !isSidebarCollapsed();
+}
+
+function isAskMoreOpen() {
+  return askMoreOpen && Boolean($("ask-more-menu")) && !$("ask-more-menu").hidden;
+}
+
+function isAskMoreTarget(node) {
+  return Boolean(node && ($("ask-more")?.contains(node) || $("ask-more-menu")?.contains(node)));
+}
+
+function placeAskMoreMenu() {
+  const button = $("btn-ask-more");
+  const menu = $("ask-more-menu");
+  if (!button || !menu || menu.hidden) return;
+  const rect = button.getBoundingClientRect();
+  const width = Math.min(240, Math.max(168, menu.offsetWidth || 168));
+  const left = Math.min(Math.max(8, rect.left), window.innerWidth - width - 8);
+  menu.style.left = `${left}px`;
+  menu.style.top = "auto";
+  menu.style.maxHeight = `${Math.max(96, rect.top - 14)}px`;
+  menu.style.right = "auto";
+  menu.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 6)}px`;
+}
+
+function setAskMoreOpen(open) {
+  const host = $("ask-more");
+  const button = $("btn-ask-more");
+  const menu = $("ask-more-menu");
+  if (!host || !button || !menu) {
+    askMoreOpen = false;
+    return;
+  }
+  const show = open === true && !host.hidden;
+  askMoreOpen = show;
+  menu.hidden = !show;
+  button.setAttribute("aria-expanded", String(show));
+  if (show) {
+    document.body?.appendChild(menu);
+    placeAskMoreMenu();
+    return;
+  }
+  if (menu.parentElement !== host) host.appendChild(menu);
+  menu.style.left = "";
+  menu.style.top = "";
+  menu.style.right = "";
+  menu.style.bottom = "";
+  menu.style.maxHeight = "";
+}
+
+function syncAskMore() {
+  const more = $("ask-more");
+  if (!more) return;
+  more.hidden = !(isAskPaneActive() && (askMemory.turns.length > 0 || askThread.length > 0));
+  if (more.hidden) setAskMoreOpen(false);
+}
+
+function syncAskPlaceholder() {
+  const el = document.querySelector?.(".ask-input-placeholder");
+  if (!el) return;
+  const key = askThread.length ? "askFollowUp" : "askPrompt";
+  el.setAttribute("data-i18n", key);
+  el.textContent = t(key);
+}
+
+function setAskTurnActions(root, { copy = false, retry = false, setup = false } = {}) {
+  const actions = root?.querySelector?.(".ask-turn-actions");
+  if (!actions) return;
+  const copyBtn = actions.querySelector(".ask-copy");
+  const retryBtn = actions.querySelector(".ask-retry");
+  const setupBtn = actions.querySelector(".ask-setup");
+  if (copyBtn) copyBtn.hidden = !copy;
+  if (retryBtn) retryBtn.hidden = !retry;
+  if (setupBtn) setupBtn.hidden = !setup;
+  actions.hidden = !copy && !retry && !setup;
+}
+
+function applyAskTurnI18n(root) {
+  if (!root?.querySelectorAll) return;
+  for (const el of root.querySelectorAll("[data-i18n]")) {
+    el.textContent = t(el.getAttribute("data-i18n"));
+  }
+  for (const el of root.querySelectorAll("[data-i18n-title]")) {
+    el.title = t(el.getAttribute("data-i18n-title"));
+  }
+  for (const el of root.querySelectorAll("[data-i18n-aria]")) {
+    el.setAttribute("aria-label", t(el.getAttribute("data-i18n-aria")));
+  }
+}
+
+async function copyAskAnswer(root) {
+  const button = root?.querySelector?.(".ask-copy");
+  const text = readBubblePlainText(root?.querySelector?.(".ask-answer"));
+  if (!text) {
+    setAskStatus(t("nothingToCopy"), { error: true });
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    if (button) {
+      button.dataset.copyState = "success";
+      button.title = t("copied");
+      clearTimeout(askCopyTimer);
+      askCopyTimer = setTimeout(() => {
+        button.dataset.copyState = "idle";
+        button.title = t("askCopy");
+      }, 1500);
+    }
+  } catch {
+    setAskStatus(t("copyFailureAnnouncement"), { error: true });
+  }
+}
+
+function syncAskSend() {
+  const submit = $("ask-submit");
+  const stop = $("ask-stop");
+  const busy = Boolean(askAbort);
+  const empty = !String($("ask-input")?.value || "").trim();
+  if (submit) {
+    submit.hidden = busy;
+    submit.disabled = busy || empty;
+  }
+  if (stop) stop.hidden = !busy;
+}
+
+function syncAskInputSize() {
+  const input = $("ask-input");
+  if (!input?.style) return;
+  input.closest?.(".ask-input-wrap")?.classList.toggle("is-filled", Boolean(String(input.value || "")));
+  input.style.height = "auto";
+  const cap = Number.parseFloat(globalThis.getComputedStyle?.(input)?.maxHeight) || 160;
+  const scroll = Number(input.scrollHeight) || 0;
+  const next = scroll ? Math.min(scroll, cap) : 0;
+  input.style.height = next ? `${next}px` : "";
+  input.style.overflowY = scroll > cap ? "auto" : "hidden";
+}
+
+function clearAskSession() {
+  cancelAsk();
+  askGeneration += 1;
+  askHits = [];
+  askCitationIndex = -1;
+  askLastQuestion = "";
+  viewer.clearHits();
+  clearAskMemory(askMemory);
+  resetAskThread();
+  hideAskMeter();
+  setAskMoreOpen(false);
+  syncAskMore();
+  syncAskPlaceholder();
+  setAskStatus(t("askCleared"));
+}
+
+function releaseAskLiveIds() {
+  $("ask-answer")?.classList.remove("is-streaming");
+  for (const id of ASK_LIVE_IDS) {
+    document.getElementById(id)?.removeAttribute("id");
+  }
+}
+
+function createAskTurnNode(question) {
+  const source = $("ask-turn-template")?.content?.firstElementChild;
+  const root = source
+    ? source.cloneNode(true)
+    : Object.assign(document.createElement("article"), { className: "ask-turn" });
+  if (!source) {
+    root.innerHTML = `<p class="ask-turn-question"></p>
+      <details id="ask-reading-wrap" class="ask-reading" hidden><summary></summary><ol id="ask-reading-log"></ol></details>
+      <details id="ask-thinking-wrap" class="thinking-fold" hidden><summary><span></span><span id="ask-thinking-status" class="thinking-state"></span><span id="ask-thinking-preview" class="thinking-preview"></span></summary><pre id="ask-thinking" class="thinking-body"></pre></details>
+      <div class="ask-answer-label"></div>
+      <div id="ask-answer" class="ask-answer" dir="auto"></div>
+      <div class="ask-turn-actions" hidden>
+        <button class="ask-icon-btn ask-copy" type="button"></button>
+        <button class="ask-icon-btn ask-retry" type="button"></button>
+        <button class="btn toolbar-ghost tiny ask-setup" type="button" hidden></button>
+      </div>`;
+    const summary = root.querySelector(".ask-reading summary");
+    if (summary) summary.textContent = t("askReadingLog");
+    const think = root.querySelector(".thinking-fold summary span");
+    if (think) think.textContent = t("thinkingProcess");
+    const answerLabel = root.querySelector(".ask-answer-label");
+    if (answerLabel) answerLabel.textContent = t("askAnswer");
+  }
+  const questionEl = root.querySelector(".ask-turn-question");
+  if (questionEl) questionEl.textContent = question;
+  applyAskTurnI18n(root);
+  setAskTurnActions(root);
+  return root;
+}
+
+function resetAskThread() {
+  askThread.length = 0;
+  $("ask-turns")?.replaceChildren();
+  if ($("ask-empty")) $("ask-empty").hidden = false;
+  syncAskPlaceholder();
+  syncAskMore();
+}
+
+function scrollAskThread(force = false) {
+  const thread = $("ask-thread");
+  if (!thread) return;
+  const remaining = thread.scrollHeight - thread.scrollTop - thread.clientHeight;
+  if (force || remaining < 96) thread.scrollTop = thread.scrollHeight;
+}
+
+function startAskTurn(question) {
+  if ($("ask-empty")) $("ask-empty").hidden = true;
+  releaseAskLiveIds();
+  const root = createAskTurnNode(question);
+  $("ask-turns")?.appendChild(root);
+  const turn = { question, root, hits: [] };
+  askThread.push(turn);
+  syncAskPlaceholder();
+  syncAskMore();
+  scrollAskThread(true);
+  return turn;
 }
 
 function setAskStatus(message, { error = false } = {}) {
@@ -1388,6 +1706,123 @@ function setAskStatus(message, { error = false } = {}) {
   status.hidden = false;
   status.textContent = message;
   status.classList.toggle("is-error", error);
+}
+
+function formatExactCount(value) {
+  const n = Math.max(0, Math.round(Number(value) || 0));
+  try {
+    return new Intl.NumberFormat(getLocale()).format(n);
+  } catch {
+    return String(n);
+  }
+}
+
+function hideAskMeter() {
+  askMeterState = null;
+  setAskMeterOpen(false);
+  const meter = $("ask-meter");
+  if (!meter) return;
+  meter.hidden = true;
+  const summary = $("ask-meter-summary");
+  const summaryText = $("ask-meter-summary-text");
+  if (summaryText) summaryText.textContent = "";
+  else if (summary) summary.textContent = "";
+  if (summary) summary.setAttribute("aria-expanded", "false");
+  if ($("ask-meter-head-value")) $("ask-meter-head-value").textContent = "";
+  $("ask-meter-rows")?.replaceChildren();
+}
+
+function isAskMeterOpen() {
+  return askMeterOpen;
+}
+
+function isAskMeterTarget(node) {
+  return Boolean(node && ($("ask-meter")?.contains(node) || $("ask-meter-detail")?.contains(node)));
+}
+
+function setAskMeterOpen(open) {
+  const meter = $("ask-meter");
+  const button = $("ask-meter-summary");
+  const detail = $("ask-meter-detail");
+  if (!meter || !button || !detail) {
+    askMeterOpen = false;
+    return;
+  }
+  const show = open === true && !meter.hidden;
+  askMeterOpen = show;
+  detail.hidden = !show;
+  button.setAttribute("aria-expanded", String(show));
+  if (show) {
+    document.body?.appendChild(detail);
+    placeAskMeterPopover();
+    return;
+  }
+  if (detail.parentElement !== meter) meter.appendChild(detail);
+  detail.style.width = "";
+  detail.style.left = "";
+  detail.style.right = "";
+  detail.style.top = "";
+  detail.style.bottom = "";
+  detail.style.maxHeight = "";
+}
+
+function placeAskMeterPopover() {
+  const button = $("ask-meter-summary");
+  const detail = $("ask-meter-detail");
+  const pane = $("ask-pane");
+  if (!button || !detail || detail.hidden) return;
+  const trigger = button.getBoundingClientRect();
+  const paneRect = pane?.getBoundingClientRect();
+  const width = Math.min(300, Math.max(248, (paneRect?.width || 280) - 24), Math.max(200, window.innerWidth - 16));
+  const leftMin = (paneRect?.left ?? 8) + 8;
+  const leftMax = (paneRect?.right ?? window.innerWidth - 8) - 8 - width;
+  const left = Math.min(Math.max(leftMin, trigger.left), Math.max(leftMin, leftMax));
+  detail.style.width = `${width}px`;
+  detail.style.left = `${left}px`;
+  detail.style.right = "auto";
+  detail.style.top = "auto";
+  detail.style.maxHeight = `${Math.max(96, trigger.top - 14)}px`;
+  detail.style.bottom = `${Math.max(8, window.innerHeight - trigger.top + 6)}px`;
+}
+
+function renderAskMeter(usage, { remembered = 0 } = {}) {
+  const meter = $("ask-meter");
+  const summary = $("ask-meter-summary");
+  const detail = $("ask-meter-detail");
+  const rowsEl = $("ask-meter-rows") || detail;
+  if (!meter || !summary || !detail || !rowsEl) return;
+  const prompt = Math.max(0, Number(usage?.promptTokens) || 0);
+  const cached = Math.min(Math.max(0, Number(usage?.cachedTokens) || 0), prompt);
+  const output = Math.max(0, Number(usage?.completionTokens) || 0);
+  if (!prompt && !output) {
+    hideAskMeter();
+    return;
+  }
+  askMeterState = { promptTokens: prompt, cachedTokens: cached, completionTokens: output, remembered };
+  const total = prompt + output;
+  const percent = cacheHitPercent(prompt, cached);
+  const summaryText = $("ask-meter-summary-text") || summary;
+  summaryText.textContent = t("askMeterSummary", { tokens: formatCompactCount(total), percent });
+  summary.title = t("askMeterHint");
+  if ($("ask-meter-head-label")) $("ask-meter-head-label").textContent = t("askMeterTokens");
+  if ($("ask-meter-head-value")) $("ask-meter-head-value").textContent = t("askMeterTok", { count: formatExactCount(total) });
+  const rows = [
+    [t("askMeterCacheHit"), `${percent}%`],
+    [t("askMeterUncached"), t("askMeterTok", { count: formatExactCount(Math.max(0, prompt - cached)) })],
+    [t("askMeterCached"), t("askMeterTok", { count: formatExactCount(cached) })],
+    [t("askMeterOutput"), t("askMeterTok", { count: formatExactCount(output) })],
+  ];
+  if (remembered) rows.push([t("askMeterRemembered"), t("askMeterTurns", { count: remembered })]);
+  rowsEl.replaceChildren();
+  for (const [label, value] of rows) {
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = value;
+    rowsEl.append(dt, dd);
+  }
+  meter.hidden = false;
+  if (isAskMeterOpen()) placeAskMeterPopover();
 }
 
 function setThinkingFold(wrapId, bodyId, text, enabled, streaming = false) {
@@ -1405,21 +1840,10 @@ function clearAskUi({ keepQuestion = true } = {}) {
     if ($("ask-input")) $("ask-input").value = "";
   }
   setAskStatus("");
-  $("ask-empty").hidden = false;
-  $("ask-result").hidden = true;
-  $("ask-answer").textContent = "";
-  $("ask-answer").classList.remove("is-streaming");
-  setThinkingFold("ask-thinking-wrap", "ask-thinking", "", false);
-  $("ask-citations").replaceChildren();
-  $("ask-citations-wrap").hidden = true;
-  $("ask-citations-wrap").open = false;
-  $("ask-result-actions").hidden = true;
-  $("ask-retry").hidden = true;
-  $("ask-setup").hidden = true;
-  $("ask-stop").hidden = true;
-  $("ask-submit").disabled = false;
-  $("ask-reading-log").replaceChildren();
-  $("ask-reading-wrap").hidden = true;
+  hideAskMeter();
+  resetAskThread();
+  syncAskSend();
+  syncAskInputSize();
 }
 
 function recordAskProgress(event) {
@@ -1430,14 +1854,16 @@ function recordAskProgress(event) {
     full: () => t("askFullStep", { count: event.pages.length }),
     retrieval: () => t("askInitialStep", { pages: event.pages.join(", ") }),
     compatibility: () => t("askCompatibility"),
+    compact: () => t("askCompacting"),
   };
   const text = labels[event.type]?.();
   if (!text) return;
   const row = document.createElement("li");
   row.textContent = text;
-  $("ask-reading-log").appendChild(row);
-  $("ask-reading-wrap").hidden = false;
+  $("ask-reading-log")?.appendChild(row);
+  if ($("ask-reading-wrap")) $("ask-reading-wrap").hidden = false;
   setAskStatus(text);
+  scrollAskThread();
 }
 
 async function waitForAskIndex(signal) {
@@ -1455,37 +1881,10 @@ async function waitForAskIndex(signal) {
   }
 }
 
-function renderAskCitations(hits) {
-  askHits = hits;
-  const list = $("ask-citations");
-  const wrap = $("ask-citations-wrap");
-  list.replaceChildren();
-  if (!hits.length) {
-    wrap.hidden = true;
-    return;
-  }
-  wrap.hidden = false;
-  hits.forEach((hit, index) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = `search-hit${index === askCitationIndex ? " active" : ""}`;
-    const snippet = hit.snippet || hit.quote || t("pageDescription", { page: hit.pageNumber });
-    btn.innerHTML = `<div class="meta">${t("pageDescription", { page: hit.pageNumber })}</div>
-      <div class="snippet">${highlightSnippet(snippet, hit.quote || "")}</div>`;
-    btn.addEventListener("click", async () => {
-      try {
-        await jumpToAskCitation(index);
-        renderAskCitations(askHits);
-      } catch (error) {
-        setAskStatus(t("locateFailed", { message: error.message || error }), { error: true });
-      }
-    });
-    list.appendChild(btn);
-  });
-}
-
-function renderAskAnswer(text, hits = []) {
-  renderMarkdown($("ask-answer"), text, { renderReference({ pageNumber, label }) {
+function renderAskAnswer(text, hits = [], root) {
+  const target = root?.querySelector(".ask-answer") || $("ask-answer");
+  if (!target) return;
+  renderMarkdown(target, text, { renderReference({ pageNumber, label }) {
     const index = hits.findIndex(hit => (hit.sourcePageNumber || hit.pageNumber) === pageNumber);
     if (index < 0) return document.createTextNode(label);
     const hit = hits[index];
@@ -1496,8 +1895,7 @@ function renderAskAnswer(text, hits = []) {
     button.title = t(hit.kind === "quote" ? "askJumpQuote" : "askJumpPage", { page: hit.pageNumber });
     button.addEventListener("click", async () => {
       try {
-        await jumpToAskCitation(index);
-        renderAskCitations(askHits);
+        await jumpToAskCitation(index, hits);
       } catch (error) {
         setAskStatus(t("locateFailed", { message: error.message || error }), { error: true });
       }
@@ -1506,9 +1904,10 @@ function renderAskAnswer(text, hits = []) {
   } });
 }
 
-async function jumpToAskCitation(index) {
-  const hit = askHits[index];
+async function jumpToAskCitation(index, hits = askHits) {
+  const hit = hits[index];
   if (!hit) return;
+  askHits = hits;
   askCitationIndex = index;
   if (hit.kind === "quote" && hit.length > 0) {
     await viewer.showHits(askHits, hit.quote || " ", index, {
@@ -1532,29 +1931,21 @@ async function runAsk(question = $("ask-input")?.value || "") {
     return;
   }
   askLastQuestion = trimmed;
-  if ($("ask-input")) $("ask-input").value = trimmed;
+  if ($("ask-input")) $("ask-input").value = "";
+  syncAskInputSize();
   cancelAsk();
   const request = ++askGeneration;
   const controller = new AbortController();
   askAbort = controller;
   askHits = [];
   askCitationIndex = -1;
-  $("ask-empty").hidden = true;
-  $("ask-result").hidden = false;
-  $("ask-answer").textContent = "";
-  $("ask-answer").classList.add("is-streaming");
+  const turn = startAskTurn(trimmed);
+  $("ask-answer")?.classList.add("is-streaming");
   setThinkingFold("ask-thinking-wrap", "ask-thinking", "", false);
-  $("ask-citations").replaceChildren();
-  $("ask-citations-wrap").hidden = true;
-  $("ask-citations-wrap").open = false;
-  $("ask-result-actions").hidden = true;
-  $("ask-retry").hidden = true;
-  $("ask-setup").hidden = true;
-  $("ask-stop").hidden = false;
-  $("ask-submit").disabled = true;
+  setAskTurnActions(turn.root);
+  syncAskSend();
+  hideAskMeter();
   setAskStatus(t("askAnswering"));
-  $("ask-reading-log").replaceChildren();
-  $("ask-reading-wrap").hidden = true;
 
   try {
     if (viewer.indexedPages < viewer.pageCount) setAskStatus(t("askIndexing", { current: viewer.indexedPages, total: viewer.pageCount }));
@@ -1569,19 +1960,22 @@ async function runAsk(question = $("ask-input")?.value || "") {
       settings: loadSettings(),
       signal: controller.signal,
       pageCount: viewer.pageCount,
+      memory: askMemory,
+      documentId: String(askDocumentId || viewer.name || "document"),
       readPageImage: (page, signal) => viewer.getPageImage(page, signal),
       onProgress: event => { if (request === askGeneration) recordAskProgress(event); },
       onDelta: (preview, _raw, extras) => {
         if (request !== askGeneration) return;
-        renderAskAnswer(preview);
+        renderAskAnswer(preview, [], turn.root);
         setThinkingFold("ask-thinking-wrap", "ask-thinking", extras?.reasoning, loadSettings().showThinking === true, true);
+        scrollAskThread();
       },
     });
     if (request !== askGeneration) return;
-    $("ask-answer").classList.remove("is-streaming");
-    renderAskAnswer(result.answer, result.hits);
+    $("ask-answer")?.classList.remove("is-streaming");
+    turn.hits = result.hits;
+    renderAskAnswer(result.answer, result.hits, turn.root);
     setThinkingFold("ask-thinking-wrap", "ask-thinking", result.reasoning, loadSettings().showThinking === true);
-    renderAskCitations(result.hits);
     const notes = [];
     if (result.scope?.chapter) {
       notes.push(t("askChapterNote", {
@@ -1591,34 +1985,32 @@ async function runAsk(question = $("ask-input")?.value || "") {
       }));
     }
     notes.push(result.mode === "full" ? t("askFullStep", { count: result.readPages.length })
-      : t("askCoverage", { searches: result.searches.length, pages: result.readPages.join(", ") }));
+      : t("askCoverageShort", { searches: result.searches.length, count: result.readPages.length }));
     if (result.budgetReached) notes.push(t("askBudgetReached"));
     if (viewer.indexedPages < viewer.pageCount) {
       notes.push(t("askIndexing", { current: viewer.indexedPages, total: viewer.pageCount }));
     }
+    renderAskMeter(result.usage, { remembered: askMemory.totalTurns });
     setAskStatus(notes.join(" · "));
-    $("ask-result-actions").hidden = false;
-    $("ask-retry").hidden = false;
+    syncAskMore();
+    setAskTurnActions(turn.root, { copy: true, retry: true });
+    scrollAskThread(true);
   } catch (error) {
     if (request !== askGeneration) return;
-    $("ask-answer").classList.remove("is-streaming");
+    $("ask-answer")?.classList.remove("is-streaming");
     const message = error?.message || String(error);
     const missingKey = /API Key|api key/i.test(message) || message === t("apiKeyRequired");
-    if (!$("ask-answer").textContent.trim()) {
-      $("ask-empty").hidden = true;
-      $("ask-result").hidden = false;
-      $("ask-answer").textContent = "";
+    if ($("ask-input") && !controller.signal.aborted) {
+      $("ask-input").value = trimmed;
+      syncAskInputSize();
     }
     setAskStatus(controller.signal.aborted ? t("askCancelled") : missingKey ? t("apiKeyRequired") : t("askFailed", { message }), { error: !controller.signal.aborted });
-    $("ask-result-actions").hidden = false;
-    $("ask-retry").hidden = missingKey;
-    $("ask-setup").hidden = !missingKey;
+    setAskTurnActions(turn.root, { retry: !missingKey, setup: missingKey });
   } finally {
     if (request === askGeneration) {
-      setThinkingFold("ask-thinking-wrap", "ask-thinking", $("ask-thinking").textContent, loadSettings().showThinking === true);
+      setThinkingFold("ask-thinking-wrap", "ask-thinking", $("ask-thinking")?.textContent, loadSettings().showThinking === true);
       askAbort = null;
-      $("ask-stop").hidden = true;
-      $("ask-submit").disabled = false;
+      syncAskSend();
     }
   }
 }
@@ -1931,24 +2323,75 @@ $("rail-tab-ask")?.addEventListener("click", () => {
   openAsk();
 });
 $("btn-rail-close")?.addEventListener("click", () => setRailCollapsed(true));
+function keepAskInputFocus(event) {
+  event.preventDefault();
+  $("ask-input")?.focus({ preventScroll: true });
+}
+$("ask-submit")?.addEventListener("mousedown", keepAskInputFocus);
+$("ask-stop")?.addEventListener("mousedown", keepAskInputFocus);
 $("ask-submit")?.addEventListener("click", () => {
   runAsk();
 });
 $("ask-stop")?.addEventListener("click", () => {
   cancelAsk();
 });
-$("ask-retry")?.addEventListener("click", () => {
-  runAsk(askLastQuestion || $("ask-input")?.value || "");
+$("btn-ask-more")?.addEventListener("click", () => {
+  setAskMoreOpen(!isAskMoreOpen());
 });
-$("ask-setup")?.addEventListener("click", () => {
-  openSettings();
+$("ask-clear")?.addEventListener("click", () => {
+  setAskMoreOpen(false);
+  clearAskSession();
 });
+syncAskMore();
+$("ask-turns")?.addEventListener("click", event => {
+  const turn = event.target.closest?.(".ask-turn");
+  if (!turn) return;
+  if (event.target.closest(".ask-copy")) {
+    copyAskAnswer(turn);
+    return;
+  }
+  if (event.target.closest(".ask-retry")) {
+    const question = turn.querySelector(".ask-turn-question")?.textContent || askLastQuestion;
+    runAsk(question);
+    return;
+  }
+  if (event.target.closest(".ask-setup")) openSettings();
+});
+$("ask-meter-summary")?.addEventListener("click", () => {
+  setAskMeterOpen(!isAskMeterOpen());
+});
+document.addEventListener("pointerdown", event => {
+  if (!isAskMeterTarget(event.target)) setAskMeterOpen(false);
+  if (!isAskMoreTarget(event.target)) setAskMoreOpen(false);
+});
+$("ask-thread")?.addEventListener("scroll", () => {
+  setAskMeterOpen(false);
+  setAskMoreOpen(false);
+}, { passive: true });
+window.addEventListener("resize", () => {
+  if (isAskMeterOpen()) placeAskMeterPopover();
+  if (isAskMoreOpen()) placeAskMoreMenu();
+});
+$("ask-input")?.addEventListener("input", () => {
+  syncAskSend();
+  syncAskInputSize();
+});
+syncAskSend();
+syncAskInputSize();
 $("ask-input")?.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
     runAsk();
   } else if (event.key === "Escape") {
     event.preventDefault();
+    if (isAskMoreOpen()) {
+      setAskMoreOpen(false);
+      return;
+    }
+    if (isAskMeterOpen()) {
+      setAskMeterOpen(false);
+      return;
+    }
     if (askAbort) cancelAsk();
     else if (dualRailActive) {
       setRailCollapsed(true);
@@ -2198,6 +2641,11 @@ window.addEventListener("keydown", (event) => {
   }
   const typing = event.target?.matches?.("input, textarea, select, [contenteditable]") || event.target?.isContentEditable;
   const inReaderChrome = event.target?.closest?.(".toolbar, #sidebar, #zoom-menu, #translate-bubble, #translate-chip");
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && !event.shiftKey && !event.altKey) {
+    event.preventDefault();
+    void saveCurrentPdf();
+    return;
+  }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o") {
     event.preventDefault();
     pickFile();
@@ -2252,6 +2700,16 @@ window.addEventListener("keydown", (event) => {
     }
     if (!$("zoom-menu").hidden) {
       setZoomMenuOpen(false);
+      return;
+    }
+    if (isAskMoreOpen()) {
+      setAskMoreOpen(false);
+      $("btn-ask-more")?.focus();
+      return;
+    }
+    if (isAskMeterOpen()) {
+      setAskMeterOpen(false);
+      $("ask-meter-summary")?.focus();
       return;
     }
     if (dualRailActive && !isRailCollapsed()) {
@@ -3330,6 +3788,7 @@ function applyShortcutLabels() {
   }
   const hint = $("empty-shortcut");
   if (hint) hint.textContent = open;
+  syncPdfExportButton();
 }
 
 function applyInterfaceLanguage(locale) {
@@ -3357,6 +3816,9 @@ function applyInterfaceLanguage(locale) {
     renderSearchList(searchHits, $("search-input").value, undefined, false);
   }
   refreshViewerStatus();
+  if (askMeterState) renderAskMeter(askMeterState, { remembered: askMeterState.remembered });
+  syncAskPlaceholder();
+  syncAskMore();
   if (viewer.pdf || viewerStatusDescriptor?.key === "openFailed") {
     void renderOutline(openGeneration);
   }
@@ -3390,18 +3852,29 @@ async function boot() {
     $("btn-extension-options").addEventListener("click", () => chrome.runtime.openOptionsPage());
   }
   const request = openGeneration;
+  // MIME startup reads the full browser-owned stream before returning a source.
+  // Show feedback during that read, rather than waiting for openSource().
+  const startupOpening = platform.id === "extension";
+  if (startupOpening) showViewerStatus(t("opening"), { descriptor: { key: "opening" } });
   try {
     await initSettings();
+    if (request !== openGeneration) return;
     settings = loadSettings();
     syncBubbleTargetLanguage(settings.targetLang);
     applyInterfaceLanguage(settings.uiLanguage);
-    const startup = await platform.startupOpen();
-    if (startup && request === openGeneration) {
+    const startup = await platform.startupOpen({
+      onProgress: event => { if (request === openGeneration) pdfLoadingProgress.update(event); },
+    });
+    if (request !== openGeneration) return;
+    if (startup) {
       applyTabTitle(startup.name);
       if (platform.canFallbackToBrowser?.()) $("btn-original-pdf").hidden = false;
       await openFromPlatform(startup);
+    } else if (startupOpening) {
+      hideViewerStatus();
     }
   } catch (error) {
+    if (request !== openGeneration) return;
     const message = localizedErrorMessage(error) || t("openDocumentFailed");
     showViewerStatus(message, {
       action: true,

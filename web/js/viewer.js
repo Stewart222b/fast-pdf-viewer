@@ -227,7 +227,7 @@ export class PdfViewer {
     this.wrapEl.scrollLeft = anchor.scrollLeft ?? 0;
   }
 
-  async open(source) {
+  async open(source, { onProgress } = {}) {
     this.close();
     const generation = this.generation;
     this.name = source.name || t("document");
@@ -250,9 +250,15 @@ export class PdfViewer {
         disableStream: true,
       });
       loading.onPassword = (updatePassword, reason) => this.promptPassword(updatePassword, reason);
+      let documentLoaded = false;
+      loading.onProgress = ({ loaded, total }) => {
+        if (generation === this.generation && !documentLoaded) onProgress?.({ loaded, total });
+      };
       this.loadingTask = loading;
       const pdf = await loading.promise;
       if (generation !== this.generation) return null;
+      documentLoaded = true;
+      onProgress?.({ phase: "prepare" });
       this.pdf = pdf;
       this.pageCount = pdf.numPages;
       await this.loadFirstPageSize(pdf, generation);

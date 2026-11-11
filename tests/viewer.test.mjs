@@ -167,10 +167,21 @@ test('history with legacy anchors still compares pixel positions', async () => {
 test('latest open wins when an earlier loading task finishes late', async () => {
   const a = deferred(), b = deferred();
   let destroyed = 0, call = 0;
-  const { viewer } = await setup(() => ({ promise: (++call === 1 ? a : b).promise, destroy() { destroyed++; } }));
-  const openingA = viewer.open({ name: 'A' });
-  const openingB = viewer.open({ name: 'B' });
+  const tasks = [], progressA = [], progressB = [];
+  const { viewer } = await setup(() => {
+    const task = { promise: (++call === 1 ? a : b).promise, destroy() { destroyed++; } };
+    tasks.push(task); return task;
+  });
+  const openingA = viewer.open({ name: 'A' }, { onProgress: event => progressA.push(event) });
+  const openingB = viewer.open({ name: 'B' }, { onProgress: event => progressB.push(event) });
+  tasks[0].onProgress({ loaded: 90, total: 100 });
+  tasks[1].onProgress({ loaded: 25, total: 100 });
+  assert.equal(progressA.length, 0);
+  assert.equal(progressB[0].loaded, 25);
   b.resolve(pdf('B')); await openingB; await viewer.indexPromise;
+  tasks[1].onProgress({ loaded: 100, total: 100 });
+  assert.equal(progressB.length, 2);
+  assert.equal(progressB.at(-1).phase, 'prepare');
   a.resolve(pdf('A')); assert.equal(await openingA, null);
   assert.equal(viewer.name, 'B'); assert.equal(viewer.pageTexts[0].text, 'B');
   assert.equal(destroyed, 1);

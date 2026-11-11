@@ -153,9 +153,55 @@ export function parseSseTranslationChunk(chunk) {
   return deltas;
 }
 
+export function emptyTokenUsage() {
+  return { promptTokens: 0, cachedTokens: 0, completionTokens: 0, requests: 0 };
+}
+
+export function formatCompactCount(value) {
+  const n = Math.max(0, Math.round(Number(value) || 0));
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${Number((n / 1000).toFixed(n >= 100_000 ? 0 : 1))}k`;
+  return `${Number((n / 1_000_000).toFixed(n >= 100_000_000 ? 0 : 1))}M`;
+}
+
+export function cacheHitPercent(promptTokens, cachedTokens) {
+  const prompt = Math.max(0, Number(promptTokens) || 0);
+  const cached = Math.min(Math.max(0, Number(cachedTokens) || 0), prompt);
+  return prompt ? Math.round((cached / prompt) * 100) : 0;
+}
+
+export function extractTokenUsage(payload) {
+  const usage = payload?.usage || {};
+  const prompt = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0) || 0;
+  const completion = Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0;
+  const details = usage.prompt_tokens_details || usage.input_tokens_details || {};
+  const cached = Number(
+    details.cached_tokens
+    ?? usage.prompt_cache_hit_tokens
+    ?? usage.cached_tokens
+    ?? 0,
+  ) || 0;
+  return {
+    promptTokens: prompt,
+    cachedTokens: prompt ? Math.min(cached, prompt) : cached,
+    completionTokens: completion,
+    requests: prompt || cached || completion ? 1 : 0,
+  };
+}
+
+export function addTokenUsage(total, piece) {
+  const next = total || emptyTokenUsage();
+  if (!piece) return next;
+  next.promptTokens += piece.promptTokens || 0;
+  next.cachedTokens += piece.cachedTokens || 0;
+  next.completionTokens += piece.completionTokens || 0;
+  next.requests += piece.requests || 0;
+  return next;
+}
+
 function createSseState(onDelta, allowTools = false) {
-  return { dataLines: [], completed: false, translated: "", reasoning: "", onDelta,
-    allowTools, toolCalls: [], reasoningContent: false, reasoningDetails: [] };
+  return { dataLines: [], completed: false, outputDone: false, translated: "", reasoning: "", onDelta,
+    allowTools, toolCalls: [], reasoningContent: false, reasoningDetails: [], usage: emptyTokenUsage() };
 }
 
 function completionMessage(state) {
@@ -164,7 +210,21 @@ function completionMessage(state) {
   if (state.reasoningContent) message.reasoning_content = state.reasoning;
   if (state.reasoningDetails.length) message.reasoning_details = state.reasoningDetails;
   return { content: state.translated.trim(), reasoning: state.reasoning, message,
-    toolCalls: state.toolCalls };
+    toolCalls: state.toolCalls, usage: state.usage };
+}
+
+export function promptCacheMessages(messages, settings) {
+  const host = apiHostname(settings);
+  if (host !== "openrouter.ai" || !Array.isArray(messages) || !messages.length) return messages;
+  const [first, ...rest] = messages;
+  if (typeof first.content !== "string") return messages;
+  return [
+    {
+      ...first,
+      content: [{ type: "text", text: first.content, cache_control: { type: "ephemeral" } }],
+    },
+    ...rest,
+  ];
 }
 
 function processSseLine(line, state) {
@@ -197,10 +257,13 @@ function finishSseFrame(state) {
   if (parsed?.error) {
     throw new Error(parsed.error.message || parsed.error.type || t("translationFailed", { status: "stream" }));
   }
+  if (parsed?.usage) state.usage = addTokenUsage(emptyTokenUsage(), extractTokenUsage(parsed));
   const reason = parsed?.choices?.[0]?.finish_reason;
   if (reason) {
     if (reason !== "stop" && !(state.allowTools && reason === "tool_calls")) throw new Error(t("modelIncompleteTranslation", { reason }));
-    state.completed = true;
+    state.outputDone = true;
+    // Translation returns plain text and needs no trailing usage frame.
+    if (!state.allowTools) state.completed = true;
   }
   const parts = extractStreamParts(parsed);
   const delta = parsed?.choices?.[0]?.delta || {};
@@ -235,9 +298,10 @@ function extractJsonCompletion(data, onDelta, emptyMessage, allowTools = false) 
   const content = parts.content.trim();
   if (!content && !(allowTools && data?.choices?.[0]?.message?.tool_calls?.length)) throw new Error(emptyMessage);
   onDelta?.(content, { reasoning: parts.reasoning });
+  const usage = extractTokenUsage(data);
   if (allowTools) return { content, reasoning: parts.reasoning,
     message: { ...data.choices[0].message, role: "assistant" },
-    toolCalls: data.choices[0].message.tool_calls || [] };
+    toolCalls: data.choices[0].message.tool_calls || [], usage };
   return content;
 }
 
@@ -273,9 +337,9 @@ async function readStreamingCompletion(response, { onDelta, signal, emptyMessage
       if (buffer) processSseLine(buffer, state);
       finishSseFrame(state);
     }
-    if (state.completed) await reader.cancel().catch(() => {});
+    if (state.completed || state.outputDone) await reader.cancel().catch(() => {});
     const trimmed = state.translated.trim();
-    if (!state.completed) throw new Error(t("modelIncompleteTranslation", { reason: "EOF" }));
+    if (!state.completed && !state.outputDone) throw new Error(t("modelIncompleteTranslation", { reason: "EOF" }));
     if (!trimmed && !(allowTools && state.toolCalls.length)) throw new Error(emptyMessage);
     return allowTools ? completionMessage(state) : trimmed;
   } catch (error) {
@@ -302,6 +366,7 @@ export async function completeChat(
     tools,
     toolChoice,
     returnMessage = false,
+    maxOutputTokens,
     disableReasoning = false,
     emptyMessage = t("modelNoTranslation"),
     cancelledMessage = t("translationCancelled"),
@@ -322,19 +387,35 @@ export async function completeChat(
 
   try {
     const headers = openAiRequestHeaders(settings);
-    const response = await fetch(url, {
+    const payload = {
+      model: settings.model || DEFAULT_MODEL,
+      temperature,
+      ...(maxOutputTokens ? { max_tokens: maxOutputTokens } : {}),
+      stream: true,
+      messages: promptCacheMessages(messages, settings),
+      ...chatReasoningFields(settings, { disableReasoning }),
+      ...(tools?.length ? { tools, tool_choice: toolChoice || "auto" } : {}),
+      ...(returnMessage ? { stream_options: { include_usage: true } } : {}),
+    };
+    const post = (body) => fetch(url, {
       method: "POST",
       headers,
-      body: JSON.stringify({
-        model: settings.model || DEFAULT_MODEL,
-        temperature,
-        stream: true,
-        messages,
-        ...chatReasoningFields(settings, { disableReasoning }),
-        ...(tools?.length ? { tools, tool_choice: toolChoice || "auto" } : {}),
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
+    let response = await post(payload);
+    if (!response.ok && payload.stream_options && [400, 404, 422].includes(response.status)) {
+      const data = await response.json().catch(() => ({}));
+      const message = data?.error?.message || "";
+      if (/stream_options|include_usage|unknown( parameter| field)?|unrecognized/i.test(message)) {
+        delete payload.stream_options;
+        response = await post(payload);
+      } else {
+        const error = new Error(message || t("translationFailed", { status: response.status }));
+        error.status = response.status;
+        throw error;
+      }
+    }
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       const message = data?.error?.message || t("translationFailed", { status: response.status });

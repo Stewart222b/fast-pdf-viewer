@@ -7,10 +7,11 @@ import path from 'node:path';
 import {tmpdir} from 'node:os';
 const root=process.cwd();
 const edgePath=[process.env.EDGE_PATH,process.env.CHROME_PATH].find(p=>p&&existsSync(p));
-test('Ask streams multi-round reading, collapsed preview and expanded reasoning in the browser', {skip:!edgePath,timeout:40000}, async()=>{
+test('Ask streaming, composer layout, and original PDF download work in the browser', {skip:!edgePath,timeout:40000}, async()=>{
   const server=createServer((req,res)=>{
     const route=new URL(req.url,'http://local').pathname;
     if(route==='/api/startup'){res.writeHead(200,{'content-type':'application/json'});res.end('{"hasFile":false}');return;}
+    if(route==='/sample.pdf'){res.writeHead(200,{'content-type':'application/pdf'});res.end(readFileSync(path.join(root,'samples/demo.pdf')));return;}
     const file=path.resolve(root,'web','.'+(route==='/'?'/index.html':route));
     if(!file.startsWith(path.join(root,'web')+path.sep)){res.writeHead(403);res.end();return;}
     try {const data=readFileSync(file);res.writeHead(200,{'content-type':file.endsWith('.js')||file.endsWith('.mjs')?'text/javascript':file.endsWith('.css')?'text/css':'text/html'});res.end(data);}catch{res.writeHead(404);res.end();}
@@ -130,10 +131,10 @@ test('Ask streams multi-round reading, collapsed preview and expanded reasoning 
         return new Response(new ReadableStream({async start(controller){
           for(const part of parts){await new Promise(r=>setTimeout(r,350));controller.enqueue(encoder.encode('data: '+JSON.stringify({choices:[{delta:{reasoning_content:part}}]})+'\n\n'));}
           await new Promise(r=>setTimeout(r,350));
-          controller.enqueue(encoder.encode('data: '+JSON.stringify({choices:[{delta:{content:'**ARC** is on [p200](pdf:200). Ignore [p999](pdf:999).\n---\np200: "ARC means Anti-Reflective Coating."'},finish_reason:'stop'}]})+'\n\n'));controller.close();
+          controller.enqueue(encoder.encode('data: '+JSON.stringify({choices:[{delta:{content:'**ARC** is on [p200](pdf:200). Ignore [p999](pdf:999).' + '\n\nAdditional document evidence stays readable above the composer.'.repeat(18) + '\n---\np200: "ARC means Anti-Reflective Coating."'},finish_reason:'stop'}]})+'\n\n'));controller.close();
         }}),{headers:{'content-type':'text/event-stream'}});
       };
-      document.getElementById('btn-ask-toggle').click();document.getElementById('ask-input').value='Where is ARC described?';document.getElementById('ask-submit').click();
+      document.getElementById('btn-ask-toggle').click();document.getElementById('ask-input').value='Where is ARC described?';document.getElementById('ask-input').dispatchEvent(new Event('input'));document.getElementById('ask-submit').click();
     })()`);
     await waitFor(()=>evaluate("document.getElementById('ask-thinking-preview').textContent.includes('Now read')"),'collapsed streaming preview');
     assert.equal(await evaluate("document.getElementById('ask-thinking-wrap').open"),false);
@@ -145,22 +146,41 @@ test('Ask streams multi-round reading, collapsed preview and expanded reasoning 
     const result=await evaluate(`({answer:document.getElementById('ask-answer').textContent,bold:!!document.querySelector('#ask-answer strong'),log:document.getElementById('ask-reading-log').textContent,thinking:document.getElementById('ask-thinking').textContent,status:document.getElementById('ask-thinking-status').textContent})`);
     assert.match(result.answer,/ARC/);assert.equal(result.bold,true);assert.match(result.log,/ARC/);assert.match(result.log,/1/);assert.match(result.thinking,/First inspect/);assert.match(result.thinking,/Verify/);assert.match(result.status,/已完成/);
     assert.equal(await evaluate("document.querySelector('[data-i18n=askAnswer]').textContent"),'回答');
-    assert.equal(await evaluate("document.getElementById('ask-citations-wrap').open"),false);
+    assert.equal(await evaluate("document.querySelector('#ask-citations-wrap')"),null);
     assert.equal(await evaluate("document.querySelectorAll('#ask-answer .ask-page-reference').length"),1);
     await evaluate("document.querySelector('#ask-answer .ask-page-reference').click()");
     await waitFor(()=>evaluate("window.__citationTarget?.pageNumber===200"),'inline reference viewer jump');
     assert.equal(await evaluate("window.__citationTarget.kind"),'quote');
-    assert.equal(await evaluate("document.getElementById('ask-citations-wrap').open"),false);
-    await evaluate("document.querySelector('#ask-citations-wrap summary').click()");
-    assert.equal(await evaluate("document.getElementById('ask-citations-wrap').open"),true);
-    assert.match(await evaluate("document.getElementById('ask-citations').textContent"),/Anti-Reflective/);
-    await evaluate("document.querySelector('#ask-answer .ask-page-reference').click()");
-    assert.equal(await evaluate("document.getElementById('ask-citations-wrap').open"),true);
-    await evaluate("document.querySelector('#ask-citations-wrap summary').click()");
+    assert.equal(await evaluate("document.querySelector('#ask-citations-wrap')"),null);
     await evaluate("document.querySelector('#ask-thinking-wrap summary').click()");
     assert.match(await evaluate("document.getElementById('ask-thinking-preview').textContent"),/Verify/);
-    const layout=await evaluate("({cite:document.getElementById('ask-citations-wrap').getBoundingClientRect().bottom,actions:document.getElementById('ask-result-actions').getBoundingClientRect().top})");
-    assert.ok(layout.cite<=layout.actions, 'citations and retry actions do not overlap');
+    await evaluate("document.getElementById('ask-thread').scrollTop=document.getElementById('ask-thread').scrollHeight");
+    const layout=await evaluate("({gap:document.getElementById('ask-thread').getBoundingClientRect().bottom-document.querySelector('.ask-turn-actions').getBoundingClientRect().bottom,button:document.querySelector('.ask-copy').getBoundingClientRect().width,icon:document.querySelector('.ask-copy .icon').getBoundingClientRect().width})");
+    assert.ok(layout.gap >= 39, 'answer actions leave space above the composer: ' + JSON.stringify(layout));
+    assert.equal(layout.button,24);
+    assert.equal(layout.icon,14);
+    await evaluate(`(async () => {
+      const input = document.getElementById('ask-input');
+      input.value = Array.from({length: 18}, () => 'Long question text uses the full width of the composer.').join('\\n');
+      input.dispatchEvent(new Event('input'));
+      // Resizing the composer queues a thread scroll that closes popovers.
+      // Let that layout settle before simulating the next user click.
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      document.getElementById('btn-ask-more').click();
+    })()`);
+    const menuLayout=await evaluate(`(() => {
+      const button = document.getElementById('btn-ask-more');
+      const rect = button.getBoundingClientRect();
+      const menu = document.getElementById('ask-more-menu');
+      return { parent: button.closest('.ask-compose-actions') !== null,
+        open: !menu.hidden, bottom: menu.getBoundingClientRect().bottom, top: rect.top,
+        inputHeight: document.getElementById('ask-input').getBoundingClientRect().height };
+    })()`);
+    assert.equal(menuLayout.parent,true);
+    assert.equal(menuLayout.open,true);
+    assert.ok(menuLayout.bottom <= menuLayout.top - 5, 'composer menu opens above its button');
+    assert.equal(menuLayout.inputHeight,160);
+    await evaluate("document.getElementById('btn-ask-more').click()");
     if(process.env.ASK_PREVIEW_PATH){
       mkdirSync(path.dirname(process.env.ASK_PREVIEW_PATH),{recursive:true});
       const screenshot=await send('Page.captureScreenshot',{format:'png'});
@@ -169,6 +189,48 @@ test('Ask streams multi-round reading, collapsed preview and expanded reasoning 
       const expanded=await send('Page.captureScreenshot',{format:'png'});
       writeFileSync(process.env.ASK_PREVIEW_PATH.replace('.png','-expanded.png'),Buffer.from(expanded.data,'base64'));
     }
+    // Exercise a real browser download after opening an actual local PDF.
+    const downloadPath=path.join(profile,'downloads');
+    mkdirSync(downloadPath,{recursive:true});
+    await send('Browser.setDownloadBehavior',{behavior:'allow',downloadPath});
+    await evaluate("document.getElementById('btn-sidebar-close').click()");
+    await evaluate(`(() => {
+      const viewer = globalThis.__pdfViewer;
+      const open = viewer.open.bind(viewer);
+      viewer.open = async (source, options) => {
+        window.__reportLoading = options.onProgress;
+        options.onProgress({loaded: 5 * 1024 ** 2, total: 20 * 1024 ** 2});
+        await new Promise(resolve => { window.__releaseLoading = resolve; });
+        return open(source, options);
+      };
+    })()`);
+    await evaluate(`(async () => {
+      const data = await (await fetch('/sample.pdf')).arrayBuffer();
+      const files = new DataTransfer();
+      files.items.add(new File([data], 'browser-local-copy.pdf', {type: 'application/pdf'}));
+      document.getElementById('viewer-wrap').dispatchEvent(new DragEvent('drop', {bubbles: true, cancelable: true, dataTransfer: files}));
+    })()`);
+    await waitFor(()=>evaluate("document.getElementById('viewer-loading-track').getAttribute('aria-valuenow') === '25'"),'byte loading progress');
+    assert.equal(await evaluate("document.getElementById('viewer-loading').hidden"),false);
+    assert.match(await evaluate("document.getElementById('viewer-loading-detail').textContent"),/5 MB.*20 MB.*25%/);
+    const progressWidth=await waitFor(()=>evaluate("document.getElementById('viewer-loading-fill').getBoundingClientRect().width > 50 && document.getElementById('viewer-loading-fill').getBoundingClientRect().width"),'visible progress fill');
+    assert.ok(progressWidth > 50 && progressWidth <= 71);
+    if(process.env.LOADING_PREVIEW_PATH){
+      mkdirSync(path.dirname(process.env.LOADING_PREVIEW_PATH),{recursive:true});
+      const screenshot=await send('Page.captureScreenshot',{format:'png'});
+      writeFileSync(process.env.LOADING_PREVIEW_PATH,Buffer.from(screenshot.data,'base64'));
+    }
+    await evaluate("window.__reportLoading({phase:'prepare'})");
+    assert.equal(await evaluate("document.getElementById('viewer-loading-track').getAttribute('aria-valuenow')"),null);
+    assert.match(await evaluate("document.getElementById('viewer-loading-detail').textContent"),/正在准备页面/);
+    await evaluate("window.__releaseLoading()");
+    await waitFor(()=>evaluate("!document.getElementById('btn-save-pdf').hidden && !document.getElementById('btn-save-pdf').disabled"),'local PDF export ready');
+    assert.equal(await evaluate("document.getElementById('viewer-loading').hidden"),true);
+    assert.equal(await evaluate("document.getElementById('pdf-save-icon').getAttribute('href')"),'#i-save');
+    await evaluate("document.getElementById('btn-save-pdf').click()");
+    const downloaded=path.join(downloadPath,'browser-local-copy.pdf');
+    await waitFor(()=>existsSync(downloaded),'original PDF download');
+    assert.deepEqual(readFileSync(downloaded),readFileSync(path.join(root,'samples/demo.pdf')));
   } finally {
     socket?.close();edge?.kill();
     await new Promise(resolve=>server.close(resolve));
