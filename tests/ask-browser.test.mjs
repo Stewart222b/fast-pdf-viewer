@@ -117,15 +117,28 @@ test('Ask streaming, composer layout, and original PDF download work in the brow
       "globalThis.__PDF_BENCH__=true;localStorage.setItem('fast-pdf-viewer-settings',JSON.stringify({apiKey:'browser-test',apiBaseUrl:'https://mock.invalid/v1',model:'mock',showThinking:true,uiLanguage:'zh-CN',uiLanguageSelected:true}));"});
     await send('Page.navigate',{url:'http://127.0.0.1:'+serverPort+'/'});
     await waitFor(()=>evaluate('!!globalThis.__pdfViewer'),'main app');
+    const caretReuse = await evaluate(`(async () => {
+      const {renderBubbleTranslation} = await import('/js/bubble-text-render.js');
+      const el = document.createElement('div'); document.body.append(el);
+      renderBubbleTranslation(el, '', 'passage', {streaming: true});
+      const caret = el.lastChild;
+      const animation = caret.getAnimations()[0];
+      renderBubbleTranslation(el, 'hello', 'passage', {streaming: true});
+      renderBubbleTranslation(el, 'hello world', 'passage', {streaming: true});
+      const result = { node: el.lastChild === caret, animation: !!animation && caret.getAnimations()[0] === animation };
+      el.remove(); return result;
+    })()`);
+    assert.equal(caretReuse.node,true);
+    assert.equal(caretReuse.animation,true);
     await evaluate(String.raw`(()=>{
       const viewer=globalThis.__pdfViewer;
       viewer.pdf={};viewer.pageCount=200;viewer.indexedPages=200;viewer.indexPromise=Promise.resolve();
       viewer.pageTexts=[{pageNumber:1,text:'x'.repeat(25000)},{pageNumber:200,text:'ARC means Anti-Reflective Coating.'}];
       viewer.showHits=async(hits,query,index)=>{window.__citationTarget=hits[index];};
-      const original=window.fetch;let calls=0;
+      const original=window.fetch;let calls=0;window.__askRequestBodies=[];
       window.fetch=async(url,init)=>{
         if(!String(url).startsWith('https://mock.invalid'))return original(url,init);
-        calls++;const body=JSON.parse(init.body);
+        calls++;const body=JSON.parse(init.body);window.__askRequestBodies.push(body);
         if(calls===1)return new Response(JSON.stringify({choices:[{finish_reason:'tool_calls',message:{role:'assistant',content:null,reasoning_content:'First inspect the document.',tool_calls:[{id:'search1',type:'function',function:{name:'search_document',arguments:JSON.stringify({query:'ARC'})}}]}}]}),{headers:{'content-type':'application/json'}});
         const encoder=new TextEncoder();let index=0;const parts=['Now read the ARC evidence.','\nThe coating is on page 200.','\nVerify the exact quotation.'];
         return new Response(new ReadableStream({async start(controller){
@@ -234,6 +247,11 @@ test('Ask streaming, composer layout, and original PDF download work in the brow
     // Exercise the download fallback when a native save picker is unavailable.
     await evaluate("window.showSaveFilePicker = undefined");
     // Exercise a real browser download after opening an actual local PDF.
+    await evaluate("window.__oldAskTurn=document.querySelector('.ask-turn');document.querySelector('.ask-retry').click()");
+    await waitFor(()=>evaluate("document.getElementById('ask-stop').hidden && document.querySelector('.ask-turn') !== window.__oldAskTurn"),'retry replacement');
+    assert.equal(await evaluate("document.querySelectorAll('.ask-turn').length"),1);
+    assert.equal(await evaluate("window.__oldAskTurn.isConnected"),false);
+    assert.equal(await evaluate("window.__askRequestBodies.at(-1).messages.some(message => message.role === 'assistant')"),false);
     const downloadPath=path.join(profile,'downloads');
     mkdirSync(downloadPath,{recursive:true});
     await send('Browser.setDownloadBehavior',{behavior:'allow',downloadPath});

@@ -61,10 +61,13 @@ window.__askComposeLayout = () => {
   const field = input.getBoundingClientRect();
   const left = more.getBoundingClientRect();
   const right = document.querySelector(".ask-send-slot").getBoundingClientRect();
+  const moreButton = document.getElementById("btn-ask-more").getBoundingClientRect();
+  const effortButton = document.getElementById("btn-ask-effort").getBoundingClientRect();
   return {
     fieldLeft: field.left, fieldRight: field.right, fieldBottom: field.bottom,
     rowLeft: row.left, rowRight: row.right, rowTop: row.top,
     moreLeft: left.left, sendRight: right.right,
+    moreBottom: moreButton.bottom, effortBottom: effortButton.bottom, sendBottom: right.bottom,
     resize: inputStyle.resize,
     paddingTop: composeStyle.paddingTop,
     paddingBottom: composeStyle.paddingBottom,
@@ -201,6 +204,8 @@ test("hidden ask stop does not cover the send circle", {
     assert.ok(layout.rowTop >= layout.fieldBottom, "toolbar sits below long text");
     assert.ok(Math.abs(layout.moreLeft - layout.rowLeft) < 1, "more sits at the bottom left");
     assert.ok(Math.abs(layout.sendRight - layout.rowRight) < 1, "send sits at the bottom right");
+    assert.ok(Math.abs(layout.moreBottom - layout.sendBottom) < 1, "more aligns with the bottom of send");
+    assert.ok(Math.abs(layout.effortBottom - layout.sendBottom) < 1, "effort aligns with the bottom of send");
     const afterClick = await evaluate(`(() => {
       const submit = document.getElementById("ask-submit");
       submit.disabled = false;

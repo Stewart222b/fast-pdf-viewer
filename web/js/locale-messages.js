@@ -67,7 +67,7 @@ const rows = {
   switchDark: ["切換為深色主題", "ダークテーマに切り替え", "어두운 테마로 전환", "Zum dunklen Design wechseln", "Passer au thème sombre", "Cambiar al tema oscuro"],
   sidebarMode: ["側欄模式", "サイドバーモード", "사이드바 모드", "Seitenleistenmodus", "Mode du volet latéral", "Modo del panel lateral"],
   outline: ["目錄", "目次", "목차", "Inhaltsverzeichnis", "Sommaire", "Índice"],
-  ask: ["問答 (beta)", "質問 (beta)", "질문 (beta)", "Fragen (Beta)", "Questions (bêta)", "Preguntas (beta)"],
+  ask: ["問答", "質問", "질문", "Fragen", "Questions", "Preguntas"],
   expandAll: ["全部展開", "すべて展開", "모두 펼치기", "Alle aufklappen", "Tout développer", "Expandir todo"],
   collapseAll: ["全部摺疊", "すべて折りたたむ", "모두 접기", "Alle einklappen", "Tout réduire", "Contraer todo"],
   closeSidebar: ["關閉側欄", "サイドバーを閉じる", "사이드바 닫기", "Seitenleiste schließen", "Fermer le volet latéral", "Cerrar el panel lateral"],

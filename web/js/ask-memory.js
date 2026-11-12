@@ -16,6 +16,19 @@ export function clearAskMemory(memory) {
   return memory;
 }
 
+export function snapshotAskMemory(memory) {
+  return { fingerprint: memory.fingerprint, summary: memory.summary,
+    turns: [...memory.turns], totalTurns: memory.totalTurns };
+}
+
+export function restoreAskMemory(memory, snapshot) {
+  clearAskMemory(memory);
+  memory.fingerprint = snapshot.fingerprint;
+  memory.summary = snapshot.summary;
+  memory.turns = [...snapshot.turns];
+  memory.totalTurns = snapshot.totalTurns;
+}
+
 export function rememberAskTurn(memory, question, answer) {
   if (!memory) return;
   const asked = String(question || "").trim();

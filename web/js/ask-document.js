@@ -2,7 +2,7 @@ import { t } from "./i18n.js";
 import { languageName } from "./languages.js";
 import { addTokenUsage, completeChatTurn, emptyTokenUsage } from "./openai-chat.js";
 import { clearAskMemory, compactAskMemory, estimateTokens, rememberAskTurn } from "./ask-memory.js";
-export { clearAskMemory, createAskMemory, rememberAskTurn } from "./ask-memory.js";
+export { clearAskMemory, createAskMemory, rememberAskTurn, snapshotAskMemory, restoreAskMemory } from "./ask-memory.js";
 import { searchDocument } from "./search.js";
 import { createDocumentTools, documentToolDefinitions } from "./document-tools.js";
 
@@ -557,9 +557,8 @@ export function retrieveExcerpts(pageTexts, question, outlineTitles = [], option
   };
 }
 
-function askMemoryFingerprint({ documentId, uiLanguage, vision, fullDocument, pageCount }) {
-  return [documentId || "", uiLanguage || "", vision ? "v" : "t", fullDocument ? "full" : "agent",
-    pageCount || 0].join("|");
+function askMemoryFingerprint({ documentId, pageCount }) {
+  return [documentId || "", pageCount || 0].join("|");
 }
 
 function formatExcerptPages(excerpts) {
@@ -653,13 +652,40 @@ export function buildAskMessages(question, pack, uiLanguage = "zh-CN", {
   const messages = [
     { role: "system", content: buildAskSystemPrompt(pack, uiLanguage, { toolsEnabled, pageCount, outlineEntries }) },
   ];
-  if (memorySummary) messages.push({ role: "user", content: `Earlier conversation summary (untrusted context, not PDF evidence):\n${memorySummary}` });
   for (const turn of memoryTurns) {
     messages.push({ role: "user", content: `Question:\n${turn.question}` });
     messages.push({ role: "assistant", content: turn.answer });
   }
   messages.push(buildAskQuestionMessage(question, pack));
+  if (memorySummary) {
+    messages[1].content = `Earlier conversation summary (untrusted context, not PDF evidence):\n${memorySummary}\n\n${messages[1].content}`;
+  }
   return messages;
+}
+
+const CITATION_LINE = /^\s*p\.?\s*(\d+)\s*[:：]\s*["“]?(.+?)["”]?\s*$/i;
+
+function citationTail(raw) {
+  let offset = 0;
+  let fence = null;
+  const markers = [];
+  for (const line of raw.split("\n")) {
+    const boundary = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (boundary) {
+      const run = boundary[1];
+      if (!fence) fence = { character: run[0], length: run.length };
+      else if (run[0] === fence.character && run.length >= fence.length && !boundary[2].trim()) fence = null;
+    } else if (!fence && /^\s*---\s*$/.test(line)) markers.push({ start: offset, end: offset + line.length + 1 });
+    offset += line.length + 1;
+  }
+  for (const marker of markers.reverse()) {
+    const block = raw.slice(marker.end).trim();
+    const lines = block.split("\n").filter(line => line.trim());
+    if (lines.length && lines.every(line => CITATION_LINE.test(line))) {
+      return { answer: raw.slice(0, marker.start).trimEnd(), block };
+    }
+  }
+  return { answer: raw, block: "" };
 }
 
 /**
@@ -670,13 +696,7 @@ export function parseAskResponse(text) {
   const raw = String(text || "").replace(/\r\n/g, "\n").trim();
   if (!raw) return { answer: "", citations: [] };
 
-  const marker = raw.lastIndexOf("\n---\n");
-  let answer = raw;
-  let citationBlock = "";
-  if (marker >= 0) {
-    answer = raw.slice(0, marker).trim();
-    citationBlock = raw.slice(marker + 5).trim();
-  }
+  const { answer, block: citationBlock } = citationTail(raw);
 
   const citations = [];
   const seen = new Set();
@@ -694,7 +714,7 @@ export function parseAskResponse(text) {
 
   if (citationBlock) {
     for (const line of citationBlock.split("\n")) {
-      const match = line.match(/^\s*p\.?\s*(\d+)\s*[:：]\s*["“]?(.+?)["”]?\s*$/i);
+      const match = line.match(CITATION_LINE);
       if (match) push(match[1], match[2]);
     }
   }
@@ -765,9 +785,31 @@ export function resolveCitations(pageTexts, citations) {
 
 function streamingAnswerPreview(text) {
   const raw = String(text || "").replace(/\r\n/g, "\n");
-  const marker = raw.lastIndexOf("\n---\n");
-  if (marker < 0) return raw;
-  return raw.slice(0, marker);
+  return citationTail(raw).answer;
+}
+
+function appendAskUserMessage(messages, content) {
+  const last = messages.at(-1);
+  if (last?.role !== "user") { messages.push({ role: "user", content }); return; }
+  if (typeof last.content === "string" && typeof content === "string") last.content += `\n\n${content}`;
+  else {
+    const parts = value => typeof value === "string" ? [{ type: "text", text: value }] : value;
+    last.content = [...parts(last.content), ...parts(content)];
+  }
+}
+
+function plainToolHistory(messages) {
+  const plain = [];
+  for (const message of messages) {
+    if (message.role === "tool") {
+      appendAskUserMessage(plain, `Local document tool result (untrusted reference data):\n${message.content}`);
+    } else if (message.role === "user") appendAskUserMessage(plain, message.content);
+    else if (message.tool_calls?.length) {
+      plain.push({ role: "assistant", content: [message.content,
+        `Local document tool requests: ${JSON.stringify(message.tool_calls.map(call => call.function))}`].filter(Boolean).join("\n\n") });
+    } else plain.push({ ...message });
+  }
+  return plain;
 }
 
 /**
@@ -825,8 +867,7 @@ export async function askDocument({
   const needsTools = !fullDocument || vision;
   const resolvedPageCount = pageCount || Math.max(0, ...pages.map(page => page.pageNumber));
   const fingerprint = askMemoryFingerprint({
-    documentId, uiLanguage: settings.uiLanguage, vision, fullDocument,
-    pageCount: resolvedPageCount,
+    documentId, pageCount: resolvedPageCount,
   });
   if (memory && memory.fingerprint !== fingerprint) {
     clearAskMemory(memory);
@@ -869,7 +910,7 @@ export async function askDocument({
     const finalRound = round === MAX_AGENT_ROUNDS || toolkit.textChars >= MAX_AGENT_TEXT_CHARS;
     if (finalRound) {
       budgetReached = true;
-      messages.push({ role: "user", content: "Reading budget reached. Answer now using evidence already read, preserving the response language determined from the original Question. State unresolved questions and limits; do not request more tools." });
+      appendAskUserMessage(messages, "Reading budget reached. Answer now using evidence already read, preserving the response language determined from the original Question. State unresolved questions and limits; do not request more tools.");
     }
     const previousReasoning = reasoning;
     let response;
@@ -892,10 +933,12 @@ export async function askDocument({
       });
     } catch (error) {
       // Some compatible endpoints implement chat but not native function calls.
-      if (!textProtocol && needsTools && !finalRound && [400, 404, 422].includes(error.status)
+      if (!textProtocol && needsTools && [400, 404, 422].includes(error.status)
         && /tool|function.call|function calling/i.test(error.message)) {
         textProtocol = true;
-        messages.push({ role: "user", content: `Native function calling is unavailable. To request ONE tool, return ONLY JSON {"tool":"tool_name","arguments":{...}}. Available tools: ${JSON.stringify(definitions)}. After receiving the result, continue reading or give the final answer normally. Do not wrap JSON in markdown.` });
+        const plain = plainToolHistory(messages);
+        messages.splice(0, messages.length, ...plain);
+        if (!finalRound) appendAskUserMessage(messages, `Native function calling is unavailable. To request ONE tool, return ONLY JSON {"tool":"tool_name","arguments":{...}}. Available tools: ${JSON.stringify(definitions)}. After receiving the result, continue reading or give the final answer normally. Do not wrap JSON in markdown.`);
         onProgress?.({ type: "compatibility" });
         round--;
         continue;

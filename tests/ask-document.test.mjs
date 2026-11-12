@@ -366,6 +366,78 @@ test("parseAskResponse falls back to page mentions when citation block is missin
   );
 });
 
+test("ordinary horizontal rules and fenced examples never remove answer text", () => {
+  for (const raw of [
+    "Introduction\n---\nImportant conclusion.",
+    'Example:\n```text\n---\np12: "literal example"\n```',
+    'Introduction\n---\np12: "source"\nThis paragraph is part of the answer.',
+  ]) assert.equal(parseAskResponse(raw).answer, raw);
+  const result = parseAskResponse('Introduction\n---\nConclusion\n---\np12: "source"');
+  assert.equal(result.answer, "Introduction\n---\nConclusion");
+  assert.equal(result.citations[0].pageNumber, 12);
+});
+
+test("a compressed summary joins the first user message without changing the cached system", () => {
+  const pack = { mode: "full", excerpts: [{ pageNumber: 1, text: "body" }] };
+  const initial = buildAskMessages("next", pack);
+  for (const memoryTurns of [[], [{ question: "previous", answer: "answer" }]]) {
+    const messages = buildAskMessages("next", pack, "zh-CN", { memoryTurns, memorySummary: "Summary" });
+    assert.equal(messages[0].content, initial[0].content);
+    assert.match(messages[1].content, /Summary/);
+    for (let i = 2; i < messages.length; i++) assert.notEqual(messages[i].role, messages[i - 1].role);
+    assert.match(messages.at(-1).content, /Question:\nnext/);
+  }
+});
+
+test("language and vision changes retain history, while changing documents clears it", async () => {
+  const original = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (_url, init) => {
+    requests.push(JSON.parse(init.body));
+    return { ok: true, headers: { get: () => "application/json" }, json: async () => ({
+      choices: [{ message: { content: "Answer" }, finish_reason: "stop" }],
+    }) };
+  };
+  const memory = createAskMemory();
+  const options = { pageTexts: [page(1, "Alpha evidence")], memory, documentId: "same",
+    settings: { apiKey: "k", apiBaseUrl: "https://example.com/v1", uiLanguage: "en" } };
+  try {
+    await askDocument({ ...options, question: "First question" });
+    memory.summary = "Earlier summary";
+    await askDocument({ ...options, question: "Second question", settings: { ...options.settings, uiLanguage: "zh-CN" } });
+    assert.equal(memory.totalTurns, 2);
+    assert.equal(memory.summary, "Earlier summary");
+    assert.match(JSON.stringify(requests.at(-1).messages), /First question/);
+    await askDocument({ ...options, question: "Third question", readPageImage: async () => "", settings: { ...options.settings, askVisionEnabled: true } });
+    assert.equal(memory.totalTurns, 3);
+    assert.equal(memory.summary, "Earlier summary");
+    assert.match(JSON.stringify(requests.at(-1).messages), /Second question/);
+    await askDocument({ ...options, question: "New document", documentId: "different" });
+    assert.equal(memory.totalTurns, 1);
+    assert.equal(memory.summary, "");
+    assert.doesNotMatch(JSON.stringify(requests.at(-1).messages), /First question/);
+  } finally { globalThis.fetch = original; }
+});
+
+test("streaming a normal horizontal rule preserves the following conclusion", async () => {
+  const original = globalThis.fetch;
+  const previews = [];
+  globalThis.fetch = async () => ({ ok: true, headers: { get: () => "text/event-stream" },
+    body: new ReadableStream({ start(controller) {
+      const encoder = new TextEncoder();
+      for (const content of ["Introduction\n---\n", "Important conclusion."]) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`));
+      }
+      controller.enqueue(encoder.encode('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'));
+      controller.close();
+    } }) });
+  try {
+    const result = await askDocument({ settings: { apiKey: "k" }, question: "Explain", pageTexts: [page(1, "evidence")], onDelta: preview => previews.push(preview) });
+    assert.match(result.answer, /Important conclusion/);
+    assert.match(previews.at(-1), /Important conclusion/);
+  } finally { globalThis.fetch = original; }
+});
+
 test("resolveCitations maps quotes to search hits and falls back to page jumps", () => {
   const pages = [
     page(12, "Cooling water inlet is on the rear panel."),

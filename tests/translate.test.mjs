@@ -293,6 +293,32 @@ test('translateWithProvider parses JSON responses even when onDelta is provided'
   assert.deepEqual(partials, ['json result']);
 });
 
+test('reasoning-only and duplicate frames do not redraw the translation', async () => {
+  const original = globalThis.fetch;
+  const partials = [];
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    assert.equal(body.model, 'DeepSeek-V4.1-Flash-1017');
+    assert.deepEqual(body.thinking, { type: 'disabled' });
+    return { ok: true, headers: { get: () => 'text/event-stream' }, body: new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder();
+        for (const delta of [{ reasoning_content: 'first' }, { reasoning_content: 'still thinking' },
+          { content: 'hello' }, { reasoning_content: 'more' }, { content: ' world' }]) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`));
+        }
+        controller.enqueue(encoder.encode('data: [DONE]\n\n')); controller.close();
+      },
+    }) };
+  };
+  try {
+    const result = await translateWithProvider('test', { apiKey: 'k', apiBaseUrl: 'http://proxy.example:18090/v1', model: 'DeepSeek-V4.1-Flash-1017' },
+      { onDelta: partial => partials.push(partial) });
+    assert.equal(result, 'hello world');
+    assert.deepEqual(partials, ['hello', 'hello world']);
+  } finally { globalThis.fetch = original; }
+});
+
 test('translateWithProvider preserves JSON errors and rejects incomplete finish reasons', async () => {
   const original = globalThis.fetch;
   const responseFor = (data) => new Response(JSON.stringify(data), {

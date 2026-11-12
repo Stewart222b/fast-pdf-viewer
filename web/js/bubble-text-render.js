@@ -1,5 +1,7 @@
 import { truncateBubblePreview } from "./selection-text.js";
 
+const streamingNodes = new WeakMap();
+
 export function renderBubbleSource(el, text, mode, { full = false } = {}) {
   el.classList.toggle("bubble-passage", mode === "passage");
   el.classList.toggle("bubble-term", mode === "term");
@@ -16,14 +18,21 @@ export function renderBubbleTranslation(el, text, mode, { streaming = false } = 
   el.classList.toggle("bubble-passage", mode === "passage" && !streaming);
   el.classList.toggle("bubble-term", mode === "term" || streaming);
   if (streaming) {
+    const previous = streamingNodes.get(el);
+    if (previous && el.firstChild === previous.text && el.lastChild === previous.caret) {
+      if (previous.text.textContent !== text) previous.text.textContent = text || "";
+      return;
+    }
     el.replaceChildren();
-    if (text) el.append(document.createTextNode(text));
+    const content = document.createTextNode(text || "");
     const caret = document.createElement("span");
     caret.className = "translate-caret";
     caret.setAttribute("aria-hidden", "true");
-    el.append(caret);
+    el.append(content, caret);
+    streamingNodes.set(el, { text: content, caret });
     return;
   }
+  streamingNodes.delete(el);
   renderMarkdown(el, text);
 }
 
@@ -48,7 +57,7 @@ function splitTableCells(line) {
 }
 
 function isTableSeparatorLine(line) {
-  if (!line || !line.includes("-")) return false;
+  if (!line || !line.includes("|") || !line.includes("-")) return false;
   const cells = splitTableCells(line);
   return cells.length > 0 && cells.every(cell => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, "")));
 }
@@ -56,7 +65,8 @@ function isTableSeparatorLine(line) {
 function isTableStart(lines, index) {
   const row = lines[index];
   const separator = lines[index + 1];
-  return Boolean(row?.includes("|") && isTableSeparatorLine(separator));
+  return Boolean(row?.includes("|") && isTableSeparatorLine(separator)
+    && splitTableCells(row).length === splitTableCells(separator).length);
 }
 
 function tableAlign(cell) {

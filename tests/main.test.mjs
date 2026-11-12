@@ -286,7 +286,7 @@ async function setup({ platform = 'Linux x86_64', startup = null,
       wireModelPicker: () => ({ refresh() {}, hideMenu() {}, invalidatePending() {}, showPrompt() {} }),
     },
   };
-  const main = new vm.SourceTextModule((await readFile(new URL('../web/js/main.js', import.meta.url), 'utf8')) + '\nexport { runAsk, askMemory, askThread, saveCurrentPdf };', { context });
+  const main = new vm.SourceTextModule((await readFile(new URL('../web/js/main.js', import.meta.url), 'utf8')) + '\nexport { runAsk, askMemory, askThread, saveCurrentPdf, retryAskTurn, copyAskAnswer };', { context });
   await main.link(async spec => {
     if (
       spec === './search.js' ||
@@ -2441,6 +2441,72 @@ test('clearing during an answer aborts it and prevents late results from restori
   assert.equal(app.ask.askMemory.totalTurns, 0);
   assert.equal(app.ask.askThread.length, 0);
   assert.equal(app.get('ask-status').textContent, clearedStatus);
+});
+
+async function askRetryFixture({ longAnswers = false, failSecond = false } = {}) {
+  const requests = [];
+  let answers = 0;
+  const app = await setup({ loadSettings: () => ({ apiKey: 'k', apiBaseUrl: 'https://mock.invalid/v1' }),
+    fetchResponse: async (_url, init) => {
+      const body = JSON.parse(init.body); requests.push(body);
+      const compact = body.messages[0].content.includes('Compress the following');
+      if (!compact && failSecond && ++answers === 2) return { ok: false, status: 503, json: async () => ({ error: { message: 'Try again' } }) };
+      const content = compact ? 'Earlier questions summarized.' : `Answer ${requests.length}: ${longAnswers ? 'evidence '.repeat(700) : 'proof'}`;
+      return { ok: true, headers: { get: () => 'application/json' }, json: async () => ({ choices: [{ message: { content }, finish_reason: 'stop' }] }) };
+    } });
+  app.viewer.pdf = {}; app.viewer.pageCount = 1; app.viewer.indexedPages = 1;
+  app.viewer.pageTexts = [{ pageNumber: 1, text: 'proof' }];
+  return { app, requests };
+}
+
+test('retrying a middle answer rewinds both the visible thread and request history', async () => {
+  const { app, requests } = await askRetryFixture();
+  for (const question of ['Q1', 'Q2', 'Q3']) await app.ask.runAsk(question);
+  const target = app.ask.askThread[1].root;
+  app.get('ask-turns').listeners.click({ target: { closest: selector => selector === '.ask-turn' ? target : selector === '.ask-retry' ? {} : null } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(Array.from(app.ask.askThread, turn => turn.question), ['Q1', 'Q2']);
+  assert.deepEqual(Array.from(app.ask.askMemory.turns, turn => turn.question), ['Q1', 'Q2']);
+  const sent = JSON.stringify(requests.at(-1).messages);
+  assert.match(sent, /Answer 1/);
+  assert.doesNotMatch(sent, /Q3|Answer 2|Answer 3/);
+});
+
+test('retrying before a compression restores the original earlier context without a future summary', async () => {
+  const { app, requests } = await askRetryFixture({ longAnswers: true });
+  for (let i = 1; i <= 7; i++) await app.ask.runAsk(`Q${i}`);
+  assert.ok(app.ask.askMemory.summary);
+  app.ask.retryAskTurn(app.ask.askThread[1].root);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.ask.askMemory.summary, '');
+  assert.equal(app.ask.askMemory.totalTurns, 2);
+  assert.deepEqual(Array.from(app.ask.askThread, turn => turn.question), ['Q1', 'Q2']);
+  assert.doesNotMatch(JSON.stringify(requests.at(-1).messages), /Earlier questions summarized|Q3|Q7/);
+});
+
+test('retrying a failed turn removes subsequent successes from the context', async () => {
+  const { app, requests } = await askRetryFixture({ failSecond: true });
+  for (const question of ['Q1', 'Q2', 'Q3']) await app.ask.runAsk(question);
+  assert.equal(app.ask.askMemory.totalTurns, 2);
+  app.ask.retryAskTurn(app.ask.askThread[1].root);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(Array.from(app.ask.askMemory.turns, turn => turn.question), ['Q1', 'Q2']);
+  assert.doesNotMatch(JSON.stringify(requests.at(-1).messages), /Q3/);
+});
+
+test('copy feedback resets independently for separate answers', async () => {
+  const app = await setup();
+  const makeRoot = text => {
+    const button = { dataset: {} };
+    return { button, querySelector: selector => selector === '.ask-copy' ? button : { textContent: text } };
+  };
+  const a = makeRoot('A'), b = makeRoot('B');
+  await app.ask.copyAskAnswer(a); await app.ask.copyAskAnswer(b);
+  assert.equal(a.button.dataset.copyState, 'success');
+  assert.equal(b.button.dataset.copyState, 'success');
+  app.runTimer(); app.runTimer();
+  assert.equal(a.button.dataset.copyState, 'idle');
+  assert.equal(b.button.dataset.copyState, 'idle');
 });
 
 

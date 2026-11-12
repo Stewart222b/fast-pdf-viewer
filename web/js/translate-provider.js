@@ -176,13 +176,18 @@ export async function translateWithProvider(
     throw new Error(t("textTooLong", { count: trimmed.length, max: MAX_TRANSLATE_CHARS }));
   }
 
+  let previous = "";
   return completeChat(settings, {
     disableReasoning: true,
     messages: buildTranslationMessages(trimmed, settings.targetLang, mode),
     signal,
     timeoutMs,
-    // Drop reasoning metadata even if a proxy ignores the disable parameter.
-    onDelta: (partial) => onDelta?.(partial),
+    // Reasoning-only frames must not redraw an unchanged translation/caret.
+    onDelta: (partial) => {
+      if (partial === previous) return;
+      previous = partial;
+      onDelta?.(partial);
+    },
     temperature: 0.1,
   });
 }

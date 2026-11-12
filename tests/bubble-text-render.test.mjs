@@ -39,6 +39,10 @@ function element(tagName = "div") {
       el.children = [];
     },
   });
+  Object.defineProperties(el, {
+    firstChild: { get() { return el.children[0] || null; } },
+    lastChild: { get() { return el.children.at(-1) || null; } },
+  });
   return el;
 }
 
@@ -104,6 +108,17 @@ test("renderBubbleTranslation keeps HTML and links as plain text", () => {
   });
 });
 
+test("pipe prose followed by a horizontal rule or mismatched table separator stays prose", () => {
+  withDocument(() => {
+    const el = sourceEl();
+    renderMarkdown(el, "Use foo | bar\n---\nmore | text");
+    assert.deepEqual(el.children.map(node => node.tagName), ["P", "HR", "P"]);
+    assert.equal(el.textContent, "Use foo | barmore | text");
+    renderMarkdown(el, "| A | B |\n| --- | --- | --- |\n| 1 | 2 |");
+    assert.equal(el.children.some(node => node.className === "md-table"), false);
+  });
+});
+
 test("renderBubbleTranslation formats headings, quotes, and fenced code blocks", () => {
   withDocument(() => {
     const el = sourceEl();
@@ -120,6 +135,24 @@ test("renderBubbleTranslation leaves streaming markdown raw until completion", (
     renderBubbleTranslation(el, "**partial**", "term", { streaming: true });
     assert.equal(el.children[0].textContent, "**partial**");
     assert.equal(el.children[1].className, "translate-caret");
+  });
+});
+
+test("streamed translation updates reuse the caret and text node instead of restarting animation", () => {
+  withDocument(() => {
+    const el = sourceEl();
+    renderBubbleTranslation(el, "", "passage", { streaming: true });
+    const text = el.firstChild, caret = el.lastChild;
+    for (const partial of ["", "hello", "hello", "hello world"]) {
+      renderBubbleTranslation(el, partial, "passage", { streaming: true });
+      assert.equal(el.firstChild, text);
+      assert.equal(el.lastChild, caret);
+      assert.equal(text.textContent, partial);
+    }
+    renderBubbleTranslation(el, "hello world", "passage");
+    assert.notEqual(el.lastChild, caret);
+    renderBubbleTranslation(el, "new request", "passage", { streaming: true });
+    assert.notEqual(el.lastChild, caret);
   });
 });
 

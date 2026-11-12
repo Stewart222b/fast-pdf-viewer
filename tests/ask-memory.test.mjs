@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createAskMemory, clearAskMemory, compactAskMemory, rememberAskTurn, estimateTokens } from "../web/js/ask-memory.js";
+import { createAskMemory, clearAskMemory, compactAskMemory, rememberAskTurn, estimateTokens, snapshotAskMemory, restoreAskMemory } from "../web/js/ask-memory.js";
 import { modelContextWindow, rememberModelContexts } from "../web/js/model-context.js";
 
 const settings = { apiKey: "k", apiBaseUrl: "https://memory.invalid/v1", model: "test" };
@@ -16,6 +16,23 @@ test("history retains more than four full turns and preserves long answers", asy
   const usage = await compactAskMemory(memory, settings);
   assert.equal(usage.requests, 0);
   assert.equal(memory.turns.length, 8);
+});
+
+test("restoring a turn checkpoint removes newer summaries and invalidates pending memory writes", () => {
+  const memory = createAskMemory();
+  memory.fingerprint = "document|1";
+  rememberAskTurn(memory, "earlier", "original answer");
+  const checkpoint = snapshotAskMemory(memory);
+  rememberAskTurn(memory, "later", "discarded answer");
+  memory.summary = "Later summary must not survive a retry";
+  const revision = memory.revision;
+  restoreAskMemory(memory, checkpoint);
+  assert.ok(memory.revision > revision);
+  assert.equal(memory.summary, "");
+  assert.equal(memory.totalTurns, 1);
+  assert.deepEqual(memory.turns.map(turn => turn.question), ["earlier"]);
+  rememberAskTurn(memory, "replacement", "replacement answer");
+  assert.equal(checkpoint.turns.length, 1);
 });
 
 test("context metadata is scoped to endpoint and model with a conservative fallback", () => {

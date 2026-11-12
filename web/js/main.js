@@ -7,7 +7,7 @@ import {
   readingFingerprint,
   saveReadingPosition,
 } from "./reading-position.js";
-import { askDocument, clearAskMemory, createAskMemory } from "./ask-document.js";
+import { askDocument, clearAskMemory, createAskMemory, snapshotAskMemory, restoreAskMemory } from "./ask-document.js";
 import { cacheHitPercent, formatCompactCount } from "./openai-chat.js";
 import { renderThinking } from "./thinking-view.js";
 import { highlightSnippet, searchDocument } from "./search.js";
@@ -403,7 +403,6 @@ let askHits = [];
 let askCitationIndex = -1;
 let askAbort = null;
 let askGeneration = 0;
-let askLastQuestion = "";
 const askMemory = createAskMemory();
 let askDocumentId = 0;
 const askThread = [];
@@ -416,7 +415,7 @@ let askMeterOpen = false;
 let askMoreOpen = false;
 let askEffortOpen = false;
 let askEffortRevision = 0;
-let askCopyTimer = 0;
+const askCopyTimers = new WeakMap();
 let outlineTitles = [];
 let outlineEntries = [];
 
@@ -1742,11 +1741,12 @@ async function copyAskAnswer(root) {
     if (button) {
       button.dataset.copyState = "success";
       button.title = t("copied");
-      clearTimeout(askCopyTimer);
-      askCopyTimer = setTimeout(() => {
+      clearTimeout(askCopyTimers.get(button));
+      askCopyTimers.set(button, setTimeout(() => {
         button.dataset.copyState = "idle";
         button.title = t("askCopy");
-      }, 1500);
+        askCopyTimers.delete(button);
+      }, 1500));
     }
   } catch {
     setAskStatus(t("copyFailureAnnouncement"), { error: true });
@@ -1782,7 +1782,6 @@ function clearAskSession() {
   askGeneration += 1;
   askHits = [];
   askCitationIndex = -1;
-  askLastQuestion = "";
   viewer.clearHits();
   clearAskMemory(askMemory);
   resetAskThread();
@@ -1850,12 +1849,24 @@ function startAskTurn(question) {
   releaseAskLiveIds();
   const root = createAskTurnNode(question);
   $("ask-turns")?.appendChild(root);
-  const turn = { question, root, hits: [] };
+  const turn = { question, root, hits: [], memoryBefore: snapshotAskMemory(askMemory) };
   askThread.push(turn);
   syncAskPlaceholder();
   syncAskMore();
   scrollAskThread(true);
   return turn;
+}
+
+function retryAskTurn(root) {
+  const index = askThread.findIndex(turn => turn.root === root);
+  if (index < 0) return;
+  const turn = askThread[index];
+  cancelAsk();
+  askGeneration += 1;
+  restoreAskMemory(askMemory, turn.memoryBefore);
+  for (const removed of askThread.splice(index)) removed.root.remove();
+  viewer.clearHits();
+  void runAsk(turn.question);
 }
 
 function setAskStatus(message, { error = false } = {}) {
@@ -1995,7 +2006,6 @@ function clearAskUi({ keepQuestion = true } = {}) {
   askCitationIndex = -1;
   askGeneration += 1;
   if (!keepQuestion) {
-    askLastQuestion = "";
     if ($("ask-input")) $("ask-input").value = "";
   }
   setAskStatus("");
@@ -2089,7 +2099,6 @@ async function runAsk(question = $("ask-input")?.value || "") {
     setAskStatus(t("noFile"), { error: true });
     return;
   }
-  askLastQuestion = trimmed;
   if ($("ask-input")) $("ask-input").value = "";
   syncAskInputSize();
   cancelAsk();
@@ -2520,8 +2529,7 @@ $("ask-turns")?.addEventListener("click", event => {
     return;
   }
   if (event.target.closest(".ask-retry")) {
-    const question = turn.querySelector(".ask-turn-question")?.textContent || askLastQuestion;
-    runAsk(question);
+    retryAskTurn(turn);
     return;
   }
   if (event.target.closest(".ask-setup")) openSettings();

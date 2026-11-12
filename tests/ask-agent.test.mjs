@@ -120,6 +120,27 @@ test("reading rounds stop at the budget and force an evidence-limited final answ
   } finally { globalThis.fetch = original; }
 });
 
+test("a final-round tool_choice rejection falls back once using plain evidence messages", async () => {
+  const original = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body); requests.push(body);
+    if (body.tool_choice === "none") return { ok: false, status: 400, json: async () => ({ error: { message: "tool_choice none unsupported" } }) };
+    if (body.tools) return jsonResponse(call("search_document", { query: "missing" }, `c${requests.length}`));
+    assert.equal(body.messages.some(message => message.role === "tool" || message.tool_calls), false);
+    assert.match(JSON.stringify(body.messages), /Local document tool result/);
+    assert.match(body.messages.at(-1).content, /Reading budget reached/);
+    return jsonResponse({ content: "No evidence was found within the reading budget." });
+  };
+  try {
+    const result = await askDocument({ settings, question: "missing", pageTexts: pages });
+    assert.equal(result.budgetReached, true);
+    assert.match(result.answer, /No evidence/);
+    assert.equal(requests.length, MAX_AGENT_ROUNDS + 2);
+    assert.equal(requests.at(-1).messages[0].content, requests[0].messages[0].content);
+  } finally { globalThis.fetch = original; }
+});
+
 test("cancelling after a tool result prevents the next API request", async () => {
   const original = globalThis.fetch;
   const controller = new AbortController();

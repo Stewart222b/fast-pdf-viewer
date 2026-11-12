@@ -23,6 +23,7 @@ test("all eight interface catalogs cover every message and retain interpolation 
   const fields = text => [...text.matchAll(/\{(\w+)\}/g)].map(match => match[1]).sort();
   assert.equal(INTERFACE_LANGUAGES.length, 8);
   for (const [locale] of INTERFACE_LANGUAGES) {
+    assert.doesNotMatch(messages[locale].ask, /beta|bêta/i, `${locale}: Ask is no longer beta`);
     assert.deepEqual(Object.keys(messages[locale]).sort(), keys, locale);
     for (const key of keys) {
       assert.equal(typeof messages[locale][key], "string", `${locale}.${key}`);
