@@ -3739,7 +3739,10 @@ function focusableIn(container) {
     'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
   );
   const list = nodes ? [...nodes] : [];
-  return list.filter((el) => !el.hidden && el.getAttribute?.("aria-hidden") !== "true");
+  return list.filter((el) => !el.hidden
+    && el.getAttribute?.("tabindex") !== "-1"
+    && el.getAttribute?.("aria-hidden") !== "true"
+    && !el.closest?.("[hidden]"));
 }
 
 function trapModalTab(event, container) {
@@ -3821,6 +3824,74 @@ function closeDocumentProperties(restore = true) {
   lastDocPropertiesTrigger = null;
 }
 
+/* 设置面板的三个分节：切换只动 aria-selected / hidden，非活动面板整块 hidden，
+   Tab 因此只会走进当前分节。分节是“地方”而不是装饰，切换后焦点留在导航上。 */
+const queryAll = (selector) => {
+  try {
+    const nodes = document.querySelectorAll?.(selector);
+    return nodes ? [...nodes] : [];
+  } catch {
+    return [];
+  }
+};
+const SETTINGS_PANE_STORAGE_KEY = "fast-pdf-viewer-settings-pane";
+const readStoredSettingsPane = () => {
+  try {
+    return globalThis.localStorage?.getItem?.(SETTINGS_PANE_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+};
+const storeSettingsPane = (key) => {
+  try {
+    globalThis.localStorage?.setItem?.(SETTINGS_PANE_STORAGE_KEY, key);
+  } catch {
+    /* The pane is a convenience, not a saved setting: a blocked store must not break the dialog. */
+  }
+};
+const settingsTabs = queryAll("[data-settings-tab]");
+const settingsPanes = queryAll("[data-settings-panel]");
+let settingsPane = readStoredSettingsPane() || settingsTabs[0]?.dataset.settingsTab || "service";
+
+function showSettingsPane(key, focusTab = false) {
+  if (settingsPanes.length && !settingsPanes.some((pane) => pane.dataset.settingsPanel === key)) {
+    key = settingsPanes[0].dataset.settingsPanel;
+  }
+  settingsPane = key;
+  storeSettingsPane(key);
+  for (const tab of settingsTabs) {
+    const selected = tab.dataset.settingsTab === key;
+    tab.setAttribute("aria-selected", selected ? "true" : "false");
+    tab.tabIndex = selected ? 0 : -1;
+  }
+  for (const pane of settingsPanes) pane.hidden = pane.dataset.settingsPanel !== key;
+  const panes = $("settings-modal")?.querySelector?.(".settings-panes");
+  if (panes) panes.scrollTop = 0;
+  if (focusTab) settingsTabs.find((tab) => tab.dataset.settingsTab === key)?.focus?.();
+}
+
+for (const tab of settingsTabs) {
+  tab.addEventListener("click", () => showSettingsPane(tab.dataset.settingsTab));
+  tab.addEventListener("keydown", (event) => {
+    const step = event.key === "ArrowDown" || event.key === "ArrowRight"
+      ? 1
+      : (event.key === "ArrowUp" || event.key === "ArrowLeft" ? -1 : 0);
+    const edge = event.key === "Home" ? 0 : (event.key === "End" ? settingsTabs.length - 1 : -1);
+    if (!step && edge < 0) return;
+    event.preventDefault();
+    const index = edge >= 0
+      ? edge
+      : (settingsTabs.indexOf(tab) + step + settingsTabs.length) % settingsTabs.length;
+    showSettingsPane(settingsTabs[index].dataset.settingsTab, true);
+  });
+}
+
+function focusOpenSettingsPane() {
+  const pane = $("settings-modal")?.querySelector?.(".settings-pane:not([hidden])");
+  const target = focusableIn(pane)[0] || $("setting-key") || $("settings-modal");
+  target.focus?.();
+}
+
 function openSettings() {
   $("settings-error").hidden = true;
   settings = loadSettings();
@@ -3847,9 +3918,10 @@ function openSettings() {
   } catch {
     /* ignore */
   }
+  showSettingsPane(settingsPane);
   modelPicker.showPrompt?.();
-  // Initial focus goes inside the dialog, not the background trigger.
-  ($("setting-key") || $("settings-modal")).focus?.();
+  // Initial focus goes inside the dialog, on the first control of the open pane.
+  focusOpenSettingsPane();
 }
 
 function closeSettings(restore = true) {
@@ -3907,6 +3979,9 @@ $("pdf-password-modal")?.addEventListener("keydown", (event) => {
   event.stopPropagation();
 });
 $("btn-settings-cancel").addEventListener("click", () => {
+  closeSettings();
+});
+$("btn-settings-close")?.addEventListener("click", () => {
   closeSettings();
 });
 $("btn-clear-reading-positions").addEventListener("click", () => {

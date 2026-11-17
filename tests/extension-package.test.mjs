@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import {
   GENERATED_MARKER_NAME,
   buildExtension,
+  withTransientRetry,
 } from "../scripts/build-extension.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -218,4 +219,46 @@ test("rejects with a clear error when neither zip nor tar is available", async (
       await rm(emptyDir, { recursive: true, force: true });
     }
   });
+});
+
+test("retries a transient Windows lock and rethrows anything else at once", async () => {
+  // An antivirus or indexer handle turns a rename or rmdir of freshly written
+  // output into EPERM/ENOTEMPTY for a few hundred milliseconds. The build must
+  // absorb that instead of failing the whole package.
+  let attempts = 0;
+  const value = await withTransientRetry(async () => {
+    attempts += 1;
+    if (attempts < 3) {
+      const error = new Error("operation not permitted");
+      error.code = "EPERM";
+      throw error;
+    }
+    return "recovered";
+  });
+  assert.equal(value, "recovered");
+  assert.equal(attempts, 3, "the operation is retried until it succeeds");
+
+  let permanentAttempts = 0;
+  await assert.rejects(
+    withTransientRetry(async () => {
+      permanentAttempts += 1;
+      const error = new Error("no such file or directory");
+      error.code = "ENOENT";
+      throw error;
+    }),
+    /no such file or directory/,
+  );
+  assert.equal(permanentAttempts, 1, "a real error is not retried");
+
+  let exhausted = 0;
+  await assert.rejects(
+    withTransientRetry(async () => {
+      exhausted += 1;
+      const error = new Error("still locked");
+      error.code = "ENOTEMPTY";
+      throw error;
+    }, 3),
+    /still locked/,
+  );
+  assert.equal(exhausted, 3, "the retry budget is bounded");
 });

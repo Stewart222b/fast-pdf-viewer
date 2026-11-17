@@ -74,6 +74,28 @@ async function pathInfo(path) {
   }
 }
 
+// Windows intermittently refuses to rename or remove a directory we just
+// wrote: an antivirus scan, the search indexer, or Explorer can hold a handle
+// for a few hundred milliseconds. Node surfaces that as EPERM/EBUSY, and as
+// ENOTEMPTY when the handle is on a child. Those are transient and the path is
+// ours, so retry; every other error still fails fast.
+const TRANSIENT_FS_ERROR_CODES = new Set(["EPERM", "EACCES", "EBUSY", "ENOTEMPTY", "EMFILE", "ENFILE"]);
+
+export async function withTransientRetry(operation, attempts = 14) {
+  // Budget: 100+150+225+… capped at 1000 ms per wait, ≈ 8 s over 13 waits.
+  // Observed holds on this machine reach several seconds when an antivirus
+  // scan or the indexer picks up the freshly written staging tree.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!TRANSIENT_FS_ERROR_CODES.has(error.code) || attempt >= attempts) throw error;
+      const wait = Math.min(1000, Math.round(100 * 1.5 ** (attempt - 1)));
+      await new Promise((resolveWait) => setTimeout(resolveWait, wait));
+    }
+  }
+}
+
 async function requireDirectory(path, label) {
   const info = await pathInfo(path);
   if (!info || !info.isDirectory() || info.isSymbolicLink()) {
@@ -280,7 +302,7 @@ async function removeOwnedPath(path, parent, prefix) {
   if (dirname(path) !== resolve(parent) || !path.split(sep).pop().startsWith(prefix)) {
     throw new Error(`Refusing to remove an unscoped generated path: ${path}`);
   }
-  await rm(path, { recursive: true, force: true });
+  await withTransientRetry(() => rm(path, { recursive: true, force: true }));
 }
 
 async function replaceGeneratedDirectory(staging, output, root, dist) {
@@ -302,14 +324,14 @@ async function replaceGeneratedDirectory(staging, output, root, dist) {
   let movedExisting = false;
   try {
     if (existing) {
-      await rename(output, backup);
+      await withTransientRetry(() => rename(output, backup));
       movedExisting = true;
     }
-    await rename(staging, output);
+    await withTransientRetry(() => rename(staging, output));
   } catch (error) {
     if (movedExisting) {
       try {
-        await rename(backup, output);
+        await withTransientRetry(() => rename(backup, output));
       } catch (restoreError) {
         error.message += ` Failed to restore the previous generated output: ${restoreError.message}`;
       }
@@ -397,28 +419,28 @@ async function replaceGeneratedZip(stagingZip, zipPath, dist) {
   const backupZip = join(dist, `${ZIP_STAGING_PREFIX}previous-${Date.now()}-${Math.random().toString(16).slice(2)}.zip`);
   const backupMarker = `${backupZip}.marker`;
   const markerStaging = `${stagingZip}.marker`;
-  await writeFile(markerStaging, ZIP_MARKER, { flag: "wx" });
+  await withTransientRetry(() => writeFile(markerStaging, ZIP_MARKER, { flag: "wx" }));
   let movedZip = false;
   let movedMarker = false;
   try {
     if (existingZip) {
-      await rename(zipPath, backupZip);
+      await withTransientRetry(() => rename(zipPath, backupZip));
       movedZip = true;
     }
     if (existingMarker) {
-      await rename(markerPath, backupMarker);
+      await withTransientRetry(() => rename(markerPath, backupMarker));
       movedMarker = true;
     }
-    await rename(stagingZip, zipPath);
-    await rename(markerStaging, markerPath);
+    await withTransientRetry(() => rename(stagingZip, zipPath));
+    await withTransientRetry(() => rename(markerStaging, markerPath));
   } catch (error) {
     try {
       if (await pathInfo(zipPath)) await removeOwnedPath(zipPath, dist, ZIP_NAME);
     } catch {
       // Preserve the original failure; the path is still fixed and scoped.
     }
-    if (movedZip) await rename(backupZip, zipPath);
-    if (movedMarker) await rename(backupMarker, markerPath);
+    if (movedZip) await withTransientRetry(() => rename(backupZip, zipPath));
+    if (movedMarker) await withTransientRetry(() => rename(backupMarker, markerPath));
     throw error;
   }
   if (movedZip) await removeOwnedPath(backupZip, dist, ZIP_STAGING_PREFIX);

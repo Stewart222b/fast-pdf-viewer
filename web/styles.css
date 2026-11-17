@@ -2507,29 +2507,6 @@ html.bubble-edge-resize * {
   display: none !important;
 }
 
-.modal-card label.setting-checkbox {
-  display: inline-flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-  color: var(--text);
-  cursor: pointer;
-}
-
-.modal-card label.setting-checkbox input[type="checkbox"] {
-  display: inline-block;
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  flex: 0 0 auto;
-}
-
-.modal-card label.setting-checkbox .setting-checkbox-label {
-  flex: 0 0 auto;
-  line-height: 1.4;
-}
-
 .bubble-source,
 .bubble-result {
   margin-top: 0;
@@ -2683,26 +2660,6 @@ html.bubble-edge-resize * {
   font-size: 12px;
 }
 
-.settings-advanced {
-  margin: 4px 0 12px;
-  border-top: 1px solid var(--line);
-  padding: 12px 0 0;
-}
-
-.settings-advanced summary {
-  cursor: pointer;
-  color: var(--text);
-  font-size: 13px;
-}
-
-.settings-advanced .hint.compact {
-  margin: 8px 0;
-}
-
-.settings-advanced .setting-field:last-child {
-  margin-bottom: 0;
-}
-
 .viewer-status {
   position: absolute;
   inset: 0;
@@ -2818,22 +2775,6 @@ html.bubble-edge-resize * {
 
 .reading-notice-close {
   flex: 0 0 auto;
-}
-
-.settings-section {
-  margin: 0 0 12px;
-}
-
-.settings-section + .settings-section {
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-}
-
-.modal-card .settings-section-title {
-  margin: 0 0 10px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
 }
 
 .bubble-passage p {
@@ -2988,55 +2929,6 @@ html.bubble-edge-resize * {
   color: var(--muted);
 }
 
-.modal-card .setting-field {
-  display: block;
-  margin-bottom: 12px;
-}
-
-.modal-card .setting-label {
-  display: inline-block;
-  margin-bottom: 0;
-}
-
-.modal-card .setting-label-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.modal-card .setting-action {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  margin: 0;
-  padding: 4px 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.3;
-  text-align: left;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.modal-card .setting-action:hover:not(:disabled) {
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.modal-card .setting-action:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-
-.modal-card .setting-action-danger {
-  color: var(--danger);
-}
-
 .modal-card input,
 .modal-card select {
   display: block;
@@ -3070,10 +2962,10 @@ html.bubble-edge-resize * {
   min-width: 12px;
 }
 
-/* 卡片底部不再留 padding（由 .modal-actions 自带），所以跟在它后面的错误提示
-   要自己补上底边距。 */
+/* The settings dialog carries its own footer row, so the error sits above the
+   buttons instead of after them. */
 #settings-error {
-  margin-bottom: 20px;
+  margin: 0;
 }
 
 .modal-link {
@@ -3166,6 +3058,361 @@ html.bubble-edge-resize * {
   font-size: 12px;
   color: var(--muted);
   margin-top: 2px;
+}
+
+/* ---- 设置对话框：左侧分节 + 右侧逐行开关 ----------------------------------
+   三个主题共用一套外壳：左边一列只负责“这是哪儿”，右边面板滚动，保存行钉在
+   底部。行内左说是“改什么”，右侧单一控件靠同一条右边缘对齐，眼睛扫标签即可。
+   字号一律用 em，跟随卡片 font-size 在大屏上整体放大。 */
+
+/* 一个尺寸给三个分节：高度取视口而不是内容，切换分节时面板不会在指针下
+   变高变矮；装不下的分节在面板内部滚动（同 DSH 的设置面板）。 */
+#settings-modal .modal-card {
+  width: min(880px, calc(100vw - 32px));
+  height: min(600px, calc(100dvh - 40px));
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+}
+
+.settings-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 3.85em;
+  padding: 0 0.77em 0 1.54em;
+}
+
+#settings-modal h2 {
+  margin: 0;
+  font-size: 1.31em;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.settings-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 2.3em;
+  height: 2.3em;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.settings-close .icon {
+  width: 1.15em;
+  height: 1.15em;
+}
+
+.settings-close:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.settings-body {
+  display: grid;
+  grid-template-columns: 14.2em minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  padding: 1.08em 0.92em 1.08em 0.77em;
+  overflow-y: auto;
+}
+
+.settings-tab {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 2.6em;
+  padding: 0 0.77em;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 1em;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-tab:hover {
+  color: var(--text);
+}
+
+.settings-tab[aria-selected="true"] {
+  color: var(--text);
+  background: var(--bg-hover);
+  font-weight: 500;
+}
+
+.settings-close:focus-visible,
+.settings-tab:focus-visible,
+.settings-row-action:focus-visible,
+.settings-row-danger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.settings-panes {
+  min-width: 0;
+  min-height: 0;
+  padding: 1.15em 1.54em 1.54em;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.settings-pane[hidden] {
+  display: none;
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 15.4em);
+  align-items: start;
+  gap: 1.54em;
+  padding: 1.15em 0;
+}
+
+.settings-row + .settings-row,
+.settings-note + .settings-row {
+  border-top: 1px solid var(--line);
+}
+
+.settings-row-text {
+  min-width: 0;
+}
+
+/* 标签本身也是 label 元素，需要压过 .modal-card label 的通用规则。 */
+#settings-modal .settings-row-label {
+  display: block;
+  margin: 0;
+  color: var(--text);
+  font-size: 1em;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.settings-row-desc {
+  margin: 0.3em 0 0;
+  max-width: 46ch;
+  color: var(--muted);
+  font-size: 0.92em;
+  line-height: 1.5;
+}
+
+.settings-row-note {
+  margin: 0.4em 0 0;
+  color: var(--muted);
+  font-size: 0.92em;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.settings-row-note:empty {
+  display: none;
+}
+
+.settings-row-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.settings-row-control > input,
+.settings-row-control > select,
+.settings-row-control > .model-picker {
+  width: 100%;
+  min-width: 0;
+}
+
+.settings-row-control input,
+.settings-row-control select {
+  margin-top: 0;
+}
+
+.settings-row-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.9em;
+  margin: 0.23em 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.92em;
+  line-height: 1.3;
+  cursor: pointer;
+}
+
+.settings-row-action:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.settings-row-action:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.settings-row-danger {
+  border-color: var(--line);
+  color: var(--danger);
+  font-size: 0.92em;
+  height: 2.46em;
+}
+
+.settings-row-danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: transparent;
+}
+
+.settings-note {
+  margin: 0 0 0.92em;
+  max-width: 58ch;
+  color: var(--muted);
+  font-size: 0.92em;
+  line-height: 1.6;
+}
+
+/* 开关：轨道用细线描边、滑块贴着轨道内缘，不用阴影堆体积。 */
+.settings-row .switch {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  width: 2.6em;
+  height: 1.54em;
+  margin: 0.15em 0 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--line);
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.settings-row .switch::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0.15em;
+  width: 1.08em;
+  height: 1.08em;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 1px rgb(0 0 0 / 22%);
+  transform: translateY(-50%);
+  transition: left 140ms cubic-bezier(0.16, 1, 0.3, 1), background-color 120ms ease;
+}
+
+.settings-row .switch:checked {
+  background: var(--accent-strong);
+  border-color: transparent;
+}
+
+.settings-row .switch:checked::after {
+  left: calc(100% - 1.23em);
+}
+
+.settings-row .switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.settings-foot {
+  display: grid;
+  gap: 0.77em;
+  padding: 1.08em 1.54em 1.15em;
+}
+
+#settings-modal .modal-actions {
+  position: static;
+  margin: 0;
+  padding: 0;
+  border-top: 0;
+  background: none;
+}
+
+#settings-modal #settings-error {
+  margin: 0;
+  font-size: 0.92em;
+  line-height: 1.5;
+}
+
+@media (max-width: 720px) {
+  #settings-modal .modal-card {
+    width: calc(100vw - 16px);
+    height: min(600px, calc(100dvh - 16px));
+  }
+
+  .settings-head {
+    padding-left: 1.15em;
+  }
+
+  .settings-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .settings-nav {
+    flex-direction: row;
+    align-items: center;
+    gap: 2px;
+    padding: 0.46em 0.62em;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .settings-tab {
+    width: auto;
+    flex: 0 0 auto;
+    padding: 0 0.77em;
+    white-space: nowrap;
+  }
+
+  .settings-panes {
+    padding: 1.15em 1.15em 1.23em;
+  }
+
+  .settings-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 14em);
+    gap: 1.15em;
+  }
+
+  .settings-foot {
+    padding: 0.77em 1.15em;
+  }
+}
+
+@media (max-width: 520px) {
+  .settings-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.62em;
+  }
+
+  .settings-row-control {
+    justify-content: flex-start;
+  }
 }
 
 ::-webkit-scrollbar {
@@ -3706,8 +3953,6 @@ summary:focus-visible,
 
   .modal-card .hint,
   .modal-card label,
-  .modal-card .setting-action,
-  .settings-advanced summary,
   .modal-link {
     font-size: 14px;
   }
@@ -3718,18 +3963,15 @@ summary:focus-visible,
     padding: 12px;
   }
 
-  .modal-card label.setting-checkbox input[type="checkbox"] {
-    width: 18px;
-    height: 18px;
-  }
-
   .modal-actions {
     margin: 18px -24px 0;
     padding: 14px 24px 24px;
   }
 
-  .settings-section-title {
-    font-size: 13px;
+  #settings-modal .modal-card {
+    width: min(960px, calc(100vw - 48px));
+    height: min(660px, calc(100dvh - 48px));
+    font-size: 15px;
   }
 
   .model-picker-status {
@@ -3987,8 +4229,6 @@ summary:focus-visible,
 
   .modal-card .hint,
   .modal-card label,
-  .modal-card .setting-action,
-  .settings-advanced summary,
   .modal-link {
     font-size: 15px;
   }
@@ -3999,18 +4239,15 @@ summary:focus-visible,
     padding: 14px;
   }
 
-  .modal-card label.setting-checkbox input[type="checkbox"] {
-    width: 20px;
-    height: 20px;
-  }
-
   .modal-actions {
     margin: 20px -28px 0;
     padding: 16px 28px 28px;
   }
 
-  .settings-section-title {
-    font-size: 14px;
+  #settings-modal .modal-card {
+    width: min(1080px, calc(100vw - 64px));
+    height: min(720px, calc(100dvh - 64px));
+    font-size: 16px;
   }
 
   .model-picker-status {
@@ -4313,8 +4550,6 @@ summary:focus-visible,
 
   .modal-card .hint,
   .modal-card label,
-  .modal-card .setting-action,
-  .settings-advanced summary,
   .modal-link {
     font-size: 17px;
   }
@@ -4325,18 +4560,15 @@ summary:focus-visible,
     padding: 16px;
   }
 
-  .modal-card label.setting-checkbox input[type="checkbox"] {
-    width: 22px;
-    height: 22px;
-  }
-
   .modal-actions {
     margin: 24px -32px 0;
     padding: 18px 32px 32px;
   }
 
-  .settings-section-title {
-    font-size: 16px;
+  #settings-modal .modal-card {
+    width: min(1240px, calc(100vw - 96px));
+    height: min(800px, calc(100dvh - 96px));
+    font-size: 18px;
   }
 
   .model-picker-status {

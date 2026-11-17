@@ -60,7 +60,7 @@
         <section class="privacy-section" aria-labelledby="storage-title">
           <h2 id="storage-title">本地设置与阅读进度</h2>
           <ul>
-            <li>API Key 保存在浏览器的 <code>chrome.storage.local</code> 中，未加密，也不会同步到其他设备。</li>
+            <li>API Key 保存在浏览器的 <code>chrome.storage.local</code> 中，未加密，也不会同步到其他设备。它不会被发送给本扩展的作者或任何第三方服务，只会在你发起检查模型列表、划词翻译或问答时，作为请求的身份验证信息发送给你在设置中配置的那个 API 服务。</li>
             <li>扩展不包含分析、广告或遥测代码。</li>
             <li>扩展内的阅读进度保存在扩展自身同源的 <code>localStorage</code> 中，不与普通网页版共用。文档标识不包含明文原始 URL；记录在 30 天后过期，最多保留 100 份文档，也可在阅读器设置中清除。</li>
             <li>卸载扩展会清除扩展设置以及扩展页面保存的本地阅读进度。</li>

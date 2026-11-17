@@ -95,3 +95,55 @@ test("extension startup error strings exist in both locales", () => {
   setLocale("zh-CN");
   assert.match(t("extensionOriginNotGranted", { origin: "https://example.com" }), /example\.com/);
 });
+
+test("the API key hint never claims the key stays on the device", async () => {
+  // openAiRequestHeaders sends the key to the configured endpoint as
+  // `Authorization: Bearer …`, so "never uploaded" would be a false promise.
+  // Every catalog must instead say where the key actually goes. Note that the
+  // same sentences legitimately say the *PDF file* is never uploaded, so only
+  // the key-specific hint is checked for a false claim.
+  const falseClaims = {
+    "zh-CN": /不(?:会上传|會上傳)|不上传|不上傳/,
+    "zh-TW": /不(?:会上传|會上傳)|不上传|不上傳/,
+    en: /never\s+(?:uploaded|sent|transmitted)/i,
+    ja: /送信されることはありません|アップロードしません/,
+    ko: /업로드되지 않|전송되지 않/,
+    de: /nie\s+(?:hochgeladen|gesendet|übertragen)/i,
+    fr: /jamais\s+(?:envoyée|téléversée|transmise)/i,
+    es: /nunca\s+se\s+(?:envía|sube|transmite)/i,
+  };
+  const hintDestination = {
+    "zh-CN": /发送到你配置的 API 服务/,
+    "zh-TW": /僅傳送至你設定的 API 服務/,
+    en: /sent solely to the API service you configure/,
+    ja: /設定した API サービスにのみ送信/,
+    ko: /설정한 API 서비스로만 전송/,
+    de: /an den von dir konfigurierten API-Dienst gesendet/,
+    fr: /au service API que vous configurez/,
+    es: /al servicio de API que configures/,
+  };
+  const privacyDestination = {
+    "zh-CN": /Key 只随请求发送到你配置的 API 服务/,
+    "zh-TW": /Key 只隨請求傳送你設定的 API 服務/,
+    en: /key is sent only with requests to the API service you configure/,
+    ja: /Key は設定した API サービスへの要求時にのみ送信/,
+    ko: /Key는 설정한 API 서비스로 보내는 요청에만/,
+    de: /Key wird nur mit Anfragen an den von dir konfigurierten API-Dienst/,
+    fr: /la clé n’est envoyée qu’avec les requêtes adressées au service API que vous configurez/,
+    es: /la clave solo se envía con las solicitudes al servicio de API que configures/,
+  };
+  for (const [locale] of INTERFACE_LANGUAGES) {
+    assert.doesNotMatch(messages[locale].apiKeyHint, falseClaims[locale], `${locale}.apiKeyHint must not claim the key stays local`);
+    assert.match(messages[locale].apiKeyHint, hintDestination[locale], `${locale}.apiKeyHint must name the destination`);
+    assert.match(messages[locale].localPrivacy, privacyDestination[locale], `${locale}.localPrivacy must state where the key goes`);
+  }
+
+  // The static markup mirrors zh-CN so the string is right before i18n runs.
+  const html = await readFile(new URL("../web/index.html", import.meta.url), "utf8");
+  const defaultHint = /data-i18n="apiKeyHint">([^<]+)</.exec(html)?.[1] ?? "";
+  assert.ok(defaultHint, "web/index.html keeps the apiKeyHint default text");
+  assert.doesNotMatch(defaultHint, falseClaims["zh-CN"]);
+  assert.match(defaultHint, hintDestination["zh-CN"]);
+  const defaultNote = /data-i18n="localPrivacy">([^<]+)</.exec(html)?.[1] ?? "";
+  assert.match(defaultNote, privacyDestination["zh-CN"], "the static privacy note matches the catalog");
+});

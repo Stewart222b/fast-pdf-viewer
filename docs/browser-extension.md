@@ -11,6 +11,7 @@ Implemented in this repository:
 - The package is self-contained. The builder does not download PDF.js or any other runtime dependency. `python desktop/bootstrap_pdfjs.py` is only the source-preparation step when the vendored assets are absent; it is not used by the packaged extension.
 - Replacement is staged and atomic. The fixed output is replaced only when its generated marker is recognized; an unmarked `dist/browser-extension/` is left untouched and causes a failure.
 - `--zip` uses the system `zip` executable with argument-array spawning and writes `dist/browser-extension.zip`; when `zip` is unavailable (for example on Windows), it falls back to `tar -a` (bsdtar) with explicit top-level entries so entry names keep their layout.
+- On Windows an antivirus scan, the search indexer, or Explorer can hold a handle on freshly written output, which makes the final `rename` and the staging cleanup fail with `EPERM`, `EBUSY`, or `ENOTEMPTY` for a few hundred milliseconds. `withTransientRetry` absorbs exactly those codes with a short bounded backoff; every other error still fails immediately, so a real permission problem is never hidden.
 
 Not performed or not verified by this task:
 
@@ -73,7 +74,18 @@ Manual Chrome verification: **not performed here**.
 4. Repeat the options, permission, remote-PDF, fallback, rendering, and translation checks above.
 5. Record Edge-specific manifest, MIME-handler, and permission differences before treating the result as release evidence.
 
-Manual Edge verification: **not performed here**.
+Manual Edge verification: **partially performed; translation, permissions, and the fallback path remain unchecked.**
+
+Verified on 2026-11-17 with Edge `151.0.4129.72` (headless, throwaway profile, `--load-extension=dist/browser-extension`):
+
+- The MV3 service worker starts from the packaged `background.js` and resolves `__MSG_*__` through `_locales/en` (`Fast PDF Viewer – AI Translation`, version `0.3.1`). `chrome.storage.local` and `chrome.contextMenus` are both present.
+- `options.html` renders with its controls and reports the selected UI language.
+- The PDF handler opens `web/index.html?file=…` for an HTTP(S) URL and renders the document with the packaged PDF.js: 5 pages, 5 canvases. A `file://` URL is rejected by design (`仅支持不含账号信息的 HTTP(S) 地址`).
+- The settings dialog opens and switches panes inside the packaged build.
+
+Reference screenshots from that run: `docs/media/ui-extension-settings.png` (reader with the settings dialog open) and `docs/media/ui-extension-options.png` (options page).
+
+Still unverified and not claimed: the optional `webRequest` permission prompt, automatic PDF hijacking (the `mime_types_handler` flow), source-host fallback for PDFs that refuse hotlinking, and any translation call against a real provider. Store submission has not been done.
 
 ## Store publication checklist
 
