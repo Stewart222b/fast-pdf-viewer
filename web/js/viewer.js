@@ -291,6 +291,7 @@ export class PdfViewer {
     this.hitGeneration += 1;
     this.navigationGeneration += 1;
     clearTimeout(this.zoomTimer);
+    this.zoomPending = false;
     this.wrapEl.removeEventListener("scroll", this.onScroll);
     this.observer?.disconnect();
     for (const task of this.tasks.values()) task.cancel();
@@ -470,10 +471,11 @@ export class PdfViewer {
   animateZoomRects(previousRects) {
     if (!previousRects?.size || typeof this.pageEls[0]?.animate !== "function") return;
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
-    for (const page of this.pageEls) {
-      const previous = previousRects.get(page);
-      if (!previous) continue;
-      const current = page.getBoundingClientRect();
+    // Read all geometry before starting animations (which invalidate style).
+    const targets = [...previousRects].map(([page, previous]) => ({
+      page, previous, current: page.getBoundingClientRect(),
+    }));
+    for (const { page, previous, current } of targets) {
       if (!current.width || !current.height) continue;
       const dx = previous.left - current.left;
       const dy = previous.top - current.top;
@@ -493,6 +495,11 @@ export class PdfViewer {
   setZoom(mode, { silent = false, keepPage = true } = {}) {
     this.cancelZoomAnimations();
     this.cancelPinch();
+    clearTimeout(this.zoomTimer);
+    this.zoomPending = !silent;
+    // Stop obsolete raster/text work immediately, including observer-started jobs.
+    for (const task of this.tasks.values()) task.cancel();
+    for (const layer of this.textLayers.values()) layer.cancel();
     const anchor = keepPage ? this.captureScrollAnchor() : null;
     this.zoomMode = String(mode);
     this.zoom = this.computeZoom();
@@ -501,13 +508,16 @@ export class PdfViewer {
     for (const layer of this.textLayers.values()) layer.hide();
     for (const el of this.pageEls) {
       delete el.dataset.renderedZoom;
-      el.querySelector(".hlLayer").replaceChildren();
+      const highlights = el.querySelector(".hlLayer");
+      if (this.highlightCount(highlights)) highlights.replaceChildren();
     }
     this.applyPageLayout();
     if (anchor) this.restoreScrollAnchor(anchor);
     if (!silent) {
-      clearTimeout(this.zoomTimer);
-      this.zoomTimer = setTimeout(() => this.renderVisible(true), 80);
+      this.zoomTimer = setTimeout(() => {
+        this.zoomPending = false;
+        this.renderVisible().catch((error) => console.error("PDF rendering failed", error));
+      }, 180);
     } else {
       this.renderVisible(true);
     }
@@ -585,6 +595,7 @@ export class PdfViewer {
 
   bumpZoom(delta) {
     const next = stepZoomPercent(this.zoom * 100, delta > 0 ? 1 : -1);
+    if (next === this.zoom * 100) return String(next);
     const canAnimate = this.pdf && this.pageEls.some(page => typeof page.animate === "function")
       && !window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
     const previousRects = canAnimate ? this.visiblePageRects() : null;
@@ -635,22 +646,23 @@ export class PdfViewer {
   };
 
   async renderVisible(force = false) {
-    if (!this.pageEls.length) return;
+    if (this.pinch || this.zoomPending || !this.pageEls.length) return;
     const viewTop = this.wrapEl.scrollTop - 800;
     const viewBottom = this.wrapEl.scrollTop + this.wrapEl.clientHeight + 800;
-    const jobs = [];
+    const pages = [];
+    // renderPage mutates text layers; do not interleave it with layout reads.
     for (const el of this.pageEls) {
       const top = el.offsetTop;
       const bottom = top + el.offsetHeight;
       if (bottom >= viewTop && top <= viewBottom) {
-        jobs.push(this.renderPage(Number(el.dataset.pageNumber), force));
+        pages.push(Number(el.dataset.pageNumber));
       }
     }
-    await Promise.allSettled(jobs);
+    await Promise.allSettled(pages.map(page => this.renderPage(page, force)));
   }
 
   renderPage(pageNumber, force = false) {
-    if (this.pinch) return Promise.resolve();
+    if (this.pinch || this.zoomPending) return Promise.resolve();
     if (this.bench) this.bench.renderPageCalls += 1;
     const el = this.pageEls[pageNumber - 1];
     const pdf = this.pdf;
@@ -668,7 +680,7 @@ export class PdfViewer {
     const generation = this.generation;
     const job = { key };
     const current = () => generation === this.generation &&
-      this.renderJobs.get(pageNumber) === job && this.zoom === zoom && !this.pinch;
+      this.renderJobs.get(pageNumber) === job && this.zoom === zoom && !this.pinch && !this.zoomPending;
     const prevTask = this.tasks.get(pageNumber);
     if (prevTask) {
       if (this.bench) this.bench.renderTaskCancels += 1;

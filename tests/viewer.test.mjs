@@ -551,7 +551,7 @@ test('zoom invalidates geometry and hides stale text even on offscreen pages', a
   viewer.pageEls = [pageElement(), pageElement()];
   let hidden = 0;
   for (let n = 1; n <= 2; n++) {
-    viewer.textLayers.set(n, { hide() { hidden++; } });
+    viewer.textLayers.set(n, { hide() { hidden++; }, cancel() {} });
     viewer.pageEls[n - 1].querySelector('.hlLayer').children.push({});
     viewer.pageEls[n - 1].dataset.renderedZoom = '1.000';
   }
@@ -862,4 +862,65 @@ test('cancelling image rendering cancels the PDF task and clears the canvas', as
   await assert.rejects(image, /cancelled/);
   assert.equal(cancelled, true);
   assert.equal(canvas.width, 0);
+});
+
+
+test('rapid zoom defers scroll and observer raster work until the final scale', async () => {
+  const { viewer } = await setup();
+  viewer.pdf = pdf('ABC');
+  viewer.pageEls = manyPages(779);
+  viewer.captureScrollAnchor = () => null;
+  viewer.notify = () => {};
+  let renders = 0, cancels = 0;
+  viewer.tasks.set(1, { cancel() { cancels++; } });
+  const original = viewer.pdf.getPage;
+  viewer.pdf.getPage = (...args) => { renders++; return original(...args); };
+  const setZoom = Object.getPrototypeOf(viewer).setZoom.bind(viewer);
+  for (const scale of ['125', '150', '175', '150']) {
+    setZoom(scale);
+    await viewer.renderPage(1); // IntersectionObserver bypassed the old timer.
+    await viewer.renderVisible(); // Scroll callbacks bypassed it too.
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  assert.equal(renders, 0);
+  assert.equal(cancels, 4);
+  await new Promise(resolve => setTimeout(resolve, 210));
+  assert.ok(renders > 0);
+  assert.equal(viewer.zoom, 1.5);
+  assert.equal(viewer.pageEls[0].dataset.renderedZoom, '1.500');
+});
+
+test('visible render scan finishes layout reads before any layer mutation', async () => {
+  const { viewer } = await setup();
+  let started = false, reads = 0;
+  viewer.pageEls = manyPages(779);
+  for (const el of viewer.pageEls) {
+    const top = el.offsetTop;
+    Object.defineProperty(el, 'offsetTop', { get() {
+      assert.equal(started, false, 'layout read after render mutation');
+      reads++;
+      return top;
+    } });
+  }
+  viewer.renderPage = async () => { started = true; };
+  await viewer.renderVisible();
+  assert.equal(reads, 779);
+  assert.equal(started, true);
+});
+
+test('zoom animation reads all destination rectangles before starting animations', async () => {
+  const { viewer } = await setup();
+  let started = false;
+  const previous = new Map();
+  viewer.pageEls = Array.from({length: 3}, () => {
+    const rect = {left: 0, top: 0, width: 100, height: 200};
+    const page = {
+      getBoundingClientRect() { assert.equal(started, false); return rect; },
+      animate() { started = true; return {finished: Promise.resolve()}; },
+    };
+    previous.set(page, rect);
+    return page;
+  });
+  viewer.animateZoomRects(previous);
+  assert.equal(viewer.zoomAnimations.size, 3);
 });

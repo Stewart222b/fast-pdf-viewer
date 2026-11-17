@@ -117,6 +117,50 @@ test('Ask streaming, composer layout, and original PDF download work in the brow
       "globalThis.__PDF_BENCH__=true;localStorage.setItem('fast-pdf-viewer-settings',JSON.stringify({apiKey:'browser-test',apiBaseUrl:'https://mock.invalid/v1',model:'mock',showThinking:true,uiLanguage:'zh-CN',uiLanguageSelected:true}));"});
     await send('Page.navigate',{url:'http://127.0.0.1:'+serverPort+'/'});
     await waitFor(()=>evaluate('!!globalThis.__pdfViewer'),'main app');
+    const zoomBurst = await evaluate(`(async () => {
+      const {PdfViewer} = await import('/js/viewer.js');
+      const {ViewHistory} = await import('/js/history.js');
+      const {getDocument} = await import('/vendor/pdfjs/build/pdf.mjs');
+      const loading = getDocument({data: new Uint8Array(await (await fetch('/sample.pdf')).arrayBuffer())});
+      const pdf = await loading.promise;
+      const sourcePage = await pdf.getPage(1);
+      const size = sourcePage.getViewport({scale: 1});
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'position:fixed;inset:0;overflow:auto;z-index:9999';
+      const pages = document.createElement('div');
+      pages.className = 'pdfViewer'; wrap.append(pages); document.body.append(wrap);
+      const v = new PdfViewer({pagesEl: pages, wrapEl: wrap, history: new ViewHistory()});
+      let rasterStarts = 0;
+      v.pdf = {getPage: async () => {rasterStarts++; return sourcePage;}, destroy() {}};
+      v.pageCount = 779; v.currentPage = 55;
+      v.pageSizes = Array(779).fill(size);
+      v.buildPlaceholders(); v.setZoom('150', {silent: true});
+      await v.renderVisible();
+      wrap.scrollTop = v.pageEls[54].offsetTop + 100;
+      await v.renderVisible(); v.observe();
+      wrap.addEventListener('scroll', v.onScroll, {passive: true});
+      const before = v.captureScrollAnchor();
+      const durations = []; rasterStarts = 0;
+      for (let i = 0; i < 12; i++) {
+        const start = performance.now();
+        v.bumpZoom(i % 2 ? -1 : 1);
+        durations.push(performance.now() - start);
+        await new Promise(r => setTimeout(r, 40));
+      }
+      const intermediateRenders = rasterStarts;
+      await new Promise(r => setTimeout(r, 220));
+      await v.renderVisible();
+      const after = v.captureScrollAnchor();
+      const result = {intermediateRenders, finalRenders: rasterStarts, durations,
+        anchorError: Math.abs(before.pdfY - after.pdfY), page: after.page};
+      v.close(); wrap.remove(); await loading.destroy();
+      return result;
+    })()`);
+    console.log('779-page zoom burst:', JSON.stringify(zoomBurst));
+    assert.equal(zoomBurst.intermediateRenders, 0, 'rapid clicks must not render intermediate scales');
+    assert.ok(zoomBurst.finalRenders > 0, 'final scale must render after the burst');
+    assert.equal(zoomBurst.page, 55);
+    assert.ok(zoomBurst.anchorError < 1, 'zoom burst must preserve the PDF reading point');
     const caretReuse = await evaluate(`(async () => {
       const {renderBubbleTranslation} = await import('/js/bubble-text-render.js');
       const el = document.createElement('div'); document.body.append(el);
